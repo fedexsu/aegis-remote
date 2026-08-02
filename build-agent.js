@@ -16,7 +16,7 @@ const { rcedit } = require('rcedit');
 
 const ROOT = __dirname;
 const ELECTRON_DIST = path.join(ROOT, 'node_modules', 'electron', 'dist');
-const OUT = path.join(ROOT, 'release', 'AegisRemoteAgent');
+const OUT = path.join(ROOT, 'release', 'Aegis');
 const ICON = path.join(ROOT, 'build', 'icon.ico');
 const INJECTOR = path.join(ROOT, 'agent', 'injector', 'injector.exe');
 
@@ -48,10 +48,10 @@ const appDir = path.join(OUT, 'resources', 'app');
 copyDir(path.join(ROOT, 'agent'), path.join(appDir, 'agent'));
 copyDir(path.join(ROOT, 'build'), path.join(appDir, 'build'));
 fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify(
-  { name: 'aegis-remote-agent', version: '0.1.0', productName: 'Aegis Remote Agent', main: 'agent/main.js' },
+  { name: 'aegis', version: '0.1.0', productName: 'Aegis', main: 'agent/main.js' },
   null, 2));
 
-const exePath = path.join(OUT, 'AegisRemoteAgent.exe');
+const exePath = path.join(OUT, 'Aegis.exe');
 fs.renameSync(path.join(OUT, 'electron.exe'), exePath);
 
 (async () => {
@@ -59,17 +59,15 @@ fs.renameSync(path.join(OUT, 'electron.exe'), exePath);
     await rcedit(exePath, {
       icon: ICON,
       'version-string': {
-        ProductName: 'Aegis Remote Agent',
-        FileDescription: 'Aegis Remote Agent',
+        ProductName: 'Aegis',
+        FileDescription: 'Aegis',
         CompanyName: 'Aegis',
-        OriginalFilename: 'AegisRemoteAgent.exe',
+        OriginalFilename: 'Aegis.exe',
       },
       'file-version': '0.1.0.0',
       'product-version': '0.1.0.0',
     });
     console.log('Embedded icon + metadata.');
   }
-  console.log('\nDone: ' + path.join('release', 'AegisRemoteAgent', 'AegisRemoteAgent.exe'));
-  console.log('Install on a target machine: copy the AegisRemoteAgent folder, run the exe,');
-  console.log('set the relay + key, tick "Start automatically", done.');
+  console.log('\nDone: ' + path.join('release', 'Aegis', 'Aegis.exe'));
 })();

@@ -11,13 +11,9 @@
     <div id="auth-view">
       <div class="auth-card">
         <div class="brand big">🛡️ <b>Aegis&nbsp;Remote</b></div>
-        <div class="auth-tabs">
-          <button id="tab-login" class="active">Log in</button>
-          <button id="tab-signup">Sign up</button>
-        </div>
+        <div class="auth-heading">Log in</div>
         <form id="auth-form" autocomplete="on">
-          <input id="au-name" placeholder="Your / company name" hidden />
-          <input id="au-email" type="email" placeholder="Email" autocomplete="email" required />
+          <input id="au-email" type="text" placeholder="Username or email" autocomplete="username" required />
           <input id="au-pass" type="password" placeholder="Password" autocomplete="current-password" required />
           <button id="au-submit" type="submit" class="btn primary wide">Log in</button>
           <div id="auth-err" class="err"></div>
@@ -29,11 +25,20 @@
     <div id="app-view" hidden>
       <header id="topbar">
         <div class="brand">🛡️ <b>Aegis&nbsp;Remote</b></div>
-        <div class="who"><span id="admin-name"></span><button id="logout" class="btn small">Log out</button></div>
+        <div class="who"><span id="admin-name"></span><button id="change-pw" class="btn small">Change password</button><button id="logout" class="btn small">Log out</button></div>
       </header>
 
       <!-- DASHBOARD -->
       <div id="dashboard">
+        <section class="card" id="accounts-card" hidden>
+          <h2>Customer accounts</h2>
+          <p class="hint">Generate a login for a paying customer. Give them the username &amp; password —
+            they'll be prompted to change the password on first login.</p>
+          <div id="accounts"></div>
+          <button id="gen-account" class="btn">+ Generate account</button>
+          <pre id="account-out" class="output" hidden></pre>
+        </section>
+
         <section class="card">
           <h2>Devices <span id="dev-count" class="pill"></span></h2>
           <div id="devices"></div>

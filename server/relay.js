@@ -75,6 +75,9 @@ async function handleApi(req, res, urlPath) {
   const m = req.method;
   try {
     if (urlPath === '/api/signup' && m === 'POST') {
+      // Public sign-up only bootstraps the very first (owner) account. After
+      // that it's closed — the owner generates accounts for paying customers.
+      if (db.hasAdmins()) return json(res, 403, { error: 'sign-ups are closed' });
       const b = await readBody(req);
       const { admin, key } = db.createAdmin(b.email, b.password, b.name);
       const token = db.createSession(admin.id);
@@ -118,6 +121,33 @@ async function handleApi(req, res, urlPath) {
     // Report whether the installer has been uploaded (for the dashboard).
     if (urlPath === '/api/installer' && m === 'GET') {
       return json(res, 200, { ready: fs.existsSync(installerFile()) });
+    }
+
+    // Change own password.
+    if (urlPath === '/api/password' && m === 'POST') {
+      const b = await readBody(req);
+      if (!db.verifyPassword(b.currentPassword || '', admin.salt, admin.hash)) {
+        return json(res, 400, { error: 'current password is incorrect' });
+      }
+      if (!b.newPassword || b.newPassword.length < 6) return json(res, 400, { error: 'new password must be 6+ characters' });
+      db.updatePassword(admin.id, b.newPassword);
+      return json(res, 200, { ok: true });
+    }
+
+    // Owner-only: list / generate customer accounts.
+    const isOwner = (admin.role || 'admin') === 'owner';
+    if (urlPath === '/api/accounts' && m === 'GET') {
+      if (!isOwner) return json(res, 403, { error: 'owner only' });
+      return json(res, 200, { accounts: db.listAdmins().filter((a) => a.role !== 'owner') });
+    }
+    if (urlPath === '/api/accounts' && m === 'POST') {
+      if (!isOwner) return json(res, 403, { error: 'owner only' });
+      const b = await readBody(req);
+      const crypto = require('crypto');
+      const username = (b.username && b.username.trim().toLowerCase()) || ('client-' + crypto.randomBytes(3).toString('hex'));
+      const password = crypto.randomBytes(6).toString('base64url'); // ~8 chars
+      const { admin: created } = db.createAdmin(username, password, b.name || username, 'admin');
+      return json(res, 200, { username: created.email, password });
     }
     if (urlPath === '/api/devices' && m === 'GET') return json(res, 200, { devices: deviceListFor(admin.id) });
     if (urlPath === '/api/keys' && m === 'GET') {

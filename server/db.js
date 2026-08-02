@@ -24,6 +24,12 @@ function load() {
     db = { admins: [], keys: [], devices: [], sessions: [] };
   }
   for (const k of ['admins', 'keys', 'devices', 'sessions']) if (!Array.isArray(db[k])) db[k] = [];
+  // Migration: ensure there is an owner (the earliest-created admin) even for
+  // accounts created before the role field existed.
+  if (db.admins.length && !db.admins.some((a) => a.role === 'owner')) {
+    const first = db.admins.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0];
+    if (first) { first.role = 'owner'; save(); }
+  }
 }
 function save() {
   try {
@@ -55,12 +61,20 @@ function verifyPassword(pw, salt, hash) {
 }
 
 // ---- admins ----
-function createAdmin(email, password, name) {
-  email = (email || '').toLowerCase().trim();
-  if (!email || !password) throw new Error('email and password required');
-  if (db.admins.find((a) => a.email === email)) throw new Error('email already registered');
+// The very first admin created is the OWNER (can generate other accounts).
+// Others are 'admin' and are flagged to change their generated password.
+function createAdmin(username, password, name, role) {
+  username = (username || '').toLowerCase().trim();
+  if (!username || !password) throw new Error('username and password required');
+  if (db.admins.find((a) => a.email === username)) throw new Error('username already exists');
+  const isFirst = db.admins.length === 0;
   const { salt, hash } = hashPassword(password);
-  const admin = { id: genId(), email, name: name || email, salt, hash, createdAt: Date.now() };
+  const admin = {
+    id: genId(), email: username, name: name || username, salt, hash,
+    role: isFirst ? 'owner' : (role || 'admin'),
+    mustChangePassword: !isFirst,
+    createdAt: Date.now(),
+  };
   db.admins.push(admin);
   const key = createKey(admin.id, 'Default'); // every admin gets one enrollment key
   save();
@@ -68,7 +82,16 @@ function createAdmin(email, password, name) {
 }
 const findAdminByEmail = (email) => db.admins.find((a) => a.email === (email || '').toLowerCase().trim());
 const findAdminById = (id) => db.admins.find((a) => a.id === id);
-const publicAdmin = (a) => a && ({ id: a.id, email: a.email, name: a.name });
+const publicAdmin = (a) => a && ({ id: a.id, email: a.email, name: a.name, role: a.role || 'admin', mustChangePassword: !!a.mustChangePassword });
+const hasAdmins = () => db.admins.length > 0;
+const listAdmins = () => db.admins.map((a) => ({ id: a.id, username: a.email, name: a.name, role: a.role || 'admin', createdAt: a.createdAt }));
+function updatePassword(adminId, newPassword) {
+  const a = findAdminById(adminId);
+  if (!a) throw new Error('not found');
+  const { salt, hash } = hashPassword(newPassword);
+  a.salt = salt; a.hash = hash; a.mustChangePassword = false;
+  save();
+}
 
 // ---- sessions ----
 function createSession(adminId) {
@@ -119,6 +142,7 @@ function touchDevice(id) {
 module.exports = {
   DATA_DIR,
   createAdmin, findAdminByEmail, findAdminById, publicAdmin, verifyPassword,
+  hasAdmins, listAdmins, updatePassword,
   createSession, getSession, deleteSession,
   createKey, keysForAdmin, findValidKey, revokeKey,
   upsertDevice, devicesForAdmin, touchDevice,

@@ -1,7 +1,7 @@
 'use strict';
 
 const $ = (s, r = document) => r.querySelector(s);
-let ws = null, admin = null, attachedId = null, mode = 'login';
+let ws = null, admin = null, attachedId = null;
 let frameW = 0, frameH = 0;
 const pressed = new Set();
 
@@ -22,31 +22,56 @@ async function api(path, method, body) {
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
-function setMode(m) {
-  mode = m;
-  $('#tab-login').classList.toggle('active', m === 'login');
-  $('#tab-signup').classList.toggle('active', m === 'signup');
-  $('#au-name').hidden = m !== 'signup';
-  $('#au-submit').textContent = m === 'signup' ? 'Create account' : 'Log in';
-  $('#auth-err').textContent = '';
-}
-$('#tab-login').addEventListener('click', () => setMode('login'));
-$('#tab-signup').addEventListener('click', () => setMode('signup'));
-
 $('#auth-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   $('#auth-err').textContent = '';
-  const email = $('#au-email').value.trim();
-  const password = $('#au-pass').value;
-  const name = $('#au-name').value.trim();
   try {
-    const data = mode === 'signup'
-      ? await api('/api/signup', 'POST', { email, password, name })
-      : await api('/api/login', 'POST', { email, password });
+    const data = await api('/api/login', 'POST', {
+      email: $('#au-email').value.trim(),
+      password: $('#au-pass').value,
+    });
     showApp(data.admin);
   } catch (err) {
     $('#auth-err').textContent = err.message;
   }
+});
+
+// Change own password
+async function changePassword() {
+  const cur = prompt('Current password:'); if (cur === null) return;
+  const nw = prompt('New password (6+ characters):'); if (nw === null) return;
+  try {
+    await api('/api/password', 'POST', { currentPassword: cur, newPassword: nw });
+    if (admin) admin.mustChangePassword = false;
+    alert('Password changed.');
+  } catch (e) { alert(e.message); }
+}
+$('#change-pw').addEventListener('click', changePassword);
+
+// Owner: generate + list customer accounts
+async function loadAccounts() {
+  try {
+    const { accounts } = await api('/api/accounts');
+    const box = $('#accounts'); box.innerHTML = '';
+    for (const a of accounts) {
+      const row = document.createElement('div');
+      row.className = 'keyrow';
+      row.innerHTML = '<span class="label"></span><span class="url"></span>';
+      row.querySelector('.label').textContent = a.username;
+      row.querySelector('.url').textContent = a.name && a.name !== a.username ? a.name : ('created ' + new Date(a.createdAt).toLocaleDateString());
+      box.appendChild(row);
+    }
+  } catch { /* not owner */ }
+}
+$('#gen-account').addEventListener('click', async () => {
+  const name = prompt('Customer name / label (optional):', '') || '';
+  try {
+    const d = await api('/api/accounts', 'POST', { name });
+    const out = $('#account-out');
+    out.hidden = false;
+    out.textContent = `New account — give these to the customer:\n\n  Username:  ${d.username}\n  Password:  ${d.password}\n\nThey'll be asked to change the password on first login.`;
+    loadAccounts();
+  } catch (e) { alert(e.message); }
 });
 
 $('#logout').addEventListener('click', async () => {
@@ -63,9 +88,13 @@ function showApp(a) {
   $('#auth-view').hidden = true;
   $('#app-view').hidden = false;
   $('#admin-name').textContent = a.name || a.email;
+  const owner = a.role === 'owner';
+  $('#accounts-card').hidden = !owner;
+  if (owner) loadAccounts();
   loadKeys();
   checkInstaller();
   connectWS();
+  if (a.mustChangePassword) setTimeout(() => { alert('Welcome! Please set your own password.'); changePassword(); }, 400);
 }
 function showAuth() { $('#auth-view').hidden = false; $('#app-view').hidden = true; }
 
@@ -264,5 +293,3 @@ canvas.addEventListener('keydown', (e) => {
 });
 canvas.addEventListener('keyup', (e) => { if (!controlOn()) return; e.preventDefault(); if (pressed.has(e.code)) { pressed.delete(e.code); sendInput({ kind: 'key', code: e.code, down: false }); } });
 canvas.addEventListener('blur', () => { for (const c of pressed) sendInput({ kind: 'key', code: c, down: false }); pressed.clear(); });
-
-setMode('login');

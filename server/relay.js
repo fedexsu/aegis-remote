@@ -1,32 +1,162 @@
 'use strict';
 
-// Aegis Remote — relay/signaling server.
-// Both agents and the technician console connect OUTWARD to this server over
-// WebSocket, so it works through NAT/firewalls with no port-forwarding (the
-// ScreenConnect relay model). The server is a router: it forwards screen frames
-// agent->console and input/chat console->agent based on attachment.
+// Aegis Remote — multi-tenant relay + API + console host.
+//  * Admins sign up / log in (session cookie).
+//  * Agents enroll with a per-admin KEY -> the device is tied to that admin.
+//  * A console (dashboard) authenticates as an admin and only sees/controls
+//    that admin's devices.
+//  * /dl/<key> serves the installer named AegisSetup-<key>.exe so the installer
+//    can self-configure to that admin (no per-download rebuild).
 //
 //   node server/relay.js
-//
-// Auth: a single shared access key (env AEGIS_KEY, default below). Agents and
-// consoles must present it. This is an MVP — for production use per-agent keys
-// + TLS (wss) behind a reverse proxy.
+// Env: PORT, DATA_DIR (persist path), INSTALLER_PATH (installer to serve at /dl).
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
+const db = require('./db');
 
 const PORT = process.env.PORT || 8443;
-const ACCESS_KEY = process.env.AEGIS_KEY || 'change-me-aegis';
 const PUBLIC = path.join(__dirname, 'public');
+const INSTALLER_PATH = process.env.INSTALLER_PATH || path.join(__dirname, '..', 'release', 'AegisSetup.exe');
 
-// ---- Static file server for the console UI ----
+// ---------------------------------------------------------------------------
+// Live connection state (online status); durable data lives in db.js.
+// ---------------------------------------------------------------------------
+const agents = new Map();   // deviceId -> { ws, name, adminId, consoleId }
+const consoles = new Map(); // consoleId -> { ws, adminId, agentId }
+let seq = 1;
+
+function send(ws, obj) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj)); }
+
+function deviceListFor(adminId) {
+  return db.devicesForAdmin(adminId).map((d) => {
+    const live = agents.get(d.id);
+    const online = !!(live && live.adminId === adminId);
+    return { id: d.id, name: d.name, online, busy: online ? !!live.consoleId : false, lastSeen: d.lastSeen };
+  });
+}
+function pushDevices(adminId) {
+  for (const c of consoles.values()) if (c.adminId === adminId && !c.agentId) send(c.ws, { type: 'agents', list: deviceListFor(adminId) });
+}
+
+// ---------------------------------------------------------------------------
+// HTTP helpers
+// ---------------------------------------------------------------------------
+function parseCookies(req) {
+  const out = {};
+  (req.headers.cookie || '').split(';').forEach((p) => {
+    const i = p.indexOf('=');
+    if (i > 0) out[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim());
+  });
+  return out;
+}
+function readBody(req) {
+  return new Promise((resolve) => {
+    let b = '';
+    req.on('data', (c) => { b += c; if (b.length > 1e6) req.destroy(); });
+    req.on('end', () => { try { resolve(JSON.parse(b || '{}')); } catch { resolve({}); } });
+  });
+}
+function json(res, code, obj, headers) {
+  res.writeHead(code, { 'Content-Type': 'application/json', ...(headers || {}) });
+  res.end(JSON.stringify(obj));
+}
+function adminFromReq(req) {
+  const s = db.getSession(parseCookies(req).aegis_session);
+  return s ? db.findAdminById(s.adminId) : null;
+}
+
+// ---------------------------------------------------------------------------
+// API
+// ---------------------------------------------------------------------------
+async function handleApi(req, res, urlPath) {
+  const m = req.method;
+  try {
+    if (urlPath === '/api/signup' && m === 'POST') {
+      const b = await readBody(req);
+      const { admin, key } = db.createAdmin(b.email, b.password, b.name);
+      const token = db.createSession(admin.id);
+      return json(res, 200, { admin: db.publicAdmin(admin), key: key.key },
+        { 'Set-Cookie': sessionCookie(token) });
+    }
+    if (urlPath === '/api/login' && m === 'POST') {
+      const b = await readBody(req);
+      const admin = db.findAdminByEmail(b.email);
+      if (!admin || !db.verifyPassword(b.password || '', admin.salt, admin.hash)) {
+        return json(res, 401, { error: 'invalid email or password' });
+      }
+      const token = db.createSession(admin.id);
+      return json(res, 200, { admin: db.publicAdmin(admin) }, { 'Set-Cookie': sessionCookie(token) });
+    }
+    if (urlPath === '/api/logout' && m === 'POST') {
+      db.deleteSession(parseCookies(req).aegis_session);
+      return json(res, 200, { ok: true }, { 'Set-Cookie': 'aegis_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax' });
+    }
+
+    // everything below requires auth
+    const admin = adminFromReq(req);
+    if (!admin) return json(res, 401, { error: 'not signed in' });
+
+    if (urlPath === '/api/me' && m === 'GET') return json(res, 200, { admin: db.publicAdmin(admin) });
+    if (urlPath === '/api/devices' && m === 'GET') return json(res, 200, { devices: deviceListFor(admin.id) });
+    if (urlPath === '/api/keys' && m === 'GET') {
+      const base = publicBase(req);
+      const keys = db.keysForAdmin(admin.id).map((k) => ({
+        key: k.key, label: k.label, revoked: k.revoked, createdAt: k.createdAt,
+        downloadUrl: `${base}/dl/${k.key}`,
+      }));
+      return json(res, 200, { keys });
+    }
+    if (urlPath === '/api/keys' && m === 'POST') {
+      const b = await readBody(req);
+      const k = db.createKey(admin.id, b.label);
+      return json(res, 200, { key: k.key });
+    }
+    if (urlPath === '/api/keys/revoke' && m === 'POST') {
+      const b = await readBody(req);
+      return json(res, 200, { ok: db.revokeKey(admin.id, b.key) });
+    }
+    return json(res, 404, { error: 'not found' });
+  } catch (e) {
+    return json(res, 400, { error: e.message });
+  }
+}
+function sessionCookie(token) {
+  return `aegis_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`;
+}
+function publicBase(req) {
+  const proto = req.headers['x-forwarded-proto'] || 'http';
+  return `${proto}://${req.headers.host}`;
+}
+
+// Serve the installer with the key in its filename (installer self-configures).
+function handleDownload(req, res, urlPath) {
+  const key = decodeURIComponent(urlPath.slice('/dl/'.length)).trim();
+  if (!db.findValidKey(key)) { res.writeHead(404); return res.end('invalid or revoked link'); }
+  fs.stat(INSTALLER_PATH, (err, st) => {
+    if (err) { res.writeHead(503); return res.end('installer not available on this host'); }
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': st.size,
+      'Content-Disposition': `attachment; filename="AegisSetup-${key}.exe"`,
+    });
+    fs.createReadStream(INSTALLER_PATH).pipe(res);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// HTTP server (API + download + static console/dashboard)
+// ---------------------------------------------------------------------------
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.ico': 'image/x-icon' };
 const server = http.createServer((req, res) => {
-  let urlPath = decodeURIComponent(req.url.split('?')[0]);
-  if (urlPath === '/') urlPath = '/console.html';
-  const file = path.join(PUBLIC, path.normalize(urlPath).replace(/^(\.\.[/\\])+/, ''));
+  const urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
+  if (urlPath.startsWith('/api/')) return handleApi(req, res, urlPath);
+  if (urlPath.startsWith('/dl/')) return handleDownload(req, res, urlPath);
+
+  let rel = urlPath === '/' ? '/app.html' : urlPath;
+  const file = path.join(PUBLIC, path.normalize(rel).replace(/^(\.\.[/\\])+/, ''));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end('forbidden'); }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); return res.end('not found'); }
@@ -35,105 +165,89 @@ const server = http.createServer((req, res) => {
   });
 });
 
-// ---- State ----
-const agents = new Map();   // agentId -> { ws, name, consoleId, screen }
-const consoles = new Map(); // consoleId -> { ws, agentId }
-let seq = 1;
-
-function send(ws, obj) {
-  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
-}
-function agentList() {
-  return [...agents.entries()].map(([id, a]) => ({ id, name: a.name, busy: !!a.consoleId }));
-}
-function broadcastAgentList() {
-  for (const c of consoles.values()) if (!c.agentId) send(c.ws, { type: 'agents', list: agentList() });
-}
-
+// ---------------------------------------------------------------------------
+// WebSocket: agents (key auth) + consoles (session auth)
+// ---------------------------------------------------------------------------
 const wss = new WebSocketServer({ server });
 
-wss.on('connection', (ws) => {
-  ws.meta = { role: null, id: null };
+wss.on('connection', (ws, req) => {
+  ws.meta = { role: null, id: null, adminId: null };
+  // The browser sends the session cookie on the WS handshake (same origin),
+  // so a logged-in dashboard authenticates its console connection automatically.
+  ws.session = db.getSession(parseCookies(req).aegis_session);
 
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
-    // ---- Registration / auth ----
     if (msg.type === 'register') {
-      if (msg.key !== ACCESS_KEY) { send(ws, { type: 'denied', reason: 'bad key' }); return ws.close(); }
-
       if (msg.role === 'agent') {
-        const id = msg.id || 'agent-' + seq++;
-        ws.meta = { role: 'agent', id };
-        agents.set(id, { ws, name: msg.name || id, consoleId: null, screen: msg.screen || null });
+        const k = db.findValidKey(msg.key);
+        if (!k) { send(ws, { type: 'denied', reason: 'invalid key' }); return ws.close(); }
+        const id = msg.id || 'dev-' + seq++;
+        const name = msg.name || id;
+        db.upsertDevice(id, k.adminId, name, k.key);
+        ws.meta = { role: 'agent', id, adminId: k.adminId };
+        agents.set(id, { ws, name, adminId: k.adminId, consoleId: null });
         send(ws, { type: 'registered', id });
-        broadcastAgentList();
+        pushDevices(k.adminId);
       } else if (msg.role === 'console') {
+        const s = ws.session || db.getSession(msg.token);
+        if (!s) { send(ws, { type: 'denied', reason: 'not signed in' }); return ws.close(); }
         const id = 'console-' + seq++;
-        ws.meta = { role: 'console', id };
-        consoles.set(id, { ws, agentId: null });
+        ws.meta = { role: 'console', id, adminId: s.adminId };
+        consoles.set(id, { ws, adminId: s.adminId, agentId: null });
         send(ws, { type: 'registered', id });
-        send(ws, { type: 'agents', list: agentList() });
+        send(ws, { type: 'agents', list: deviceListFor(s.adminId) });
       }
       return;
     }
 
-    const { role, id } = ws.meta;
+    const { role, id, adminId } = ws.meta;
     if (!role) return;
 
-    // ---- Console -> server ----
     if (role === 'console') {
       const c = consoles.get(id);
       if (!c) return;
-      if (msg.type === 'list') { send(ws, { type: 'agents', list: agentList() }); return; }
+      if (msg.type === 'list') { send(ws, { type: 'agents', list: deviceListFor(adminId) }); return; }
       if (msg.type === 'attach') {
         const a = agents.get(msg.agentId);
-        if (!a) { send(ws, { type: 'error', text: 'agent offline' }); return; }
-        if (a.consoleId && a.consoleId !== id) { send(ws, { type: 'error', text: 'agent busy' }); return; }
+        if (!a || a.adminId !== adminId) { send(ws, { type: 'error', text: 'device offline' }); return; }
+        if (a.consoleId && a.consoleId !== id) { send(ws, { type: 'error', text: 'device busy' }); return; }
         c.agentId = msg.agentId; a.consoleId = id;
         send(ws, { type: 'attached', agentId: msg.agentId, name: a.name, screen: a.screen });
         send(a.ws, { type: 'start' });
-        broadcastAgentList();
+        pushDevices(adminId);
         return;
       }
-      if (msg.type === 'detach') {
-        detachConsole(id);
-        send(ws, { type: 'agents', list: agentList() });
-        return;
-      }
-      // Forward input / chat / monitor-switch to the attached agent
+      if (msg.type === 'detach') { detachConsole(id); send(ws, { type: 'agents', list: deviceListFor(adminId) }); return; }
       if (c.agentId && (msg.type === 'input' || msg.type === 'chat' || msg.type === 'monitor')) {
         const a = agents.get(c.agentId);
-        if (a) send(a.ws, msg);
+        if (a && a.adminId === adminId) send(a.ws, msg);
       }
       return;
     }
 
-    // ---- Agent -> server ----
     if (role === 'agent') {
       const a = agents.get(id);
       if (!a) return;
-      if (msg.type === 'screen') { a.screen = { w: msg.w, h: msg.h }; return; }
+      if (msg.type === 'screen') { a.screen = { w: msg.w, h: msg.h }; }
+      db.touchDevice(id);
       if (!a.consoleId) return;
       const c = consoles.get(a.consoleId);
       if (!c) return;
-      // Forward frames / chat / monitor-list to the attached console
       if (msg.type === 'frame' || msg.type === 'chat' || msg.type === 'screen' || msg.type === 'monitors') send(c.ws, msg);
       return;
     }
   });
 
   ws.on('close', () => {
-    const { role, id } = ws.meta || {};
+    const { role, id, adminId } = ws.meta || {};
     if (role === 'agent') {
       const a = agents.get(id);
-      if (a && a.consoleId) {
-        const c = consoles.get(a.consoleId);
-        if (c) { c.agentId = null; send(c.ws, { type: 'agentGone' }); }
-      }
+      if (a && a.consoleId) { const c = consoles.get(a.consoleId); if (c) { c.agentId = null; send(c.ws, { type: 'agentGone' }); } }
       agents.delete(id);
-      broadcastAgentList();
+      if (adminId) pushDevices(adminId);
     } else if (role === 'console') {
       detachConsole(id);
       consoles.delete(id);
@@ -149,11 +263,10 @@ function detachConsole(consoleId) {
     if (a) { a.consoleId = null; send(a.ws, { type: 'stop' }); }
     c.agentId = null;
   }
-  broadcastAgentList();
+  if (c.adminId) pushDevices(c.adminId);
 }
 
 server.listen(PORT, () => {
-  console.log(`Aegis Remote relay listening on http://localhost:${PORT}`);
-  console.log(`Console UI:  http://localhost:${PORT}/`);
-  console.log(`Access key:  ${ACCESS_KEY}  (set env AEGIS_KEY to change)`);
+  console.log(`Aegis Remote (multi-tenant) on http://localhost:${PORT}`);
+  console.log(`Data dir: ${db.DATA_DIR}`);
 });

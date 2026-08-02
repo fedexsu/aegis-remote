@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aegis Remote</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <!-- ============ AUTH ============ -->
+    <div id="auth-view">
+      <div class="auth-card">
+        <div class="brand big">🛡️ <b>Aegis&nbsp;Remote</b></div>
+        <div class="auth-tabs">
+          <button id="tab-login" class="active">Log in</button>
+          <button id="tab-signup">Sign up</button>
+        </div>
+        <form id="auth-form" autocomplete="on">
+          <input id="au-name" placeholder="Your / company name" hidden />
+          <input id="au-email" type="email" placeholder="Email" autocomplete="email" required />
+          <input id="au-pass" type="password" placeholder="Password" autocomplete="current-password" required />
+          <button id="au-submit" type="submit" class="btn primary wide">Log in</button>
+          <div id="auth-err" class="err"></div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ============ APP ============ -->
+    <div id="app-view" hidden>
+      <header id="topbar">
+        <div class="brand">🛡️ <b>Aegis&nbsp;Remote</b></div>
+        <div class="who"><span id="admin-name"></span><button id="logout" class="btn small">Log out</button></div>
+      </header>
+
+      <!-- DASHBOARD -->
+      <div id="dashboard">
+        <section class="card">
+          <h2>Devices <span id="dev-count" class="pill"></span></h2>
+          <div id="devices"></div>
+          <div id="dev-empty" class="empty">No devices yet — share an enrollment link below to add one.</div>
+        </section>
+
+        <section class="card">
+          <h2>Enrollment links</h2>
+          <p class="hint">
+            Send a link to the person you support. When they <b>download &amp; run</b> it, their
+            machine enrolls under your account and appears above. They can remove it anytime from
+            Windows <i>Add/Remove Programs</i>.
+          </p>
+          <div id="keys"></div>
+          <button id="new-key" class="btn">+ New link</button>
+        </section>
+      </div>
+
+      <!-- CONTROL -->
+      <div id="control-view" hidden>
+        <div id="session-bar">
+          <button id="back-dash" class="btn small">← Devices</button>
+          <span id="session-name"></span>
+          <span class="spacer"></span>
+          <select id="monitor-select" class="btn small" hidden></select>
+          <label class="ctl"><input type="checkbox" id="control" checked /> Control</label>
+          <button id="fit" class="btn small">Fit</button>
+          <button id="detach" class="btn small danger">Disconnect</button>
+        </div>
+        <div id="screen-wrap">
+          <canvas id="screen" tabindex="0"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -5,6 +5,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'agent-config.json');
 const DEFAULT_CONFIG = {
@@ -112,6 +113,20 @@ function createTray() {
 ipcMain.handle('cfg:get', () => loadConfig());
 ipcMain.handle('cfg:save', (_e, cfg) => saveConfig(cfg));
 
+// A stable, unique-per-install device id (so two machines with the same
+// Windows hostname don't collide on the relay). Generated once, then persisted.
+function getDeviceId() {
+  const p = path.join(app.getPath('userData'), 'device-id');
+  try {
+    const id = fs.readFileSync(p, 'utf8').trim();
+    if (id) return id;
+  } catch { /* not created yet */ }
+  const id = crypto.randomUUID();
+  try { fs.writeFileSync(p, id); } catch { /* ignore */ }
+  return id;
+}
+ipcMain.handle('device:id', () => getDeviceId());
+
 ipcMain.handle('screen:source', async () => {
   const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
   const primary = sources[0];
@@ -123,6 +138,29 @@ ipcMain.handle('screen:source', async () => {
 ipcMain.handle('screen:size', () => {
   const d = screen.getPrimaryDisplay();
   return { w: Math.round(d.size.width * d.scaleFactor), h: Math.round(d.size.height * d.scaleFactor) };
+});
+
+// Enumerate monitors (one capture source per display) + the virtual-desktop
+// extents, so the console can switch monitors and input maps correctly.
+ipcMain.handle('screen:list', async () => {
+  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
+  const displays = screen.getAllDisplays();
+  const primaryId = screen.getPrimaryDisplay().id;
+  const monitors = sources.map((s, i) => {
+    const d = displays.find((dd) => String(dd.id) === String(s.display_id)) || displays[i] || screen.getPrimaryDisplay();
+    return {
+      id: s.id,
+      label: (d.id === primaryId ? 'Primary' : 'Screen ' + (i + 1)),
+      bounds: d.bounds,
+      primary: d.id === primaryId,
+    };
+  });
+  let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+  for (const d of displays) {
+    left = Math.min(left, d.bounds.x); top = Math.min(top, d.bounds.y);
+    right = Math.max(right, d.bounds.x + d.bounds.width); bottom = Math.max(bottom, d.bounds.y + d.bounds.height);
+  }
+  return { monitors, virtual: { left, top, width: right - left, height: bottom - top } };
 });
 
 ipcMain.on('inject', (_e, cmd) => inject(cmd));

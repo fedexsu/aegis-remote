@@ -102,8 +102,8 @@ wss.on('connection', (ws) => {
         send(ws, { type: 'agents', list: agentList() });
         return;
       }
-      // Forward input / chat to the attached agent
-      if (c.agentId && (msg.type === 'input' || msg.type === 'chat')) {
+      // Forward input / chat / monitor-switch to the attached agent
+      if (c.agentId && (msg.type === 'input' || msg.type === 'chat' || msg.type === 'monitor')) {
         const a = agents.get(c.agentId);
         if (a) send(a.ws, msg);
       }
@@ -118,8 +118,8 @@ wss.on('connection', (ws) => {
       if (!a.consoleId) return;
       const c = consoles.get(a.consoleId);
       if (!c) return;
-      // Forward frames / chat to the attached console
-      if (msg.type === 'frame' || msg.type === 'chat' || msg.type === 'screen') send(c.ws, msg);
+      // Forward frames / chat / monitor-list to the attached console
+      if (msg.type === 'frame' || msg.type === 'chat' || msg.type === 'screen' || msg.type === 'monitors') send(c.ws, msg);
       return;
     }
   });

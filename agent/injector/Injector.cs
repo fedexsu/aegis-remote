@@ -26,7 +26,7 @@ class Injector {
   struct INPUT { public uint type; public INPUTUNION u; }
 
   const uint INPUT_MOUSE = 0, INPUT_KEYBOARD = 1;
-  const uint MOUSEEVENTF_MOVE = 0x0001, MOUSEEVENTF_ABSOLUTE = 0x8000;
+  const uint MOUSEEVENTF_MOVE = 0x0001, MOUSEEVENTF_ABSOLUTE = 0x8000, MOUSEEVENTF_VIRTUALDESK = 0x4000;
   const uint MOUSEEVENTF_LEFTDOWN = 0x0002, MOUSEEVENTF_LEFTUP = 0x0004;
   const uint MOUSEEVENTF_RIGHTDOWN = 0x0008, MOUSEEVENTF_RIGHTUP = 0x0010;
   const uint MOUSEEVENTF_MIDDLEDOWN = 0x0020, MOUSEEVENTF_MIDDLEUP = 0x0040;
@@ -55,6 +55,15 @@ class Injector {
     int ay = (int)Math.Round(ny * 65535.0);
     SendMouse(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, ax, ay, 0);
   }
+  // Move across the whole virtual desktop (multi-monitor); coords normalized
+  // 0..1 over the union of all displays.
+  static void MoveNormVirtual(double nx, double ny) {
+    if (nx < 0) nx = 0; if (nx > 1) nx = 1;
+    if (ny < 0) ny = 0; if (ny > 1) ny = 1;
+    int ax = (int)Math.Round(nx * 65535.0);
+    int ay = (int)Math.Round(ny * 65535.0);
+    SendMouse(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, ax, ay, 0);
+  }
 
   static void Main() {
     var ci = CultureInfo.InvariantCulture;
@@ -64,6 +73,7 @@ class Injector {
         string[] p = line.Split(' ');
         switch (p[0]) {
           case "M": MoveNorm(double.Parse(p[1], ci), double.Parse(p[2], ci)); break;
+          case "MV": MoveNormVirtual(double.Parse(p[1], ci), double.Parse(p[2], ci)); break;
           case "D":
           case "U": {
             bool down = p[0] == "D";

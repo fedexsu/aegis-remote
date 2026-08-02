@@ -70,6 +70,7 @@ function connect() {
       case 'agents': renderAgents(msg.list); break;
       case 'attached': onAttached(msg); break;
       case 'frame': drawFrame(msg); break;
+      case 'monitors': renderMonitors(msg); break;
       case 'chat': addChat(msg.text, 'them'); break;
       case 'agentGone': addChat('Device disconnected.', 'sys'); showPlaceholder(); attachedId = null; break;
       case 'error': addChat('⚠ ' + msg.text, 'sys'); break;
@@ -115,8 +116,30 @@ function onAttached(msg) {
 function showPlaceholder() {
   $('#session-bar').hidden = true;
   canvas.hidden = true;
+  $('#monitor-select').hidden = true;
   $('#placeholder').style.display = 'block';
 }
+
+// Multi-monitor selector (shown only when the remote has more than one screen).
+function renderMonitors(msg) {
+  const sel = $('#monitor-select');
+  const list = msg.list || [];
+  if (list.length <= 1) { sel.hidden = true; return; }
+  sel.hidden = false;
+  sel.innerHTML = '';
+  for (const m of list) {
+    const o = document.createElement('option');
+    o.value = m.id;
+    o.textContent = m.label + (m.primary ? ' (primary)' : '');
+    if (m.id === msg.selected) o.selected = true;
+    sel.appendChild(o);
+  }
+}
+$('#monitor-select').addEventListener('change', () => {
+  if (ws && ws.readyState === ws.OPEN) {
+    ws.send(JSON.stringify({ type: 'monitor', id: $('#monitor-select').value }));
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Frame rendering

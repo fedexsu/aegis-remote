@@ -7,6 +7,12 @@ let streaming = false;   // a console is attached and wants frames
 let stream = null;
 let captureTimer = null;
 
+// Multi-monitor
+let MONITORS = [];
+let VIRTUAL = null;          // { left, top, width, height } virtual-desktop extents
+let selectedSourceId = null; // capture source currently streamed
+let selectedBounds = null;   // bounds of the selected monitor (for input mapping)
+
 const video = $('#cap-video');
 const canvas = $('#cap-canvas');
 const ctx = canvas.getContext('2d');
@@ -17,6 +23,7 @@ const MAX_W = 1600; // downscale wide screens for bandwidth
 const JPEG_Q = 0.55;
 
 let enabled = true;       // master "should be online" flag (persisted)
+let DEVICE_ID = null;     // stable unique-per-install id
 let reconnectTimer = null;
 let backoff = 2000;       // grows on repeated failures, capped
 const BACKOFF_MAX = 15000;
@@ -27,6 +34,7 @@ const BACKOFF_MAX = 15000;
 (async function init() {
   const cfg = await window.agent.getConfig();
   Object.assign(CFG, cfg);
+  DEVICE_ID = await window.agent.getDeviceId();
   // `enabled` is the new persisted master flag; fall back to legacy autoConnect.
   enabled = cfg.enabled !== undefined ? cfg.enabled : (cfg.autoConnect !== false);
   $('#name').value = cfg.name;
@@ -100,7 +108,7 @@ async function connect() {
     try { scr = await window.agent.getScreenSize(); } catch {}
     ws.send(JSON.stringify({
       type: 'register', role: 'agent',
-      id: CFG.name, name: CFG.name, key: CFG.key,
+      id: DEVICE_ID, name: CFG.name, key: CFG.key,
       screen: scr,
     }));
   };
@@ -132,6 +140,7 @@ function onMessage(msg) {
     case 'denied': setStatus(false, 'denied: ' + msg.reason); enabled = false; break;
     case 'start': startStreaming(); break;
     case 'stop': stopStreaming(); break;
+    case 'monitor': switchMonitor(msg.id); break;
     case 'input': handleInput(msg.event); break;
     case 'chat': log('💬 ' + msg.text); break;
   }
@@ -145,9 +154,10 @@ function stopCapture() {
   video.srcObject = null;
 }
 
-async function startCapture() {
-  if (stream) return;
-  const sourceId = await window.agent.getScreenSource();
+async function startCapture(sourceId) {
+  if (stream) stopCapture();
+  if (!sourceId) sourceId = await window.agent.getScreenSource();
+  selectedSourceId = sourceId;
   stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
     video: {
@@ -178,15 +188,38 @@ async function startStreaming() {
   $('#banner').classList.add('show');
   window.agent.sessionState(true);
   try {
-    await startCapture(); // open the capture stream only now that someone is viewing
+    // Load the monitor layout so multi-monitor input maps correctly.
+    const info = await window.agent.getMonitors();
+    MONITORS = info.monitors || []; VIRTUAL = info.virtual || null;
+    if (!selectedSourceId || !MONITORS.find((m) => m.id === selectedSourceId)) {
+      const primary = MONITORS.find((m) => m.primary) || MONITORS[0];
+      selectedSourceId = primary ? primary.id : null;
+    }
+    selectedBounds = (MONITORS.find((m) => m.id === selectedSourceId) || {}).bounds || null;
+    await startCapture(selectedSourceId); // open capture only now that someone is viewing
   } catch (e) {
     log('capture error: ' + e.message);
     streaming = false; $('#banner').classList.remove('show'); window.agent.sessionState(false);
     return;
   }
-  // Report actual captured size to the console.
-  if (ws) ws.send(JSON.stringify({ type: 'screen', w: canvas.width, h: canvas.height }));
+  if (ws) {
+    ws.send(JSON.stringify({ type: 'screen', w: canvas.width, h: canvas.height }));
+    ws.send(JSON.stringify({
+      type: 'monitors',
+      list: MONITORS.map((m) => ({ id: m.id, label: m.label, primary: m.primary })),
+      selected: selectedSourceId,
+    }));
+  }
   captureTimer = setInterval(sendFrame, 1000 / FPS);
+}
+
+// Switch which monitor is streamed (and controlled).
+async function switchMonitor(sourceId) {
+  const m = MONITORS.find((x) => x.id === sourceId);
+  if (!m || !streaming) return;
+  selectedBounds = m.bounds;
+  try { await startCapture(sourceId); } catch (e) { log('switch error: ' + e.message); return; }
+  if (ws) ws.send(JSON.stringify({ type: 'screen', w: canvas.width, h: canvas.height }));
 }
 function stopStreaming() {
   streaming = false;
@@ -226,11 +259,29 @@ function codeToVk(code) {
   return null;
 }
 
+// Map a coordinate normalized within the selected monitor's frame to one
+// normalized over the whole virtual desktop, so the cursor lands on the right
+// screen. Falls back to primary-screen mapping if layout is unknown.
+function moveCmd(nx, ny) {
+  const b = selectedBounds;
+  // Primary monitor (origin 0,0) — direct per-monitor mapping is exact and
+  // DPI-safe. Also the fallback when the layout is unknown.
+  if (!b || (b.x === 0 && b.y === 0) || !VIRTUAL || !VIRTUAL.width) {
+    return `M ${nx.toFixed(5)} ${ny.toFixed(5)}`;
+  }
+  // Secondary monitor — map within it across the whole virtual desktop.
+  const absX = b.x + nx * b.width;
+  const absY = b.y + ny * b.height;
+  const vx = (absX - VIRTUAL.left) / VIRTUAL.width;
+  const vy = (absY - VIRTUAL.top) / VIRTUAL.height;
+  return `MV ${vx.toFixed(5)} ${vy.toFixed(5)}`;
+}
+
 function handleInput(e) {
   switch (e.kind) {
-    case 'move': window.agent.inject(`M ${e.x.toFixed(5)} ${e.y.toFixed(5)}`); break;
-    case 'down': window.agent.inject(`M ${e.x.toFixed(5)} ${e.y.toFixed(5)}`); window.agent.inject(`D ${e.button}`); break;
-    case 'up': window.agent.inject(`M ${e.x.toFixed(5)} ${e.y.toFixed(5)}`); window.agent.inject(`U ${e.button}`); break;
+    case 'move': window.agent.inject(moveCmd(e.x, e.y)); break;
+    case 'down': window.agent.inject(moveCmd(e.x, e.y)); window.agent.inject(`D ${e.button}`); break;
+    case 'up': window.agent.inject(moveCmd(e.x, e.y)); window.agent.inject(`U ${e.button}`); break;
     case 'wheel': window.agent.inject(`W ${e.dy}`); break;
     case 'key': {
       const vk = codeToVk(e.code);

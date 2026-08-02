@@ -1,5 +1,5 @@
 {
-  "relay": "wss://fitted-whole-triangle-calls.trycloudflare.com",
-  "key": "change-me-aegis",
+  "relay": "wss://aegis-relay-production.up.railway.app",
+  "key": "c11rf5pGZFgsTR8iDORgxDJ0",
   "enabled": true
 }

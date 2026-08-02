@@ -64,6 +64,7 @@ function showApp(a) {
   $('#app-view').hidden = false;
   $('#admin-name').textContent = a.name || a.email;
   loadKeys();
+  checkInstaller();
   connectWS();
 }
 function showAuth() { $('#auth-view').hidden = false; $('#app-view').hidden = true; }
@@ -156,6 +157,29 @@ $('#new-key').addEventListener('click', async () => {
   if (label === null) return;
   await api('/api/keys', 'POST', { label: label || 'Link' });
   loadKeys();
+});
+
+// Installer upload (raw binary body).
+async function checkInstaller() {
+  try {
+    const { ready } = await api('/api/installer');
+    $('#installer-status').textContent = ready
+      ? '' : '⚠ Upload the installer once so your links can be downloaded.';
+  } catch {}
+}
+$('#installer-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  $('#upload-status').textContent = 'Uploading…';
+  try {
+    const r = await fetch('/api/installer', { method: 'POST', body: file });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'upload failed');
+    $('#upload-status').textContent = `✓ Installer uploaded (${Math.round(d.size / 1048576)} MB)`;
+    checkInstaller();
+  } catch (err) {
+    $('#upload-status').textContent = '✗ ' + err.message;
+  }
 });
 
 // ---------------------------------------------------------------------------

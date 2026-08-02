@@ -47,8 +47,15 @@
             machine enrolls under your account and appears above. They can remove it anytime from
             Windows <i>Add/Remove Programs</i>.
           </p>
+          <div id="installer-status" class="hint"></div>
           <div id="keys"></div>
-          <button id="new-key" class="btn">+ New link</button>
+          <div class="key-actions">
+            <button id="new-key" class="btn">+ New link</button>
+            <label class="btn" id="upload-label">⬆ Upload installer
+              <input id="installer-file" type="file" accept=".exe" hidden />
+            </label>
+            <span id="upload-status" class="hint" style="margin:0"></span>
+          </div>
         </section>
       </div>
 

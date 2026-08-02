@@ -100,6 +100,25 @@ async function handleApi(req, res, urlPath) {
     if (!admin) return json(res, 401, { error: 'not signed in' });
 
     if (urlPath === '/api/me' && m === 'GET') return json(res, 200, { admin: db.publicAdmin(admin) });
+
+    // Upload the installer to the persistent data dir (raw binary body).
+    if (urlPath === '/api/installer' && m === 'POST') {
+      const dest = path.join(db.DATA_DIR, 'AegisSetup.exe');
+      try { fs.mkdirSync(db.DATA_DIR, { recursive: true }); } catch {}
+      const tmp = dest + '.upload';
+      const out = fs.createWriteStream(tmp);
+      req.pipe(out);
+      out.on('finish', () => {
+        try { fs.renameSync(tmp, dest); } catch (e) { return json(res, 500, { error: e.message }); }
+        json(res, 200, { ok: true, size: fs.statSync(dest).size });
+      });
+      out.on('error', (e) => json(res, 500, { error: e.message }));
+      return;
+    }
+    // Report whether the installer has been uploaded (for the dashboard).
+    if (urlPath === '/api/installer' && m === 'GET') {
+      return json(res, 200, { ready: fs.existsSync(installerFile()) });
+    }
     if (urlPath === '/api/devices' && m === 'GET') return json(res, 200, { devices: deviceListFor(admin.id) });
     if (urlPath === '/api/keys' && m === 'GET') {
       const base = publicBase(req);
@@ -131,18 +150,25 @@ function publicBase(req) {
   return `${proto}://${req.headers.host}`;
 }
 
+// The admin can upload the installer to the persistent data dir; prefer that.
+function installerFile() {
+  const uploaded = path.join(db.DATA_DIR, 'AegisSetup.exe');
+  return fs.existsSync(uploaded) ? uploaded : INSTALLER_PATH;
+}
+
 // Serve the installer with the key in its filename (installer self-configures).
 function handleDownload(req, res, urlPath) {
   const key = decodeURIComponent(urlPath.slice('/dl/'.length)).trim();
   if (!db.findValidKey(key)) { res.writeHead(404); return res.end('invalid or revoked link'); }
-  fs.stat(INSTALLER_PATH, (err, st) => {
-    if (err) { res.writeHead(503); return res.end('installer not available on this host'); }
+  const file = installerFile();
+  fs.stat(file, (err, st) => {
+    if (err) { res.writeHead(503); return res.end('installer not uploaded yet'); }
     res.writeHead(200, {
       'Content-Type': 'application/octet-stream',
       'Content-Length': st.size,
       'Content-Disposition': `attachment; filename="AegisSetup-${key}.exe"`,
     });
-    fs.createReadStream(INSTALLER_PATH).pipe(res);
+    fs.createReadStream(file).pipe(res);
   });
 }
 

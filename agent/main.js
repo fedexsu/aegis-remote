@@ -25,12 +25,21 @@ function bundledDefaults() {
   catch { return {}; }
 }
 function loadConfig() {
-  // Precedence: the user's saved config > bundled deployment defaults > built-ins.
-  try {
-    return { ...DEFAULT_CONFIG, ...bundledDefaults(), ...JSON.parse(fs.readFileSync(CONFIG_PATH(), 'utf8')) };
-  } catch {
-    return { ...DEFAULT_CONFIG, ...bundledDefaults() };
+  const bundled = bundledDefaults();
+  let user = {};
+  try { user = JSON.parse(fs.readFileSync(CONFIG_PATH(), 'utf8')); } catch { /* none yet */ }
+  if (app.isPackaged) {
+    // Installed build: the relay + key come from the baked deployment config and
+    // are NOT overridable by saved state — so rotating the key (and reinstalling)
+    // actually takes effect. Only user-facing prefs persist.
+    return {
+      ...DEFAULT_CONFIG, ...bundled,
+      name: user.name || bundled.name || DEFAULT_CONFIG.name,
+      enabled: user.enabled !== undefined ? user.enabled : (bundled.enabled !== false),
+    };
   }
+  // Dev build (`electron .`): saved config can override everything, for local testing.
+  return { ...DEFAULT_CONFIG, ...bundled, ...user };
 }
 function saveConfig(cfg) {
   const merged = { ...DEFAULT_CONFIG, ...cfg };

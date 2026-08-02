@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Aegis Remote — Agent</title>
+    <style>
+      :root { --bg:#0f1115; --bg2:#171a21; --bg3:#1e222b; --border:#2a2f3a;
+        --text:#e6e8ec; --muted:#8b93a1; --accent:#4a9eff; --ok:#3ecf8e; --danger:#ff5c5c; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg);
+        color:var(--text); font-size:13px; padding:20px; user-select:none; }
+      .logo { text-align:center; font-size:34px; margin:4px 0 2px; }
+      h1 { text-align:center; font-size:16px; font-weight:600; margin:0 0 2px; }
+      .sub { text-align:center; color:var(--muted); font-size:11px; margin-bottom:16px; }
+      label { display:block; color:var(--muted); font-size:11px; margin:12px 0 4px; }
+      input { width:100%; background:var(--bg3); border:1px solid var(--border); color:var(--text);
+        border-radius:8px; padding:9px 11px; font-size:13px; outline:none; }
+      input:focus { border-color:var(--accent); }
+      #connect { width:100%; margin-top:18px; background:var(--accent); color:#fff; border:none;
+        border-radius:8px; padding:11px; font-size:14px; cursor:pointer; }
+      #connect:hover { filter:brightness(1.08); }
+      #connect.on { background:var(--danger); }
+      .status { text-align:center; margin-top:14px; font-size:12px; }
+      .status .pill { padding:4px 12px; border-radius:999px; }
+      .pill.off { color:var(--danger); background:rgba(255,92,92,0.12); }
+      .pill.on { color:var(--ok); background:rgba(62,207,142,0.12); }
+      #banner { display:none; margin-top:16px; padding:12px; border-radius:10px; text-align:center;
+        background:rgba(255,92,92,0.14); color:var(--danger); font-weight:600; }
+      .check { display:flex; align-items:center; gap:8px; margin-top:14px; color:var(--muted);
+        font-size:12px; cursor:pointer; }
+      .check input { width:auto; }
+      #banner.show { display:block; animation:pulse 1.5s infinite; }
+      @keyframes pulse { 50% { opacity:0.6; } }
+      #log { margin-top:14px; max-height:80px; overflow-y:auto; font-size:11px; color:var(--muted); }
+      .hide { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; left:-9999px; }
+    </style>
+  </head>
+  <body>
+    <div class="logo">🛡️</div>
+    <h1>Aegis Remote Agent</h1>
+    <div class="sub">This device can be remotely accessed when connected.</div>
+
+    <label>Device name</label>
+    <input id="name" type="text" />
+    <label>Relay server</label>
+    <input id="relay" type="text" placeholder="ws://host:8443" />
+    <label>Access key</label>
+    <input id="key" type="password" />
+
+    <button id="connect">Connect</button>
+
+    <label class="check"><input type="checkbox" id="autostart" /> Start automatically when I sign in to Windows</label>
+
+    <div class="status">Status: <span id="pill" class="pill off">disconnected</span></div>
+    <div id="banner">🔴 Someone is controlling this screen</div>
+    <div id="log"></div>
+
+    <!-- Hidden capture elements -->
+    <video id="cap-video" class="hide" autoplay muted></video>
+    <canvas id="cap-canvas" class="hide"></canvas>
+
+    <script src="capture.js"></script>
+  </body>
+</html>

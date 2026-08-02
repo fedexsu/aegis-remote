@@ -1,0 +1,11 @@
+# Render.com blueprint — deploys the relay as an always-on web service.
+# In the Render dashboard: New > Blueprint > connect the repo containing this file.
+services:
+  - type: web
+    name: aegis-relay
+    runtime: docker
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: AEGIS_KEY
+        sync: false   # set a strong value in the Render dashboard

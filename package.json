@@ -1,0 +1,21 @@
+{
+  "name": "aegis-remote",
+  "version": "0.1.0",
+  "description": "Aegis Remote — an unattended remote-support tool (relay server, Electron agent with full control, web console).",
+  "main": "agent/main.js",
+  "scripts": {
+    "server": "node server/relay.js",
+    "agent": "electron .",
+    "build-injector": "node agent/injector/build-injector.js",
+    "build-agent": "node build-agent.js"
+  },
+  "author": "Aegis",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "rcedit": "^5.0.2"
+  }
+}

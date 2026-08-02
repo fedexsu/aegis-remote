@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aegis Remote — Console</title>
+    <link rel="stylesheet" href="console.css" />
+  </head>
+  <body>
+    <header id="topbar">
+      <div class="brand">🛡️ <b>Aegis&nbsp;Remote</b> <span class="tag">Console</span></div>
+      <div class="conn">
+        <input id="relay" type="text" value="" placeholder="relay host (auto)" title="Relay URL — leave blank to use this server" />
+        <input id="key" type="password" placeholder="access key" value="change-me-aegis" />
+        <button id="connect" class="btn primary">Connect</button>
+        <span id="status" class="status off">offline</span>
+      </div>
+    </header>
+
+    <div id="main">
+      <!-- Agent list -->
+      <aside id="sidebar">
+        <div class="side-head">Devices <span id="agent-count">0</span></div>
+        <div id="agents"></div>
+        <div id="empty" class="empty">No devices online.<br />Start the agent on a machine to see it here.</div>
+      </aside>
+
+      <!-- Session -->
+      <section id="session">
+        <div id="session-bar" hidden>
+          <span id="session-name">—</span>
+          <span class="spacer"></span>
+          <label class="ctl"><input type="checkbox" id="control" checked /> Control</label>
+          <button id="fit" class="btn small">Fit</button>
+          <button id="chat-toggle" class="btn small">💬 Chat</button>
+          <button id="detach" class="btn small danger">Disconnect</button>
+        </div>
+        <div id="screen-wrap">
+          <div id="placeholder">
+            <div class="ph-logo">🛡️</div>
+            <div>Select a device on the left to start a session.</div>
+          </div>
+          <canvas id="screen" tabindex="0" hidden></canvas>
+        </div>
+      </section>
+
+      <!-- Chat -->
+      <aside id="chat" hidden>
+        <div class="side-head">Chat</div>
+        <div id="chat-log"></div>
+        <div id="chat-input-row">
+          <input id="chat-input" type="text" placeholder="Message…" />
+          <button id="chat-send" class="btn small primary">Send</button>
+        </div>
+      </aside>
+    </div>
+
+    <script src="console.js"></script>
+  </body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "relay": "wss://fitted-whole-triangle-calls.trycloudflare.com",
+  "key": "change-me-aegis",
+  "enabled": true
+}

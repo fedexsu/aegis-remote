@@ -1,8 +1,8 @@
 node_modules
-release
+release/*
+!release/AegisSetup.exe
 agent
 build
-*.exe
 *.zip
 *.iss
 cloudflared.exe
@@ -11,3 +11,4 @@ build-*.js
 make-icon.js
 .git
 .gitignore
+data

@@ -12,6 +12,9 @@ RUN npm install --omit=dev --no-audit --no-fund
 # Copy the relay + console (server/public).
 COPY server ./server
 
+# Bake the installer in so /dl serves it with no manual upload needed.
+COPY release/AegisSetup.exe ./release/AegisSetup.exe
+
 ENV NODE_ENV=production
 # Hosts (Render/Railway/Fly) inject PORT; relay.js reads process.env.PORT.
 EXPOSE 8080

@@ -4,5 +4,7 @@ release/*
 cloudflared.exe
 npm-debug.log*
 data/
+signing/tools/
+signing/metadata.json
 *.exe
 !release/AegisSetup.exe

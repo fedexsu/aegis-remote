@@ -1,0 +1,5 @@
+{
+  "Endpoint": "https://<REGION>.codesigning.azure.net/",
+  "CodeSigningAccountName": "<YOUR_TRUSTED_SIGNING_ACCOUNT>",
+  "CertificateProfileName": "<YOUR_CERTIFICATE_PROFILE>"
+}

@@ -7,7 +7,10 @@
     "server": "node server/relay.js",
     "agent": "electron .",
     "build-injector": "node agent/injector/build-injector.js",
-    "build-agent": "node build-agent.js"
+    "build-agent": "node build-agent.js",
+    "build:all": "node build-all.js",
+    "sign": "powershell -ExecutionPolicy Bypass -File signing/sign.ps1 release/Aegis/Aegis.exe release/AegisSetup.exe",
+    "get-signing-tools": "python signing/download-tools.py"
   },
   "author": "Aegis",
   "license": "MIT",

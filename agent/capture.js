@@ -182,7 +182,7 @@ function onMessage(msg) {
   switch (msg.type) {
     case 'registered': connected = true; backoff = 2000; setStatus(true, 'online — waiting'); break;
     case 'denied': setStatus(false, 'denied: ' + msg.reason); enabled = false; break;
-    case 'start': startStreaming(); break;
+    case 'start': rtcIceServers = msg.iceServers || null; startStreaming(); break;
     case 'stop': stopStreaming(); break;
     case 'monitor': switchMonitor(msg.id); break;
     case 'input': handleInput(msg.event); break;
@@ -201,6 +201,7 @@ function onMessage(msg) {
 // ---------------------------------------------------------------------------
 let pc = null;
 let rtcConnected = false;
+let rtcIceServers = null; // provided by the relay on 'start' (STUN + TURN)
 const ICE = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -209,7 +210,7 @@ async function startRtc() {
   closeRtc();
   if (!stream) return;
   try {
-    pc = new RTCPeerConnection({ iceServers: ICE });
+    pc = new RTCPeerConnection({ iceServers: rtcIceServers || ICE });
     for (const t of stream.getVideoTracks()) pc.addTrack(t, stream);
     pc.onicecandidate = (e) => { if (e.candidate && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rtc-ice', candidate: e.candidate })); };
     pc.onconnectionstatechange = () => {

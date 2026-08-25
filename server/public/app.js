@@ -942,6 +942,7 @@ $('#lock-btn').addEventListener('click', () => {
 
 function onAttached(msg) {
   attachedId = msg.agentId;
+  rtcIceServers = msg.iceServers || null;
   $('#session-name').textContent = msg.name;
   $('#ctl-warn').hidden = true;
   blankOn = false; updateBlankBtn();
@@ -996,11 +997,12 @@ function fit() {
 // transparent input layer, so all control code is unchanged.
 // ---------------------------------------------------------------------------
 let rtcPc = null;
+let rtcIceServers = null; // provided by the relay on 'attached' (STUN + TURN)
 const RTC_ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
 async function onRtcOffer(msg) {
   closeConsoleRtc();
   try {
-    rtcPc = new RTCPeerConnection({ iceServers: RTC_ICE });
+    rtcPc = new RTCPeerConnection({ iceServers: rtcIceServers || RTC_ICE });
     rtcPc.onicecandidate = (e) => { if (e.candidate && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rtc-ice', candidate: e.candidate })); };
     rtcPc.ontrack = (e) => {
       const v = $('#rtc-video');

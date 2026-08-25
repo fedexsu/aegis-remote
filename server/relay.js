@@ -37,6 +37,22 @@ let seq = 1;
 
 function send(ws, obj) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj)); }
 
+// ICE servers for WebRTC, sent to both the agent and console so they match and
+// can be changed centrally. STUN attempts direct P2P; TURN relays the media when
+// both sides are behind strict NATs. Set your own for production:
+//   TURN_URL=turn:your.turn:3478[,turns:your.turn:5349?transport=tcp]
+//   TURN_USER=...  TURN_CRED=...
+function iceServers() {
+  const list = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+  if (process.env.TURN_URL) {
+    list.push({ urls: process.env.TURN_URL.split(','), username: process.env.TURN_USER || '', credential: process.env.TURN_CRED || '' });
+  } else {
+    // Free public fallback (rate-limited — fine for testing; set TURN_* for prod).
+    list.push({ urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turns:openrelay.metered.ca:443?transport=tcp'], username: 'openrelayproject', credential: 'openrelayproject' });
+  }
+  return list;
+}
+
 function deviceListFor(adminId) {
   const keyLabels = {};
   for (const k of db.keysForAdmin(adminId)) keyLabels[k.key] = k.label;
@@ -441,8 +457,9 @@ wss.on('connection', (ws, req) => {
         if (!a || a.adminId !== adminId) { send(ws, { type: 'error', text: 'device offline' }); return; }
         if (a.consoleId && a.consoleId !== id) { send(ws, { type: 'error', text: 'device busy' }); return; }
         c.agentId = msg.agentId; a.consoleId = id;
-        send(ws, { type: 'attached', agentId: msg.agentId, name: a.name, screen: a.screen });
-        send(a.ws, { type: 'start' });
+        const ice = iceServers();
+        send(ws, { type: 'attached', agentId: msg.agentId, name: a.name, screen: a.screen, iceServers: ice });
+        send(a.ws, { type: 'start', iceServers: ice });
         pushDevices(adminId);
         return;
       }

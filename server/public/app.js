@@ -991,7 +991,6 @@ function fit() {
   const scale = Math.min(wrap.clientWidth / frameW, wrap.clientHeight / frameH);
   const w = Math.floor(frameW * scale) + 'px', h = Math.floor(frameH * scale) + 'px';
   canvas.style.width = w; canvas.style.height = h;
-  const v = $('#rtc-video'); v.style.width = w; v.style.height = h; // keep the input canvas exactly over the video
 }
 
 // ---------------------------------------------------------------------------
@@ -1008,21 +1007,35 @@ function setRtcMode(mode) {
   else el.textContent = 'Connecting…';
 }
 const RTC_ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
-// Reveal the live WebRTC <video> and clear the last frozen JPEG off the canvas.
-// Idempotent + safe to call before metadata is known — used from ontrack, on
-// (re)connect, and on remote-resize so the video can never get stuck hidden.
+// Paint the decode-only WebRTC <video> onto the visible canvas. We drive this
+// from requestVideoFrameCallback (freshest frame, no tearing) and fall back to
+// rAF. This sidesteps the compositor freeze where the <video> plays but never
+// repaints on screen. Idempotent + safe to call before metadata is known.
+let rtcRVFC = null, rtcRAF = null, rtcDrawing = false;
+function rtcPaint() {
+  const v = $('#rtc-video');
+  if (!rtcPc || !v.srcObject) { rtcDrawing = false; return; }
+  const vw = v.videoWidth, vh = v.videoHeight;
+  if (vw && vh) {
+    if (canvas.width !== vw || canvas.height !== vh) { canvas.width = vw; canvas.height = vh; frameW = vw; frameH = vh; fit(); }
+    try { ctx.drawImage(v, 0, 0, canvas.width, canvas.height); } catch {}
+  }
+  if ('requestVideoFrameCallback' in v) rtcRVFC = v.requestVideoFrameCallback(rtcPaint);
+  else rtcRAF = requestAnimationFrame(rtcPaint);
+}
+function stopRtcPaint() {
+  const v = $('#rtc-video');
+  if (rtcRVFC && v.cancelVideoFrameCallback) { try { v.cancelVideoFrameCallback(rtcRVFC); } catch {} }
+  if (rtcRAF) cancelAnimationFrame(rtcRAF);
+  rtcRVFC = rtcRAF = null; rtcDrawing = false;
+}
 function showRtcVideo() {
   const v = $('#rtc-video');
   if (!v.srcObject) return;
-  if (v.videoWidth) {
-    frameW = v.videoWidth; frameH = v.videoHeight;
-    if (canvas.width !== frameW || canvas.height !== frameH) { canvas.width = frameW; canvas.height = frameH; }
-  }
-  ctx.clearRect(0, 0, canvas.width, canvas.height); // wipe the last JPEG so the video shows through the transparent canvas
-  $('#screen-wrap').classList.add('rtc');
+  $('#screen-wrap').classList.add('rtc'); // state flag (keeps JPEG path from flipping badge to SD)
   setRtcMode('hd');
-  fit();
   v.play().catch(() => {});
+  if (!rtcDrawing) { rtcDrawing = true; rtcPaint(); } // start the paint loop once
 }
 // Diagnostics: surface why WebRTC does/doesn't upgrade to HD. Hover the badge to
 // see the live state; full detail also goes to the browser console as [RTC] logs.
@@ -1097,6 +1110,7 @@ async function onRtcOffer(msg) {
   } catch (e) { closeConsoleRtc(); }
 }
 function closeConsoleRtc() {
+  stopRtcPaint();
   if (rtcStatsTimer) { clearInterval(rtcStatsTimer); rtcStatsTimer = null; }
   if (rtcPc) { try { rtcPc.close(); } catch {} rtcPc = null; }
   const v = $('#rtc-video'); try { v.srcObject = null; } catch {}

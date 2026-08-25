@@ -336,9 +336,10 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .session-bar .btn.on{background:rgba(79,140,255,.25);border-color:var(--accent);color:#fff}
 .screen-wrap{flex:1;display:grid;place-items:center;overflow:auto;padding:14px;position:relative}
 #screen{background:#000;border-radius:8px;box-shadow:var(--shadow);max-width:100%;max-height:100%;grid-area:1/1;z-index:2}
-#rtc-video{border-radius:8px;box-shadow:var(--shadow);max-width:100%;max-height:100%;grid-area:1/1;z-index:1;display:none}
-#screen-wrap.rtc #screen{background:transparent;box-shadow:none} /* canvas becomes a transparent input layer over the video */
-#screen-wrap.rtc #rtc-video{display:block}
+/* The WebRTC <video> is a decode-only source: its frames are painted onto the
+   canvas (some GPU/driver combos decode+advance the element but never composite
+   it to screen). Kept 2px & invisible so it stays live without being shown. */
+#rtc-video{position:absolute;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
 /* toggle switch */
 .switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
 .switch input{display:none}

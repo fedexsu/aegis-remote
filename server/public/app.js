@@ -1035,7 +1035,8 @@ function rtcRenderDiag() {
   el.title = `offer:${rtcDiag.offer ? '✓' : '✗'}  ice:${rtcDiag.ice}  conn:${rtcDiag.conn}\n`
     + `local cand: ${[...rtcDiag.cand].join(',') || 'none'}\n`
     + `remote cand: ${[...rtcDiag.remoteCand].join(',') || 'none'}\n`
-    + `video: ${rtcDiag.frames} frames decoded, ~${rtcDiag.fps} fps  pair:${rtcDiag.pair}`;
+    + `video: ${rtcDiag.frames} frames decoded, ~${rtcDiag.fps} fps  pair:${rtcDiag.pair}\n`
+    + `vid: ${rtcDiag.vid || '-'}`;
 }
 function startRtcStats() {
   if (rtcStatsTimer) clearInterval(rtcStatsTimer);
@@ -1053,7 +1054,10 @@ function startRtcStats() {
           rtcDiag.pair = (r.availableIncomingBitrate ? Math.round(r.availableIncomingBitrate / 1000) + 'kbps' : 'ok');
         }
       });
-      rtcLog('stats: frames=' + rtcDiag.frames + ' fps=' + rtcDiag.fps);
+      const v = $('#rtc-video'); const cs = getComputedStyle(v);
+      const vid = `paused:${v.paused} ct:${v.currentTime.toFixed(1)} rs:${v.readyState} ${v.videoWidth}x${v.videoHeight} shown:${v.offsetWidth}x${v.offsetHeight} disp:${cs.display} rtc:${$('#screen-wrap').classList.contains('rtc')}`;
+      rtcDiag.vid = vid;
+      rtcLog('stats frames=' + rtcDiag.frames + ' fps=' + rtcDiag.fps + ' | ' + vid);
     } catch {}
   }, 2000);
 }

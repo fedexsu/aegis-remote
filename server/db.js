@@ -18,8 +18,10 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 let db = { admins: [], keys: [], devices: [], sessions: [] };
 
 function load() {
+  let existed = false;
   try {
     db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    existed = true;
   } catch {
     db = { admins: [], keys: [], devices: [], sessions: [] };
   }
@@ -29,6 +31,15 @@ function load() {
   if (db.admins.length && !db.admins.some((a) => a.role === 'owner')) {
     const first = db.admins.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0];
     if (first) { first.role = 'owner'; save(); }
+  }
+  // Persistence diagnostic: state plainly, on every boot, whether we loaded
+  // existing data off the (hopefully persistent) volume or started empty. If a
+  // redeploy ever prints "FRESH empty DB", the volume/DATA_DIR is not persisting.
+  const activeKeys = db.keys.filter((k) => !k.revoked).length;
+  if (existed) {
+    console.log(`[db] loaded existing DB from ${DB_FILE} — ${db.admins.length} admin(s), ${activeKeys} active key(s), ${db.devices.length} device(s)`);
+  } else {
+    console.log(`[db] no DB found at ${DB_FILE} — created FRESH empty DB (prior data was NOT persisted)`);
   }
 }
 function save() {

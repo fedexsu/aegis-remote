@@ -177,6 +177,7 @@ function connectWS() {
       case 'monitors': renderMonitors(msg); break;
       case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); break;
       case 'error': toast(msg.text, 'err'); break;
+      case 'info': toast(msg.text, 'ok'); break;
       case 'denied': showAuth(); break;
     }
   };
@@ -191,27 +192,32 @@ const DEV_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 function statusOf(d) {
   if (d.online) return d.busy ? 'busy' : 'online';
   if (d.uninstalled) return 'uninstalled';
+  if (d.asleep) return 'sleep';
   return 'offline';
 }
 function statusLabel(s) {
-  return s === 'busy' ? 'In session' : s === 'online' ? 'Online' : s === 'uninstalled' ? 'Uninstalled' : 'Offline';
+  return s === 'busy' ? 'In session' : s === 'online' ? 'Online'
+    : s === 'uninstalled' ? 'Uninstalled' : s === 'sleep' ? 'Sleeping' : 'Offline';
 }
 
 function renderDevices() {
   const list = devicesCache;
   const online = list.filter((d) => d.online).length;
   const busy = list.filter((d) => d.busy).length;
-  const uninstalled = list.filter((d) => d.uninstalled && !d.online).length;
+  const uninstalled = list.filter((d) => statusOf(d) === 'uninstalled').length;
+  const sleeping = list.filter((d) => statusOf(d) === 'sleep').length;
   $('#st-total').textContent = list.length;
   $('#st-online').textContent = online;
   $('#st-busy').textContent = busy;
-  $('#st-offline').textContent = list.length - online - uninstalled;
+  $('#st-sleep').textContent = sleeping;
+  $('#st-offline').textContent = list.length - online - uninstalled - sleeping;
   $('#st-uninstalled').textContent = uninstalled;
 
   const q = search.toLowerCase();
   const shown = list.filter((d) => {
     const st = statusOf(d);
     if (filter === 'online' && !d.online) return false;
+    if (filter === 'sleep' && st !== 'sleep') return false;
     if (filter === 'offline' && st !== 'offline') return false;
     if (filter === 'uninstalled' && st !== 'uninstalled') return false;
     if (q) {
@@ -230,7 +236,7 @@ function renderDevices() {
     const st = statusOf(d);
     const m = d.meta || {};
     const el = document.createElement('div');
-    el.className = 'device' + (d.online ? ' online' : '') + (st === 'uninstalled' ? ' uninstalled' : '');
+    el.className = 'device' + (d.online ? ' online' : '') + (st === 'uninstalled' ? ' uninstalled' : '') + (st === 'sleep' ? ' asleep' : '');
     el.innerHTML = `
       <div class="dev-top">
         <div class="dev-badge">${DEV_SVG}</div>
@@ -248,9 +254,9 @@ function renderDevices() {
         <div class="dm"><div class="dm-k">Last seen</div><div class="dm-v" data-f="seen">—</div></div>
       </div>
       <div class="dev-actions">
-        <button class="btn primary connect" ${d.online && !d.busy ? '' : 'disabled style="opacity:.5;cursor:not-allowed"'}>
-          ${d.busy ? 'In use' : 'Connect'}
-        </button>
+        ${st === 'sleep'
+          ? `<button class="btn primary wake"><svg viewBox="0 0 24 24" class="ic"><path d="M12 2v6"/><path d="M5.6 5.6l1.4 1.4M17 7l1.4-1.4"/><path d="M4 13a8 8 0 0116 0"/><path d="M2 17h20"/></svg> Wake</button>`
+          : `<button class="btn primary connect" ${d.online && !d.busy ? '' : 'disabled style="opacity:.5;cursor:not-allowed"'}>${d.busy ? 'In use' : 'Connect'}</button>`}
         <button class="btn ghost icon-btn rename" title="Rename">
           <svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
         </button>
@@ -268,13 +274,18 @@ function renderDevices() {
     el.querySelector('[data-f="seen"]').textContent = d.online ? 'now' : (st === 'uninstalled' ? relTime(d.uninstalledAt) : relTime(d.lastSeen));
 
     const conn = el.querySelector('.connect');
-    if (d.online && !d.busy) conn.addEventListener('click', () => attach(d.id));
+    if (conn && d.online && !d.busy) conn.addEventListener('click', () => attach(d.id));
+    const wakeBtn = el.querySelector('.wake');
+    if (wakeBtn) wakeBtn.addEventListener('click', () => wakeDevice(d));
     el.querySelector('.rename').addEventListener('click', () => renameDevice(d));
     el.querySelector('.del').addEventListener('click', () => removeDevice(d));
     box.appendChild(el);
   }
 }
 function attach(id) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'attach', agentId: id })); }
+function wakeDevice(d) {
+  if (ws && ws.readyState === ws.OPEN) { ws.send(JSON.stringify({ type: 'wake', id: d.id })); toast('Sending wake signal…'); }
+}
 
 async function renameDevice(d) {
   const vals = await modal({ title: 'Rename device', fields: [{ label: 'Name', value: d.name }], confirmText: 'Save' });

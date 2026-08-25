@@ -14,4 +14,7 @@ contextBridge.exposeInMainWorld('agent', {
   sessionState: (active) => ipcRenderer.send('session:state', active),
   getAutostart: () => ipcRenderer.invoke('autostart:get'),
   setAutostart: (on) => ipcRenderer.invoke('autostart:set', on),
+  onSuspend: (cb) => ipcRenderer.on('power:suspend', () => cb()),
+  onResume: (cb) => ipcRenderer.on('power:resume', () => cb()),
+  sendWol: (mac) => ipcRenderer.invoke('wol:send', mac),
 });

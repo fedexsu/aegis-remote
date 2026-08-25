@@ -43,6 +43,16 @@ const BACKOFF_MAX = 15000;
   reflectAutostart();
   if (enabled) goOnline();
   else setStatus(false, 'offline');
+
+  // Tell the relay we're about to sleep (so it shows "Sleeping", not offline),
+  // and reconnect promptly when we wake.
+  if (window.agent.onSuspend) window.agent.onSuspend(() => {
+    try { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'suspend' })); } catch {}
+  });
+  if (window.agent.onResume) window.agent.onResume(() => {
+    backoff = 2000;
+    if (enabled && (!ws || ws.readyState > 1)) { if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; } connect(); }
+  });
 })();
 
 // The main button toggles the master online/offline state.
@@ -145,6 +155,7 @@ function onMessage(msg) {
     case 'monitor': switchMonitor(msg.id); break;
     case 'input': handleInput(msg.event); break;
     case 'chat': log('💬 ' + msg.text); break;
+    case 'wake': if (window.agent.sendWol) window.agent.sendWol(msg.mac); break; // wake a sleeping peer on our LAN
   }
 }
 

@@ -44,6 +44,8 @@ function deviceListFor(adminId) {
       busy: online ? !!live.consoleId : false,
       uninstalled: !online && !!d.uninstalledAt, // reported gone by its uninstaller
       uninstalledAt: d.uninstalledAt || null,
+      asleep: !online && !d.uninstalledAt && !!d.asleep, // suspended, not dead
+      sleepMac: (d.meta && d.meta.mac) || null,          // for wake-on-LAN
       lastSeen: d.lastSeen,
       firstSeen: d.firstSeen,
       via: keyLabels[d.keyUsed] || null,   // which enrollment link added it
@@ -343,6 +345,7 @@ wss.on('connection', (ws, req) => {
         return;
       }
       if (msg.type === 'detach') { detachConsole(id); send(ws, { type: 'agents', list: deviceListFor(adminId) }); return; }
+      if (msg.type === 'wake') { doWake(adminId, msg.id, ws); return; }
       if (c.agentId && (msg.type === 'input' || msg.type === 'chat' || msg.type === 'monitor')) {
         const a = agents.get(c.agentId);
         if (a && a.adminId === adminId) send(a.ws, msg);
@@ -353,6 +356,9 @@ wss.on('connection', (ws, req) => {
     if (role === 'agent') {
       const a = agents.get(id);
       if (!a) return;
+      // The agent warns us it's about to sleep, so the imminent disconnect is
+      // read as "sleeping" rather than a hard offline.
+      if (msg.type === 'suspend') { a.suspendHint = Date.now(); return; }
       if (msg.type === 'screen') { a.screen = { w: msg.w, h: msg.h }; }
       db.touchDevice(id);
       if (!a.consoleId) return;
@@ -368,6 +374,8 @@ wss.on('connection', (ws, req) => {
     if (role === 'agent') {
       const a = agents.get(id);
       if (a && a.consoleId) { const c = consoles.get(a.consoleId); if (c) { c.agentId = null; send(c.ws, { type: 'agentGone' }); } }
+      // If a suspend was signalled just before this drop, it's sleeping, not dead.
+      if (a && a.suspendHint && (Date.now() - a.suspendHint) < 90000) db.setAsleep(id, true);
       agents.delete(id);
       if (adminId) pushDevices(adminId);
     } else if (role === 'console') {
@@ -376,6 +384,27 @@ wss.on('connection', (ws, req) => {
     }
   });
 });
+
+// Wake a sleeping device via Wake-on-LAN. The cloud can't reach a home/office
+// LAN directly, so we relay the request to an ONLINE peer agent on the same
+// subnet, which broadcasts the magic packet locally.
+function doWake(adminId, targetId, consoleWs) {
+  const devs = db.devicesForAdmin(adminId);
+  const target = devs.find((d) => d.id === targetId);
+  if (!target) return send(consoleWs, { type: 'error', text: 'Device not found.' });
+  const mac = target.meta && target.meta.mac;
+  const subnet = target.meta && target.meta.subnet;
+  if (!mac) return send(consoleWs, { type: 'error', text: 'No MAC recorded — reinstall the updated agent on that PC so it can be woken.' });
+  let peer = null;
+  for (const [pid, a] of agents) {
+    if (a.adminId !== adminId || pid === targetId) continue;
+    const pd = devs.find((d) => d.id === pid);
+    if (pd && pd.meta && subnet && pd.meta.subnet === subnet) { peer = a; break; }
+  }
+  if (!peer) return send(consoleWs, { type: 'error', text: 'No awake PC on the same network to send the wake signal. Wake needs another Aegis device online on that LAN.' });
+  send(peer.ws, { type: 'wake', mac });
+  send(consoleWs, { type: 'info', text: `Wake signal sent to ${target.name || 'device'}. If Wake-on-LAN is enabled on it, it should come online shortly.` });
+}
 
 function detachConsole(consoleId) {
   const c = consoles.get(consoleId);

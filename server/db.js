@@ -170,9 +170,18 @@ function upsertDevice(id, adminId, name, keyUsed, meta) {
     d.adminId = adminId; d.name = name; d.keyUsed = keyUsed; d.lastSeen = Date.now();
     if (meta && Object.keys(meta).length) d.meta = { ...(d.meta || {}), ...meta };
     if (d.uninstalledAt) delete d.uninstalledAt; // it's back — no longer uninstalled
+    if (d.asleep) delete d.asleep;               // it's back — awake again
   }
   save();
   return d;
+}
+// Mark a device as asleep (S3 sleep) vs a hard offline. Set when the agent
+// signalled an impending suspend right before its connection dropped.
+function setAsleep(id, val) {
+  const d = db.devices.find((x) => x.id === id);
+  if (!d) return;
+  if (val) d.asleep = true; else delete d.asleep;
+  save();
 }
 // Mark a device as uninstalled (reported by the uninstaller before it removes
 // itself). Verified by the enrollment key so a stranger can't flag someone's
@@ -212,5 +221,5 @@ module.exports = {
   hasAdmins, listAdmins, updatePassword,
   createSession, getSession, deleteSession,
   createKey, keysForAdmin, findValidKey, revokeKey, incKeyDownload, statsForAdmin,
-  upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, markUninstalled,
+  upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, markUninstalled, setAsleep,
 };

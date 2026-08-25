@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, desktopCapturer, session, Tray, Menu, nativeImage, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, session, Tray, Menu, nativeImage, screen, powerMonitor } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -149,7 +149,50 @@ ipcMain.handle('meta:get', () => {
     cpu: cpu.trim(),
     mem: Math.round(os.totalmem() / 1073741824) + ' GB',
     version: app.getVersion(),
+    mac: primaryMac(),
+    subnet: primarySubnet(),
   };
+});
+// The MAC + /24 subnet of the primary LAN adapter — used so a peer agent on the
+// same network can wake this machine with a Wake-on-LAN magic packet.
+function primaryIface() {
+  const ifs = os.networkInterfaces();
+  for (const name of Object.keys(ifs)) {
+    for (const i of ifs[name] || []) {
+      if (i.family === 'IPv4' && !i.internal && i.mac && i.mac !== '00:00:00:00:00:00') return i;
+    }
+  }
+  return null;
+}
+function primaryMac() { const i = primaryIface(); return i ? i.mac.toUpperCase() : ''; }
+function primarySubnet() {
+  const i = primaryIface();
+  if (!i) return '';
+  const p = i.address.split('.'); p[3] = '0';
+  return p.join('.'); // e.g. 192.168.1.0 — a coarse same-network grouping
+}
+
+// Send a Wake-on-LAN magic packet to a MAC on the local network (used when this
+// online agent is asked to wake a sleeping peer on the same subnet).
+ipcMain.handle('wol:send', (_e, mac) => {
+  try {
+    const dgram = require('dgram');
+    const clean = String(mac).replace(/[^0-9a-fA-F]/g, '');
+    if (clean.length !== 12) return { ok: false, error: 'bad mac' };
+    const macBuf = Buffer.from(clean, 'hex');
+    const magic = Buffer.concat([Buffer.alloc(6, 0xff), Buffer.alloc(16 * 6)]);
+    for (let i = 0; i < 16; i++) macBuf.copy(magic, 6 + i * 6);
+    const sock = dgram.createSocket('udp4');
+    sock.once('error', () => { try { sock.close(); } catch {} });
+    sock.bind(() => {
+      sock.setBroadcast(true);
+      // Ports 9 and 7 are the conventional WOL targets.
+      sock.send(magic, 0, magic.length, 9, '255.255.255.255', () => {
+        sock.send(magic, 0, magic.length, 7, '255.255.255.255', () => { try { sock.close(); } catch {} });
+      });
+    });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 function osName() {
   switch (process.platform) {
@@ -242,6 +285,12 @@ app.whenReady().then(() => {
   startInjector();
   createWindow();
   createTray();
+
+  // Forward OS power transitions to the renderer so it can tell the relay it's
+  // about to sleep (→ shows "Sleeping", not a hard "Offline") and reconnect
+  // immediately on resume.
+  powerMonitor.on('suspend', () => { if (win) try { win.webContents.send('power:suspend'); } catch {} });
+  powerMonitor.on('resume', () => { if (win) try { win.webContents.send('power:resume'); } catch {} });
 });
 
 app.on('before-quit', () => { app.isQuitting = true; if (injector) try { injector.kill(); } catch {} });

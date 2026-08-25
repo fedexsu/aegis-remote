@@ -178,6 +178,8 @@ function connectWS() {
       case 'attached': onAttached(msg); break;
       case 'frame': drawFrame(msg); break;
       case 'monitors': renderMonitors(msg); break;
+      case 'rtc-offer': onRtcOffer(msg); break;
+      case 'rtc-ice': if (rtcPc && msg.candidate) rtcPc.addIceCandidate(msg.candidate).catch(() => {}); break;
       case 'control': $('#ctl-warn').hidden = msg.available !== false ? true : false; if (msg.available === false) toast('Control is blocked on this device (antivirus removed the input helper)', 'err'); break;
       case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); break;
       case 'error': toast(msg.text, 'err'); break;
@@ -952,6 +954,7 @@ function backToDashboard() {
   attachedId = null;
   blankOn = false; updateBlankBtn();
   lockOn = false; updateLockBtn();
+  closeConsoleRtc();
   $('#control-view').hidden = true;
   $('#monitor-select').hidden = true;
 }
@@ -983,8 +986,48 @@ function fit() {
   if (!frameW || !frameH) return;
   const wrap = $('#screen-wrap');
   const scale = Math.min(wrap.clientWidth / frameW, wrap.clientHeight / frameH);
-  canvas.style.width = Math.floor(frameW * scale) + 'px';
-  canvas.style.height = Math.floor(frameH * scale) + 'px';
+  const w = Math.floor(frameW * scale) + 'px', h = Math.floor(frameH * scale) + 'px';
+  canvas.style.width = w; canvas.style.height = h;
+  const v = $('#rtc-video'); v.style.width = w; v.style.height = h; // keep the input canvas exactly over the video
+}
+
+// ---------------------------------------------------------------------------
+// WebRTC receiver — sharp, sub-second video. The canvas stays on top as a
+// transparent input layer, so all control code is unchanged.
+// ---------------------------------------------------------------------------
+let rtcPc = null;
+const RTC_ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+async function onRtcOffer(msg) {
+  closeConsoleRtc();
+  try {
+    rtcPc = new RTCPeerConnection({ iceServers: RTC_ICE });
+    rtcPc.onicecandidate = (e) => { if (e.candidate && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rtc-ice', candidate: e.candidate })); };
+    rtcPc.ontrack = (e) => {
+      const v = $('#rtc-video');
+      v.srcObject = e.streams[0];
+      v.onloadedmetadata = () => {
+        frameW = v.videoWidth || frameW; frameH = v.videoHeight || frameH;
+        if (canvas.width !== frameW) { canvas.width = frameW; canvas.height = frameH; }
+        ctx.clearRect(0, 0, canvas.width, canvas.height); // wipe last JPEG so the video shows through
+        $('#screen-wrap').classList.add('rtc'); // show video, canvas goes transparent
+        fit();
+      };
+      v.play().catch(() => {});
+    };
+    rtcPc.onconnectionstatechange = () => {
+      if (!rtcPc) return;
+      if (['failed', 'disconnected', 'closed'].includes(rtcPc.connectionState)) { $('#screen-wrap').classList.remove('rtc'); }
+    };
+    await rtcPc.setRemoteDescription(msg.sdp);
+    const answer = await rtcPc.createAnswer();
+    await rtcPc.setLocalDescription(answer);
+    if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rtc-answer', sdp: rtcPc.localDescription }));
+  } catch (e) { closeConsoleRtc(); }
+}
+function closeConsoleRtc() {
+  if (rtcPc) { try { rtcPc.close(); } catch {} rtcPc = null; }
+  const v = $('#rtc-video'); try { v.srcObject = null; } catch {}
+  $('#screen-wrap').classList.remove('rtc');
 }
 $('#fit').addEventListener('click', fit);
 window.addEventListener('resize', fit);

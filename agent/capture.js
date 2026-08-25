@@ -189,8 +189,40 @@ function onMessage(msg) {
     case 'chat': log('💬 ' + msg.text); break;
     case 'wake': if (window.agent.sendWol) window.agent.sendWol(msg.mac); break; // wake a sleeping peer on our LAN
     case 'op': if (window.agent.op) window.agent.op(msg); break; // terminal / sysinfo / etc.
+    case 'rtc-answer': if (pc) pc.setRemoteDescription(msg.sdp).catch(() => {}); break;
+    case 'rtc-ice': if (pc && msg.candidate) pc.addIceCandidate(msg.candidate).catch(() => {}); break;
   }
 }
+
+// ---------------------------------------------------------------------------
+// WebRTC video (low-latency). The agent offers, streaming its desktop track;
+// the console answers. Signaling rides the same relay WebSocket. If it can't
+// connect (strict NAT with no TURN), we simply keep sending JPEG frames.
+// ---------------------------------------------------------------------------
+let pc = null;
+let rtcConnected = false;
+const ICE = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+];
+async function startRtc() {
+  closeRtc();
+  if (!stream) return;
+  try {
+    pc = new RTCPeerConnection({ iceServers: ICE });
+    for (const t of stream.getVideoTracks()) pc.addTrack(t, stream);
+    pc.onicecandidate = (e) => { if (e.candidate && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rtc-ice', candidate: e.candidate })); };
+    pc.onconnectionstatechange = () => {
+      if (!pc) return;
+      if (pc.connectionState === 'connected') { rtcConnected = true; log('WebRTC connected'); }
+      else if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) rtcConnected = false;
+    };
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rtc-offer', sdp: pc.localDescription }));
+  } catch (e) { log('rtc error: ' + e.message); closeRtc(); }
+}
+function closeRtc() { rtcConnected = false; if (pc) { try { pc.close(); } catch {} pc = null; } }
 
 // ---------------------------------------------------------------------------
 // Screen capture
@@ -264,6 +296,7 @@ async function startStreaming() {
   dynScale = 1; dynQ = JPEG_Q; fpSent = 0; fpSkip = 0;
   captureTimer = setInterval(sendFrame, 1000 / FPS);
   adaptTimer = setInterval(adaptTune, 2000);
+  startRtc(); // WebRTC takes over from JPEG once/if it connects
 }
 
 // Switch which monitor is streamed (and controlled).
@@ -273,6 +306,7 @@ async function switchMonitor(sourceId) {
   selectedBounds = m.bounds;
   try { await startCapture(sourceId); } catch (e) { log('switch error: ' + e.message); return; }
   if (ws) ws.send(JSON.stringify({ type: 'screen', w: canvas.width, h: canvas.height }));
+  startRtc(); // the capture stream changed — renegotiate with the new track
 }
 function stopStreaming() {
   streaming = false;
@@ -280,6 +314,7 @@ function stopStreaming() {
   window.agent.sessionState(false);
   if (captureTimer) { clearInterval(captureTimer); captureTimer = null; }
   if (adaptTimer) { clearInterval(adaptTimer); adaptTimer = null; }
+  closeRtc();
   stopCapture(); // release the screen capture so idle costs nothing
   // Safety: never leave the machine blanked or input-locked if the session ends.
   try { window.agent.op({ op: 'blank', reqId: 'auto-unblank', payload: { on: false } }); } catch {}
@@ -293,6 +328,7 @@ let encoding = false;
 const SEND_HIWATER = 24 * 1024;
 function sendFrame() {
   if (!streaming || !ws || ws.readyState !== ws.OPEN || !video.videoWidth || encoding) return;
+  if (rtcConnected) return; // WebRTC is carrying the video — no need for JPEG
   if (ws.bufferedAmount > SEND_HIWATER) { fpSkip++; return; } // link behind → drop, keep it live
   const tw = Math.max(480, Math.round(baseW * dynScale));
   const th = Math.max(270, Math.round(baseH * dynScale));

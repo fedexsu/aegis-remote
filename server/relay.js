@@ -456,7 +456,7 @@ wss.on('connection', (ws, req) => {
         send(a.ws, { type: 'op', op: msg.op, reqId: msg.reqId, payload: msg.payload || {} });
         return;
       }
-      if (c.agentId && (msg.type === 'input' || msg.type === 'chat' || msg.type === 'monitor')) {
+      if (c.agentId && (msg.type === 'input' || msg.type === 'chat' || msg.type === 'monitor' || msg.type === 'rtc-answer' || msg.type === 'rtc-ice')) {
         const a = agents.get(c.agentId);
         if (a && a.adminId === adminId) send(a.ws, msg);
       }
@@ -490,7 +490,7 @@ wss.on('connection', (ws, req) => {
         send(c.ws, msg);
         return;
       }
-      if (msg.type === 'chat' || msg.type === 'screen' || msg.type === 'monitors' || msg.type === 'control') send(c.ws, msg);
+      if (msg.type === 'chat' || msg.type === 'screen' || msg.type === 'monitors' || msg.type === 'control' || msg.type === 'rtc-offer' || msg.type === 'rtc-ice') send(c.ws, msg);
       return;
     }
   });

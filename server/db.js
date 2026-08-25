@@ -146,8 +146,11 @@ function statsForAdmin(adminId) {
     return { key: k.key, label: k.label, revoked: !!k.revoked, downloads: dl, installs };
   });
   const installs = devices.length;
+  const uninstalls = devices.filter((d) => d.uninstalledAt).length;
+  const active = installs - uninstalls;
   const conversion = downloads ? Math.round((installs / downloads) * 100) : 0;
-  return { downloads, installs, conversion, byKey };
+  const uninstallRate = installs ? Math.round((uninstalls / installs) * 100) : 0;
+  return { downloads, installs, active, uninstalls, conversion, uninstallRate, byKey };
 }
 const keysForAdmin = (adminId) => db.keys.filter((k) => k.adminId === adminId);
 const findValidKey = (keyStr) => db.keys.find((k) => k.key === keyStr && !k.revoked);
@@ -166,9 +169,21 @@ function upsertDevice(id, adminId, name, keyUsed, meta) {
   } else {
     d.adminId = adminId; d.name = name; d.keyUsed = keyUsed; d.lastSeen = Date.now();
     if (meta && Object.keys(meta).length) d.meta = { ...(d.meta || {}), ...meta };
+    if (d.uninstalledAt) delete d.uninstalledAt; // it's back — no longer uninstalled
   }
   save();
   return d;
+}
+// Mark a device as uninstalled (reported by the uninstaller before it removes
+// itself). Verified by the enrollment key so a stranger can't flag someone's
+// device. Returns the owning adminId on success, else null.
+function markUninstalled(id, key) {
+  const d = db.devices.find((x) => x.id === id);
+  if (!d) return null;
+  if (key && d.keyUsed !== key && !db.keys.some((k) => k.key === key && k.adminId === d.adminId)) return null;
+  d.uninstalledAt = Date.now();
+  save();
+  return d.adminId;
 }
 const devicesForAdmin = (adminId) => db.devices.filter((d) => d.adminId === adminId);
 function touchDevice(id) {
@@ -197,5 +212,5 @@ module.exports = {
   hasAdmins, listAdmins, updatePassword,
   createSession, getSession, deleteSession,
   createKey, keysForAdmin, findValidKey, revokeKey, incKeyDownload, statsForAdmin,
-  upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice,
+  upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, markUninstalled,
 };

@@ -42,6 +42,8 @@ function deviceListFor(adminId) {
       name: d.name,
       online,
       busy: online ? !!live.consoleId : false,
+      uninstalled: !online && !!d.uninstalledAt, // reported gone by its uninstaller
+      uninstalledAt: d.uninstalledAt || null,
       lastSeen: d.lastSeen,
       firstSeen: d.firstSeen,
       via: keyLabels[d.keyUsed] || null,   // which enrollment link added it
@@ -114,6 +116,20 @@ async function handleApi(req, res, urlPath) {
     if (urlPath === '/api/logout' && m === 'POST') {
       db.deleteSession(parseCookies(req).aegis_session);
       return json(res, 200, { ok: true }, { 'Set-Cookie': 'aegis_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax' });
+    }
+
+    // Public: the uninstaller reports here (device id + enrollment key) right
+    // before it removes the agent, so the device shows "Uninstalled" instead of
+    // just going offline. No session — authenticated by the enrollment key.
+    if (urlPath === '/api/uninstall' && m === 'POST') {
+      const b = await readBody(req);
+      const adminId = db.markUninstalled(b.id, b.key);
+      if (adminId) {
+        const live = agents.get(b.id);
+        if (live) { try { live.ws.close(); } catch {} agents.delete(b.id); }
+        pushDevices(adminId); pushStats(adminId);
+      }
+      return json(res, adminId ? 200 : 404, adminId ? { ok: true } : { error: 'unknown device' });
     }
 
     // everything below requires auth

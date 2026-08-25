@@ -157,10 +157,14 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .stat-num{font-size:30px;font-weight:700;margin-top:8px;letter-spacing:.5px}
 
 .stats.stats-3{grid-template-columns:repeat(3,1fr)}
+.stats.stats-4{grid-template-columns:repeat(4,1fr)}
+.stats.stats-auto{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 .stat-svg{width:17px;height:17px;color:var(--txt3)}
 .stat-svg.dl{color:var(--accent)}
 .stat-svg.in{color:var(--green)}
 .stat-svg.cv{color:#c08cff}
+.stat-svg.un{color:var(--red)}
+.stat-ic.uninstalled{color:var(--red)}
 .stat-foot{color:var(--txt3);font-size:11px;margin-top:4px}
 .stat-num.flash{animation:flashNum .6s ease}
 @keyframes flashNum{0%{color:var(--accent);transform:scale(1.12)}100%{color:var(--txt);transform:scale(1)}}
@@ -205,6 +209,11 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .st-busy{color:var(--amber)}
 .st-offline .status-dot{background:var(--txt3)}
 .st-offline{color:var(--txt3)}
+.st-uninstalled .status-dot{background:var(--red)}
+.st-uninstalled{color:var(--red)}
+.device.uninstalled{opacity:.72}
+.device.uninstalled .dev-badge{border-color:rgba(255,93,108,.35)}
+.device.uninstalled .dev-badge svg{color:var(--red)}
 @keyframes pulse{0%{box-shadow:0 0 0 0 var(--green-glow)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
 .dev-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin:14px 0;padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 .dm{min-width:0}

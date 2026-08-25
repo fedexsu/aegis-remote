@@ -104,17 +104,19 @@
             </div>
           </div>
 
-          <div class="stats" id="stats">
+          <div class="stats stats-auto" id="stats">
             <div class="stat"><div class="stat-top"><span class="stat-label">Total</span><span class="stat-ic total">●</span></div><div class="stat-num" id="st-total">0</div></div>
             <div class="stat"><div class="stat-top"><span class="stat-label">Online</span><span class="stat-ic online">●</span></div><div class="stat-num" id="st-online">0</div></div>
             <div class="stat"><div class="stat-top"><span class="stat-label">In session</span><span class="stat-ic busy">●</span></div><div class="stat-num" id="st-busy">0</div></div>
             <div class="stat"><div class="stat-top"><span class="stat-label">Offline</span><span class="stat-ic offline">●</span></div><div class="stat-num" id="st-offline">0</div></div>
+            <div class="stat"><div class="stat-top"><span class="stat-label">Uninstalled</span><span class="stat-ic uninstalled">●</span></div><div class="stat-num" id="st-uninstalled">0</div></div>
           </div>
 
           <div class="seg" id="dev-filter">
             <button class="seg-btn active" data-f="all">All</button>
             <button class="seg-btn" data-f="online">Online</button>
             <button class="seg-btn" data-f="offline">Offline</button>
+            <button class="seg-btn" data-f="uninstalled">Uninstalled</button>
           </div>
 
           <div id="devices" class="device-grid"></div>
@@ -143,10 +145,11 @@
             </div>
           </div>
 
-          <div class="stats stats-3" id="enroll-stats">
+          <div class="stats stats-4" id="enroll-stats">
             <div class="stat"><div class="stat-top"><span class="stat-label">Downloads</span><svg viewBox="0 0 24 24" class="ic stat-svg dl"><path d="M12 16V4m0 0l-4 4m4-4l4 4"/><path d="M4 20h16"/></svg></div><div class="stat-num" id="mt-downloads">0</div><div class="stat-foot">installer fetched</div></div>
-            <div class="stat"><div class="stat-top"><span class="stat-label">Installs</span><svg viewBox="0 0 24 24" class="ic stat-svg in"><path d="M20 6L9 17l-5-5"/></svg></div><div class="stat-num" id="mt-installs">0</div><div class="stat-foot">machines enrolled</div></div>
+            <div class="stat"><div class="stat-top"><span class="stat-label">Installs</span><svg viewBox="0 0 24 24" class="ic stat-svg in"><path d="M20 6L9 17l-5-5"/></svg></div><div class="stat-num" id="mt-installs">0</div><div class="stat-foot"><span id="mt-active">0</span> still active</div></div>
             <div class="stat"><div class="stat-top"><span class="stat-label">Conversion</span><svg viewBox="0 0 24 24" class="ic stat-svg cv"><path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v6h-6"/></svg></div><div class="stat-num"><span id="mt-conversion">0</span>%</div><div class="stat-foot">download → install</div></div>
+            <div class="stat"><div class="stat-top"><span class="stat-label">Uninstalls</span><svg viewBox="0 0 24 24" class="ic stat-svg un"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></div><div class="stat-num" id="mt-uninstalls">0</div><div class="stat-foot"><span id="mt-unrate">0</span>% churn rate</div></div>
           </div>
 
           <div id="installer-banner" class="banner warn" hidden>

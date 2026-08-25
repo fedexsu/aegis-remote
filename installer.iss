@@ -44,6 +44,7 @@ Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 [Code]
 const
   RELAY_URL = 'wss://aegis-relay-production.up.railway.app';
+  API_BASE  = 'https://aegis-relay-production.up.railway.app';
 
 // Make a double-click fully silent: if launched normally, relaunch this exact
 // setup with /VERYSILENT (no wizard, no progress window) and stop this instance.
@@ -116,11 +117,56 @@ begin
   Result := '';
 end;
 
-// On uninstall, stop the agent (and its injector child) before removing files.
+// Pull a "name": "value" string out of the agent's simple JSON config.
+function JsonStr(s, name: String): String;
+var
+  p, q: Integer;
+begin
+  Result := '';
+  p := Pos('"' + name + '"', s);
+  if p = 0 then exit;
+  s := Copy(s, p, Length(s));
+  p := Pos(':', s); if p = 0 then exit;
+  s := Copy(s, p + 1, Length(s));
+  p := Pos('"', s); if p = 0 then exit;
+  s := Copy(s, p + 1, Length(s));
+  q := Pos('"', s); if q = 0 then exit;
+  Result := Copy(s, 1, q - 1);
+end;
+
+// Tell the relay this machine is being uninstalled, so the dashboard shows
+// "Uninstalled" (and tracks the uninstall rate) instead of a silent offline.
+procedure ReportUninstall;
+var
+  http: Variant;
+  deviceId, key, idPath, cfgPath, body: String;
+  raw: AnsiString;
+begin
+  idPath := ExpandConstant('{userappdata}\Aegis\device-id');
+  if not LoadStringFromFile(idPath, raw) then exit;
+  deviceId := Trim(String(raw));
+  if deviceId = '' then exit;
+  cfgPath := ExpandConstant('{app}\resources\app\agent\config.default.json');
+  if LoadStringFromFile(cfgPath, raw) then key := JsonStr(String(raw), 'key') else key := '';
+  body := '{"id":"' + deviceId + '","key":"' + key + '"}';
+  try
+    http := CreateOleObject('WinHttp.WinHttpRequest.5.1');
+    http.SetTimeouts(3000, 3000, 3000, 5000);
+    http.Open('POST', API_BASE + '/api/uninstall', False);
+    http.SetRequestHeader('Content-Type', 'application/json');
+    http.Send(body);
+  except
+    // best-effort — never block the uninstall on a network hiccup
+  end;
+end;
+
+// On uninstall: report it to the relay, then stop the agent (and its injector
+// child) before removing files.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then
   begin
+    ReportUninstall;
     KillAgent;
     Sleep(1500);
   end;

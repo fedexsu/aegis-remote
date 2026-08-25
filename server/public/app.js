@@ -188,22 +188,32 @@ function connectWS() {
 // ---------------------------------------------------------------------------
 const DEV_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>';
 
-function statusOf(d) { return !d.online ? 'offline' : (d.busy ? 'busy' : 'online'); }
-function statusLabel(s) { return s === 'busy' ? 'In session' : s === 'online' ? 'Online' : 'Offline'; }
+function statusOf(d) {
+  if (d.online) return d.busy ? 'busy' : 'online';
+  if (d.uninstalled) return 'uninstalled';
+  return 'offline';
+}
+function statusLabel(s) {
+  return s === 'busy' ? 'In session' : s === 'online' ? 'Online' : s === 'uninstalled' ? 'Uninstalled' : 'Offline';
+}
 
 function renderDevices() {
   const list = devicesCache;
   const online = list.filter((d) => d.online).length;
   const busy = list.filter((d) => d.busy).length;
+  const uninstalled = list.filter((d) => d.uninstalled && !d.online).length;
   $('#st-total').textContent = list.length;
   $('#st-online').textContent = online;
   $('#st-busy').textContent = busy;
-  $('#st-offline').textContent = list.length - online;
+  $('#st-offline').textContent = list.length - online - uninstalled;
+  $('#st-uninstalled').textContent = uninstalled;
 
   const q = search.toLowerCase();
   const shown = list.filter((d) => {
+    const st = statusOf(d);
     if (filter === 'online' && !d.online) return false;
-    if (filter === 'offline' && d.online) return false;
+    if (filter === 'offline' && st !== 'offline') return false;
+    if (filter === 'uninstalled' && st !== 'uninstalled') return false;
     if (q) {
       const hay = (d.name + ' ' + (d.meta?.host || '') + ' ' + (d.meta?.os || '') + ' ' + (d.meta?.user || '')).toLowerCase();
       if (!hay.includes(q)) return false;
@@ -220,7 +230,7 @@ function renderDevices() {
     const st = statusOf(d);
     const m = d.meta || {};
     const el = document.createElement('div');
-    el.className = 'device' + (d.online ? ' online' : '');
+    el.className = 'device' + (d.online ? ' online' : '') + (st === 'uninstalled' ? ' uninstalled' : '');
     el.innerHTML = `
       <div class="dev-top">
         <div class="dev-badge">${DEV_SVG}</div>
@@ -255,7 +265,7 @@ function renderDevices() {
     el.querySelector('[data-f="user"]').textContent = m.user || '—';
     el.querySelector('[data-f="res"]').textContent = d.res || m.screen || '—';
     el.querySelector('[data-f="via"]').textContent = d.via || '—';
-    el.querySelector('[data-f="seen"]').textContent = d.online ? 'now' : relTime(d.lastSeen);
+    el.querySelector('[data-f="seen"]').textContent = d.online ? 'now' : (st === 'uninstalled' ? relTime(d.uninstalledAt) : relTime(d.lastSeen));
 
     const conn = el.querySelector('.connect');
     if (d.online && !d.busy) conn.addEventListener('click', () => attach(d.id));
@@ -356,7 +366,10 @@ function applyStats(s) {
   statsCache = s;
   setNum($('#mt-downloads'), s.downloads || 0);
   setNum($('#mt-installs'), s.installs || 0);
+  setNum($('#mt-active'), s.active != null ? s.active : (s.installs || 0));
   setNum($('#mt-conversion'), s.conversion || 0);
+  setNum($('#mt-uninstalls'), s.uninstalls || 0);
+  setNum($('#mt-unrate'), s.uninstallRate || 0);
   const map = {};
   for (const k of (s.byKey || [])) map[k.key] = k;
   $$('.linkrow').forEach((row) => {

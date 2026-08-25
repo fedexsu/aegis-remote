@@ -19,8 +19,14 @@ const ctx = canvas.getContext('2d');
 
 const CFG = {};
 const FPS = 15;
-const MAX_W = 1920; // near-native for typical 1080p screens
-const JPEG_Q = 0.72; // sharper than before; binary transport keeps it fast
+const MAX_W = 1920;   // capture ceiling; adaptive logic scales down from here
+const JPEG_Q = 0.72;  // max quality; adaptive logic lowers it on slow links
+// Adaptive streaming: on a fast link we send full-res high-quality frames; when
+// the uplink can't keep up (frames get dropped by backpressure) we shrink the
+// resolution/quality so the picture stays responsive instead of lagging.
+let baseW = 0, baseH = 0;
+let dynScale = 1, dynQ = JPEG_Q;
+let fpSent = 0, fpSkip = 0, adaptTimer = null;
 
 let enabled = true;       // master "should be online" flag (persisted)
 let DEVICE_ID = null;     // stable unique-per-install id
@@ -218,8 +224,10 @@ async function startCapture(sourceId) {
     video.onloadedmetadata = () => res();
   });
   const scale = Math.min(1, MAX_W / video.videoWidth);
-  canvas.width = Math.round(video.videoWidth * scale);
-  canvas.height = Math.round(video.videoHeight * scale);
+  baseW = Math.round(video.videoWidth * scale);
+  baseH = Math.round(video.videoHeight * scale);
+  canvas.width = baseW;
+  canvas.height = baseH;
 }
 
 async function startStreaming() {
@@ -253,7 +261,9 @@ async function startStreaming() {
     // can be blocked/removed by antivirus), so it's not a silent failure.
     try { const ok = await window.agent.getInjectorStatus(); ws.send(JSON.stringify({ type: 'control', available: !!ok })); } catch {}
   }
+  dynScale = 1; dynQ = JPEG_Q; fpSent = 0; fpSkip = 0;
   captureTimer = setInterval(sendFrame, 1000 / FPS);
+  adaptTimer = setInterval(adaptTune, 2000);
 }
 
 // Switch which monitor is streamed (and controlled).
@@ -269,6 +279,7 @@ function stopStreaming() {
   $('#banner').classList.remove('show');
   window.agent.sessionState(false);
   if (captureTimer) { clearInterval(captureTimer); captureTimer = null; }
+  if (adaptTimer) { clearInterval(adaptTimer); adaptTimer = null; }
   stopCapture(); // release the screen capture so idle costs nothing
   // Safety: never leave the machine blanked or input-locked if the session ends.
   try { window.agent.op({ op: 'blank', reqId: 'auto-unblank', payload: { on: false } }); } catch {}
@@ -282,16 +293,33 @@ let encoding = false;
 const SEND_HIWATER = 24 * 1024;
 function sendFrame() {
   if (!streaming || !ws || ws.readyState !== ws.OPEN || !video.videoWidth || encoding) return;
-  if (ws.bufferedAmount > SEND_HIWATER) return;
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  if (ws.bufferedAmount > SEND_HIWATER) { fpSkip++; return; } // link behind → drop, keep it live
+  const tw = Math.max(480, Math.round(baseW * dynScale));
+  const th = Math.max(270, Math.round(baseH * dynScale));
+  if (canvas.width !== tw || canvas.height !== th) { canvas.width = tw; canvas.height = th; }
+  ctx.drawImage(video, 0, 0, tw, th);
   encoding = true;
-  // Binary JPEG (no base64/JSON overhead) + async encode/send.
   canvas.toBlob((blob) => {
     encoding = false;
     if (!blob || !streaming || !ws || ws.readyState !== ws.OPEN) return;
-    if (ws.bufferedAmount > SEND_HIWATER) return;
-    blob.arrayBuffer().then((buf) => { try { ws.send(buf); } catch {} }).catch(() => {});
-  }, 'image/jpeg', JPEG_Q);
+    if (ws.bufferedAmount > SEND_HIWATER) { fpSkip++; return; }
+    blob.arrayBuffer().then((buf) => { try { ws.send(buf); fpSent++; } catch {} }).catch(() => {});
+  }, 'image/jpeg', dynQ);
+}
+// Re-tune every 2s based on how many frames the link is dropping.
+function adaptTune() {
+  const total = fpSent + fpSkip;
+  if (total >= 4) {
+    const skipRatio = fpSkip / total;
+    if (skipRatio > 0.35) {              // struggling → shrink to stay responsive
+      if (dynScale > 0.4) dynScale = Math.max(0.4, dynScale - 0.15);
+      else dynQ = Math.max(0.45, dynQ - 0.06);
+    } else if (skipRatio < 0.1) {        // headroom → climb back toward full quality
+      if (dynQ < JPEG_Q) dynQ = Math.min(JPEG_Q, dynQ + 0.06);
+      else if (dynScale < 1) dynScale = Math.min(1, dynScale + 0.12);
+    }
+  }
+  fpSent = 0; fpSkip = 0;
 }
 
 // ---------------------------------------------------------------------------

@@ -306,6 +306,7 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 /* ---------- terminal ---------- */
 .term-dot{width:9px;height:9px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
 .term-host{color:var(--txt3);font-size:12px;font-family:ui-monospace,Consolas,monospace}
+.term-hint{padding:8px 16px;background:rgba(79,140,255,.08);border-bottom:1px solid var(--line);color:var(--txt2);font-size:12px}
 .term-wrap{flex:1;overflow:auto;background:#05070c;padding:14px 16px}
 .term-out{margin:0;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;font-size:13px;line-height:1.5;color:#d3f7e0}
 .term-input-row{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--bg2);border-top:1px solid var(--line)}
@@ -370,6 +371,16 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .clip-row{display:flex;gap:10px}
 .clip-text{width:100%;min-height:280px;background:var(--panel);border:1px solid var(--line2);border-radius:var(--radius-sm);color:var(--txt);padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:13px;resize:vertical}
 .clip-text:focus{outline:none;border-color:var(--accent)}
+.power-pane{max-width:620px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+.power-keepawake{display:flex;align-items:center;justify-content:space-between;gap:16px;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+.pk-title{font-weight:700;font-size:14px}
+.pk-sub{color:var(--txt3);font-size:12px;margin-top:4px}
+.power-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.power-btn{display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 10px;border-radius:var(--radius);border:1px solid var(--line2);background:var(--panel3);color:var(--txt);font-weight:600;font-size:13px;cursor:pointer;transition:transform .12s,border-color .16s,background .16s}
+.power-btn:hover{transform:translateY(-2px);background:#20304a;border-color:#38507a}
+.power-btn .pb-ic{font-size:24px}
+.power-btn.warn:hover{border-color:var(--amber);background:rgba(245,181,68,.12)}
+.power-btn.danger:hover{border-color:var(--red);background:rgba(255,93,108,.12)}
 
 /* ===================================================================
    TOASTS

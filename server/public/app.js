@@ -675,11 +675,12 @@ $('#files-upload').addEventListener('change', (e) => { const f = e.target.files[
 // ---------------------------------------------------------------------------
 // System overlay: monitor / processes / clipboard (op channel)
 // ---------------------------------------------------------------------------
-let sysAgentId = null, monReqId = null, procAutoTimer = null, procData = [];
+let sysAgentId = null, monReqId = null, procAutoTimer = null, procData = [], sysDeviceMeta = {};
 const cpuHist = [], memHist = [];
 
 function openSystem(d) {
   sysAgentId = d.id;
+  sysDeviceMeta = d.meta || {};
   $('#sys-name').textContent = d.name;
   $('#sys-view').hidden = false;
   cpuHist.length = 0; memHist.length = 0;
@@ -704,6 +705,7 @@ function sysTab(name) {
   $$('.sys-tab').forEach((p) => (p.hidden = p.dataset.tabpage !== name));
   if (name === 'processes') refreshProcs();
   if (name === 'clipboard') getClip();
+  if (name === 'power') $('#keepawake-toggle').checked = !!sysDeviceMeta.keepAwake;
 }
 $$('.sys-tabs .seg-btn').forEach((b) => b.addEventListener('click', () => sysTab(b.dataset.tab)));
 $('#sys-back').addEventListener('click', closeSystem);
@@ -780,6 +782,30 @@ $('#clip-get').addEventListener('click', getClip);
 $('#clip-set').addEventListener('click', () => {
   sysOp('clip-set', { text: $('#clip-text').value }, { onResult: (m) => { if (m.ok) toast('Remote clipboard set', 'ok'); else toast(m.error || 'failed', 'err'); } });
 });
+
+// --- power controls + keep-awake ---
+$('#keepawake-toggle').addEventListener('change', (e) => {
+  const on = e.target.checked;
+  sysOp('keepawake', { on }, { onResult: (m) => {
+    if (m.ok) { sysDeviceMeta.keepAwake = m.data.keepAwake; toast(m.data.keepAwake ? 'Keep-awake ON' : 'Keep-awake OFF', 'ok'); }
+    else { e.target.checked = !on; toast(m.error || 'failed', 'err'); }
+  } });
+});
+const POWER_LABEL = { lock: 'Lock', logoff: 'Sign out', sleep: 'Sleep', restart: 'Restart', shutdown: 'Shut down' };
+const POWER_CONFIRM = {
+  restart: 'Restart the remote PC now? It will reconnect automatically at login.',
+  shutdown: 'Shut down the remote PC now? You will NOT be able to power it back on remotely.',
+  sleep: 'Put the remote PC to sleep now? It will disconnect.',
+};
+$$('.power-btn').forEach((b) => b.addEventListener('click', async () => {
+  const action = b.dataset.power;
+  const label = POWER_LABEL[action] || action;
+  if (POWER_CONFIRM[action]) {
+    const ok = await modal({ title: label + '?', message: POWER_CONFIRM[action], confirmText: label, danger: action !== 'sleep' });
+    if (!ok) return;
+  }
+  sysOp('power', { action }, { onResult: (m) => { if (m.ok) toast(label + ' command sent', 'ok'); else toast(m.error || 'failed', 'err'); } });
+}));
 
 // ---------------------------------------------------------------------------
 // Control session

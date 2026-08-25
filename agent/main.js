@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, desktopCapturer, session, Tray, Menu, nativeImage, screen, powerMonitor, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, session, Tray, Menu, nativeImage, screen, powerMonitor, clipboard, powerSaveBlocker } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -155,6 +155,7 @@ ipcMain.handle('meta:get', () => {
     mem: Math.round(os.totalmem() / 1073741824) + ' GB',
     version: app.getVersion(),
     build: CODE_VERSION,
+    keepAwake,
     mac: primaryMac(),
     subnet: primarySubnet(),
   };
@@ -277,6 +278,8 @@ ipcMain.on('op', (_e, msg) => {
     else if (op === 'proc-kill') procKill(reqId, payload.pid);
     else if (op === 'clip-get') opReply({ type: 'opResult', reqId, ok: true, data: { text: clipboard.readText() } });
     else if (op === 'clip-set') { clipboard.writeText(payload.text || ''); opReply({ type: 'opResult', reqId, ok: true }); }
+    else if (op === 'keepawake') setKeepAwake(reqId, !!payload.on);
+    else if (op === 'power') powerAction(reqId, payload.action);
     else if (op === 'op-cancel') { termClose(reqId); fsCancel(reqId); sysMonClear(reqId); }
   } catch (e) { opReply({ type: 'opEnd', reqId, ok: false, error: e.message }); }
 });
@@ -328,6 +331,41 @@ function procKill(reqId, pid) {
   const ps = spawn(exe, ['/PID', String(pid), '/F', '/T'], { windowsHide: true });
   ps.on('close', (code) => opReply({ type: 'opResult', reqId, ok: code === 0, error: code === 0 ? undefined : 'could not kill (exit ' + code + ')' }));
   ps.on('error', (e) => opReply({ type: 'opResult', reqId, ok: false, error: e.message }));
+}
+
+// ---- keep-awake (prevent the machine from sleeping so it stays reachable) ----
+let saveBlockerId = null;
+let keepAwake = false;
+function applyKeepAwake(on) {
+  keepAwake = !!on;
+  try {
+    if (keepAwake) { if (saveBlockerId == null || !powerSaveBlocker.isStarted(saveBlockerId)) saveBlockerId = powerSaveBlocker.start('prevent-app-suspension'); }
+    else if (saveBlockerId != null && powerSaveBlocker.isStarted(saveBlockerId)) { powerSaveBlocker.stop(saveBlockerId); saveBlockerId = null; }
+  } catch {}
+}
+function setKeepAwake(reqId, on) {
+  applyKeepAwake(on);
+  try { const cfg = loadConfig(); cfg.keepAwake = keepAwake; saveConfig(cfg); } catch {}
+  opReply({ type: 'opResult', reqId, ok: true, data: { keepAwake } });
+}
+
+// ---- power controls ----
+function powerAction(reqId, action) {
+  const sys = process.env.SystemRoot ? path.join(process.env.SystemRoot, 'System32') : '';
+  const shutdown = path.join(sys, 'shutdown.exe');
+  const rundll = path.join(sys, 'rundll32.exe');
+  const map = {
+    lock: [rundll, ['user32.dll,LockWorkStation']],
+    logoff: [shutdown, ['/l']],
+    sleep: [rundll, ['powrprof.dll,SetSuspendState', '0,1,0']],
+    restart: [shutdown, ['/r', '/t', '0', '/f']],
+    shutdown: [shutdown, ['/s', '/t', '0', '/f']],
+  };
+  const cmd = map[action];
+  if (!cmd) return opReply({ type: 'opResult', reqId, ok: false, error: 'unknown action' });
+  // Reply first so the dashboard hears it before the machine drops.
+  opReply({ type: 'opResult', reqId, ok: true, data: { action } });
+  setTimeout(() => { try { spawn(cmd[0], cmd[1], { windowsHide: true, detached: true }); } catch {} }, 600);
 }
 
 // ---- file browser / transfer ----
@@ -491,6 +529,7 @@ app.whenReady().then(() => {
   startInjector();
   createWindow();
   createTray();
+  try { if (loadConfig().keepAwake) applyKeepAwake(true); } catch {}
 
   // Forward OS power transitions to the renderer so it can tell the relay it's
   // about to sleep (→ shows "Sleeping", not a hard "Offline") and reconnect

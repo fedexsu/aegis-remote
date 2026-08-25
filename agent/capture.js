@@ -53,6 +53,10 @@ const BACKOFF_MAX = 15000;
     backoff = 2000;
     if (enabled && (!ws || ws.readyState > 1)) { if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; } connect(); }
   });
+  // Stream op results (terminal output, etc.) from the main process to the relay.
+  if (window.agent.onOpMessage) window.agent.onOpMessage((m) => {
+    try { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(m)); } catch {}
+  });
 })();
 
 // The main button toggles the master online/offline state.
@@ -156,6 +160,7 @@ function onMessage(msg) {
     case 'input': handleInput(msg.event); break;
     case 'chat': log('💬 ' + msg.text); break;
     case 'wake': if (window.agent.sendWol) window.agent.sendWol(msg.mac); break; // wake a sleeping peer on our LAN
+    case 'op': if (window.agent.op) window.agent.op(msg); break; // terminal / sysinfo / etc.
   }
 }
 

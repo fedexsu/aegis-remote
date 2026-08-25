@@ -219,6 +219,25 @@
             <canvas id="screen" tabindex="0"></canvas>
           </div>
         </div>
+
+        <!-- ===== TERMINAL OVERLAY ===== -->
+        <div id="term-view" class="control-view" hidden>
+          <div class="session-bar">
+            <button id="term-back" class="btn ghost small">
+              <svg viewBox="0 0 24 24" class="ic"><path d="M15 6l-6 6 6 6"/></svg> Devices
+            </button>
+            <span class="term-dot"></span>
+            <span id="term-name" class="sess-name"></span>
+            <span class="term-host" id="term-host"></span>
+            <span class="spacer"></span>
+            <button id="term-clear" class="btn ghost small">Clear</button>
+          </div>
+          <div class="term-wrap"><pre id="term-out" class="term-out"></pre></div>
+          <div class="term-input-row">
+            <span class="term-prompt">›</span>
+            <input id="term-input" class="term-input" placeholder="Type a command and press Enter…" autocomplete="off" autocapitalize="off" spellcheck="false" />
+          </div>
+        </div>
       </main>
     </div>
 

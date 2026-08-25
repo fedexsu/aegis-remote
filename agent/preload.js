@@ -17,4 +17,6 @@ contextBridge.exposeInMainWorld('agent', {
   onSuspend: (cb) => ipcRenderer.on('power:suspend', () => cb()),
   onResume: (cb) => ipcRenderer.on('power:resume', () => cb()),
   sendWol: (mac) => ipcRenderer.invoke('wol:send', mac),
+  op: (msg) => ipcRenderer.send('op', msg),
+  onOpMessage: (cb) => ipcRenderer.on('op:msg', (_e, m) => cb(m)),
 });

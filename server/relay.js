@@ -26,6 +26,7 @@ const INSTALLER_PATH = process.env.INSTALLER_PATH || path.join(__dirname, '..', 
 // ---------------------------------------------------------------------------
 const agents = new Map();   // deviceId -> { ws, name, adminId, consoleId }
 const consoles = new Map(); // consoleId -> { ws, adminId, agentId }
+const opRoutes = new Map(); // reqId -> { consoleId, agentId } — routes op replies back
 let seq = 1;
 
 function send(ws, obj) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj)); }
@@ -345,6 +346,15 @@ wss.on('connection', (ws, req) => {
         return;
       }
       if (msg.type === 'detach') { detachConsole(id); send(ws, { type: 'agents', list: deviceListFor(adminId) }); return; }
+      // Generic op channel (terminal, sysinfo, processes, files…) addressed to a
+      // device by id — no screen attach required. Replies route back by reqId.
+      if (msg.type === 'op') {
+        const a = agents.get(msg.agentId);
+        if (!a || a.adminId !== adminId) { send(ws, { type: 'opEnd', reqId: msg.reqId, ok: false, error: 'device offline' }); return; }
+        opRoutes.set(msg.reqId, { consoleId: id, agentId: msg.agentId });
+        send(a.ws, { type: 'op', op: msg.op, reqId: msg.reqId, payload: msg.payload || {} });
+        return;
+      }
       if (c.agentId && (msg.type === 'input' || msg.type === 'chat' || msg.type === 'monitor')) {
         const a = agents.get(c.agentId);
         if (a && a.adminId === adminId) send(a.ws, msg);
@@ -358,6 +368,13 @@ wss.on('connection', (ws, req) => {
       // The agent warns us it's about to sleep, so the imminent disconnect is
       // read as "sleeping" rather than a hard offline.
       if (msg.type === 'suspend') { a.suspendHint = Date.now(); return; }
+      // Op replies from the agent → route back to the console that asked.
+      if (msg.type === 'opStream' || msg.type === 'opResult' || msg.type === 'opEnd') {
+        const route = opRoutes.get(msg.reqId);
+        if (route) { const c = consoles.get(route.consoleId); if (c) send(c.ws, msg); }
+        if (msg.type !== 'opStream') opRoutes.delete(msg.reqId);
+        return;
+      }
       if (msg.type === 'screen') { a.screen = { w: msg.w, h: msg.h }; }
       db.touchDevice(id);
       if (!a.consoleId) return;
@@ -379,6 +396,13 @@ wss.on('connection', (ws, req) => {
       if (adminId) pushDevices(adminId);
     } else if (role === 'console') {
       detachConsole(id);
+      // Cancel this console's open ops so the agent tears down any live shells.
+      for (const [reqId, route] of opRoutes) {
+        if (route.consoleId !== id) continue;
+        const a = agents.get(route.agentId);
+        if (a) send(a.ws, { type: 'op', op: 'op-cancel', reqId, payload: {} });
+        opRoutes.delete(reqId);
+      }
       consoles.delete(id);
     }
   });

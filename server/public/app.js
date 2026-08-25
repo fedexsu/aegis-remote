@@ -178,6 +178,8 @@ function connectWS() {
       case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); break;
       case 'error': toast(msg.text, 'err'); break;
       case 'info': toast(msg.text, 'ok'); break;
+      case 'opStream': onOpStream(msg); break;
+      case 'opEnd': onOpEnd(msg); break;
       case 'denied': showAuth(); break;
     }
   };
@@ -255,6 +257,7 @@ function renderDevices() {
       </div>
       <div class="dev-actions">
         <button class="btn primary connect" ${d.online && !d.busy ? '' : 'disabled style="opacity:.5;cursor:not-allowed"'}>${d.busy ? 'In use' : (st === 'sleep' ? 'Asleep' : 'Connect')}</button>
+        ${d.online ? `<button class="btn ghost icon-btn term" title="Terminal"><svg viewBox="0 0 24 24" class="ic"><path d="M4 5h16v14H4z"/><path d="M8 9.5l2.5 2.5L8 14.5M13 15h3.5"/></svg></button>` : ''}
         <button class="btn ghost icon-btn rename" title="Rename">
           <svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
         </button>
@@ -273,6 +276,8 @@ function renderDevices() {
 
     const conn = el.querySelector('.connect');
     if (conn && d.online && !d.busy) conn.addEventListener('click', () => attach(d.id));
+    const termBtn = el.querySelector('.term');
+    if (termBtn) termBtn.addEventListener('click', () => openTerminal(d));
     el.querySelector('.rename').addEventListener('click', () => renameDevice(d));
     el.querySelector('.del').addEventListener('click', () => removeDevice(d));
     box.appendChild(el);
@@ -451,6 +456,56 @@ $('#gen-account').addEventListener('click', async () => {
     $$('[data-c]', out).forEach((b) => b.addEventListener('click', () => { navigator.clipboard.writeText($('#' + b.dataset.c, out).textContent); toast('Copied', 'ok'); }));
     loadAccounts();
   } catch (e) { toast(e.message, 'err'); }
+});
+
+// ---------------------------------------------------------------------------
+// Remote terminal (op channel)
+// ---------------------------------------------------------------------------
+let termReqId = null, termAgentId = null;
+const newReqId = () => (crypto && crypto.randomUUID ? crypto.randomUUID() : 'r' + Date.now() + Math.round(Math.random() * 1e6));
+const stripAnsi = (s) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+
+function openTerminal(d) {
+  termReqId = newReqId();
+  termAgentId = d.id;
+  $('#term-name').textContent = d.name;
+  $('#term-host').textContent = (d.meta && d.meta.os) ? d.meta.os : '';
+  $('#term-out').textContent = '';
+  $('#term-view').hidden = false;
+  sendOp('term-open', {});
+  setTimeout(() => $('#term-input').focus(), 50);
+}
+function closeTerminal() {
+  if (termReqId) sendOp('term-close', {});
+  termReqId = null; termAgentId = null;
+  $('#term-view').hidden = true;
+}
+function sendOp(op, payload) {
+  if (ws && ws.readyState === ws.OPEN && termReqId) {
+    ws.send(JSON.stringify({ type: 'op', agentId: termAgentId, op, reqId: termReqId, payload: payload || {} }));
+  }
+}
+function termAppend(text) {
+  const out = $('#term-out');
+  const atBottom = out.parentElement.scrollTop + out.parentElement.clientHeight >= out.parentElement.scrollHeight - 40;
+  out.textContent += stripAnsi(text);
+  if (atBottom) out.parentElement.scrollTop = out.parentElement.scrollHeight;
+}
+function onOpStream(msg) { if (msg.reqId === termReqId) termAppend(msg.chunk || ''); }
+function onOpEnd(msg) {
+  if (msg.reqId !== termReqId) return;
+  termAppend(msg.ok === false ? `\n[error: ${msg.error || 'session ended'}]\n` : '\n[session closed]\n');
+  termReqId = null;
+}
+$('#term-back').addEventListener('click', closeTerminal);
+$('#term-clear').addEventListener('click', () => { $('#term-out').textContent = ''; });
+$('#term-input').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const line = e.target.value;
+  e.target.value = '';
+  if (!termReqId) { termAppend('\n[session closed — reopen the terminal]\n'); return; }
+  sendOp('term-input', { data: line + '\r\n' });
 });
 
 // ---------------------------------------------------------------------------

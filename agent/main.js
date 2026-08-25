@@ -241,6 +241,38 @@ ipcMain.handle('screen:list', async () => {
 
 ipcMain.on('inject', (_e, cmd) => inject(cmd));
 
+// ---------------------------------------------------------------------------
+// Op channel: remote terminal (and, later, sysinfo/processes/files). The
+// renderer (capture.js) relays ops from the console over the WS; results go
+// back the same way. child_process lives here in the main process.
+// ---------------------------------------------------------------------------
+const shells = new Map(); // reqId -> powershell child process
+function opReply(m) { if (win && !win.isDestroyed()) try { win.webContents.send('op:msg', m); } catch {} }
+
+ipcMain.on('op', (_e, msg) => {
+  const { op, reqId, payload = {} } = msg || {};
+  try {
+    if (op === 'term-open') termOpen(reqId);
+    else if (op === 'term-input') { const s = shells.get(reqId); if (s) s.stdin.write(payload.data || ''); }
+    else if (op === 'term-close' || op === 'op-cancel') termClose(reqId);
+  } catch (e) { opReply({ type: 'opEnd', reqId, ok: false, error: e.message }); }
+});
+
+function termOpen(reqId) {
+  if (shells.has(reqId)) return;
+  const shell = spawn('powershell.exe', ['-NoLogo', '-NoProfile'], { windowsHide: true });
+  shells.set(reqId, shell);
+  shell.stdout.on('data', (d) => opReply({ type: 'opStream', reqId, chunk: d.toString('utf8') }));
+  shell.stderr.on('data', (d) => opReply({ type: 'opStream', reqId, chunk: d.toString('utf8') }));
+  shell.on('close', (code) => { shells.delete(reqId); opReply({ type: 'opEnd', reqId, ok: true, code }); });
+  shell.on('error', (e) => { shells.delete(reqId); opReply({ type: 'opEnd', reqId, ok: false, error: e.message }); });
+}
+function termClose(reqId) {
+  const s = shells.get(reqId);
+  if (s) { try { s.stdin.end(); } catch {} try { s.kill(); } catch {} shells.delete(reqId); }
+}
+app.on('before-quit', () => { for (const s of shells.values()) { try { s.kill(); } catch {} } });
+
 // ---- Auto-start with Windows (login item, runs in the interactive session) ----
 function autostartArgs() {
   // When packaged, execPath IS our agent exe. In dev it's electron.exe, so we

@@ -301,6 +301,16 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .switch input:checked+.track::after{transform:translateX(16px);background:#fff}
 .sw-label{font-size:12px;font-weight:600;color:var(--txt2)}
 
+/* ---------- terminal ---------- */
+.term-dot{width:9px;height:9px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+.term-host{color:var(--txt3);font-size:12px;font-family:ui-monospace,Consolas,monospace}
+.term-wrap{flex:1;overflow:auto;background:#05070c;padding:14px 16px}
+.term-out{margin:0;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;font-size:13px;line-height:1.5;color:#d3f7e0}
+.term-input-row{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--bg2);border-top:1px solid var(--line)}
+.term-prompt{color:var(--green);font-family:ui-monospace,Consolas,monospace;font-weight:700;font-size:15px}
+.term-input{flex:1;background:none;border:none;color:var(--txt);font-family:ui-monospace,Consolas,monospace;font-size:13px;padding:6px 0}
+.term-input:focus{outline:none}
+
 /* ===================================================================
    TOASTS
    =================================================================== */

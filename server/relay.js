@@ -280,6 +280,10 @@ async function handleApi(req, res, urlPath) {
       const b = await readBody(req);
       return json(res, 200, { ok: db.revokeKey(admin.id, b.key) });
     }
+    if (urlPath === '/api/keys/unrevoke' && m === 'POST') {
+      const b = await readBody(req);
+      return json(res, 200, { ok: db.unrevokeKey(admin.id, b.key) });
+    }
     if (urlPath === '/api/alerts' && m === 'GET') return json(res, 200, { alerts: db.getAlerts(admin.id) });
     if (urlPath === '/api/alerts' && m === 'POST') {
       const b = await readBody(req);

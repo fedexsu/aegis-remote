@@ -184,6 +184,11 @@ function revokeKey(adminId, keyStr) {
   if (k) { k.revoked = true; save(); }
   return !!k;
 }
+function unrevokeKey(adminId, keyStr) {
+  const k = db.keys.find((x) => x.key === keyStr && x.adminId === adminId);
+  if (k) { k.revoked = false; save(); }
+  return !!k;
+}
 
 // ---- devices ----
 function upsertDevice(id, adminId, name, keyUsed, meta) {
@@ -245,7 +250,7 @@ module.exports = {
   createAdmin, findAdminByEmail, findAdminById, publicAdmin, verifyPassword,
   hasAdmins, listAdmins, updatePassword,
   createSession, getSession, deleteSession,
-  createKey, keysForAdmin, findValidKey, revokeKey, incKeyDownload, statsForAdmin,
+  createKey, keysForAdmin, findValidKey, revokeKey, unrevokeKey, incKeyDownload, statsForAdmin,
   getAlerts, setAlerts,
   upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, markUninstalled, setAsleep,
 };

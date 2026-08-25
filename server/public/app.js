@@ -402,6 +402,11 @@ async function loadKeys() {
       const acts = row.querySelector('.link-actions');
       if (k.revoked) {
         acts.innerHTML = '<span class="tag revoked">Revoked</span>';
+        const un = document.createElement('button');
+        un.className = 'btn ghost small'; un.textContent = 'Re-activate';
+        un.title = 'Turn this link back on (reconnects machines enrolled with it, after they restart)';
+        un.addEventListener('click', async () => { await api('/api/keys/unrevoke', 'POST', { key: k.key }); toast('Link re-activated', 'ok'); loadKeys(); });
+        acts.appendChild(un);
       } else {
         const copy = document.createElement('button');
         copy.className = 'btn ghost small'; copy.textContent = 'Copy link';
@@ -409,7 +414,7 @@ async function loadKeys() {
         const rev = document.createElement('button');
         rev.className = 'btn danger small'; rev.textContent = 'Revoke';
         rev.addEventListener('click', async () => {
-          const ok = await modal({ title: 'Revoke link?', message: `"${k.label}" will stop working for new installs.`, confirmText: 'Revoke', danger: true });
+          const ok = await modal({ title: 'Revoke link?', message: `⚠ This disconnects EVERY device already installed with "${k.label}" — they'll drop offline immediately and can't reconnect until you re-activate the link. Only revoke if you want to cut those machines off.`, confirmText: 'Revoke', danger: true });
           if (!ok) return;
           await api('/api/keys/revoke', 'POST', { key: k.key }); toast('Link revoked', 'ok'); loadKeys();
         });

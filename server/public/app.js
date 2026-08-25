@@ -947,6 +947,7 @@ function onAttached(msg) {
   $('#ctl-warn').hidden = true;
   blankOn = false; updateBlankBtn();
   lockOn = false; updateLockBtn();
+  setRtcMode('connecting');
   $('#control-view').hidden = false;
   if (msg.screen) { frameW = msg.screen.w; frameH = msg.screen.h; }
   canvas.focus();
@@ -971,6 +972,7 @@ img.onload = () => {
 function drawFrame(msg) { img.src = 'data:image/jpeg;base64,' + msg.data; } // legacy (pre-binary agents)
 let decoding = false;
 function drawBinaryFrame(buf) {
+  if (!$('#screen-wrap').classList.contains('rtc') && !$('#rtc-mode').classList.contains('sd')) setRtcMode('sd'); // JPEG path active
   if (decoding) return; // never queue decodes — always render the freshest frame
   decoding = true;
   const blob = new Blob([buf], { type: 'image/jpeg' });
@@ -998,6 +1000,13 @@ function fit() {
 // ---------------------------------------------------------------------------
 let rtcPc = null;
 let rtcIceServers = null; // provided by the relay on 'attached' (STUN + TURN)
+function setRtcMode(mode) {
+  const el = $('#rtc-mode');
+  el.classList.remove('hd', 'sd');
+  if (mode === 'hd') { el.classList.add('hd'); el.textContent = '⚡ HD · WebRTC'; }
+  else if (mode === 'sd') { el.classList.add('sd'); el.textContent = 'SD · compatibility'; }
+  else el.textContent = 'Connecting…';
+}
 const RTC_ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
 async function onRtcOffer(msg) {
   closeConsoleRtc();
@@ -1012,13 +1021,15 @@ async function onRtcOffer(msg) {
         if (canvas.width !== frameW) { canvas.width = frameW; canvas.height = frameH; }
         ctx.clearRect(0, 0, canvas.width, canvas.height); // wipe last JPEG so the video shows through
         $('#screen-wrap').classList.add('rtc'); // show video, canvas goes transparent
+        setRtcMode('hd');
         fit();
       };
       v.play().catch(() => {});
     };
     rtcPc.onconnectionstatechange = () => {
       if (!rtcPc) return;
-      if (['failed', 'disconnected', 'closed'].includes(rtcPc.connectionState)) { $('#screen-wrap').classList.remove('rtc'); }
+      if (rtcPc.connectionState === 'connected') setRtcMode('hd');
+      else if (['failed', 'disconnected', 'closed'].includes(rtcPc.connectionState)) { $('#screen-wrap').classList.remove('rtc'); setRtcMode('sd'); }
     };
     await rtcPc.setRemoteDescription(msg.sdp);
     const answer = await rtcPc.createAnswer();

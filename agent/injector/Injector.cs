@@ -40,6 +40,11 @@ class Injector {
   // keeps control while the person at the machine can't interfere.
   [DllImport("user32.dll")]
   static extern bool BlockInput(bool fBlockIt);
+  // Set a window's display affinity. WDA_EXCLUDEFROMCAPTURE (0x11) shows the
+  // window on the physical monitor but hides it from screen capture — used to
+  // black out the local screen while the technician still sees the real desktop.
+  [DllImport("user32.dll")]
+  static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
 
   static void SendMouse(uint flags, int dx, int dy, uint data) {
     INPUT[] inp = new INPUT[1];
@@ -91,6 +96,7 @@ class Injector {
           }
           case "W": SendMouse(MOUSEEVENTF_WHEEL, 0, 0, unchecked((uint)int.Parse(p[1], ci))); break;
           case "B": BlockInput(p[1] == "1"); break;   // lock/unlock local input
+          case "AFF": SetWindowDisplayAffinity((IntPtr)long.Parse(p[1], ci), uint.Parse(p[2], ci)); break;
           case "K": SendKey((ushort)int.Parse(p[1], ci), 0, p[2] == "1" ? 0 : KEYEVENTF_KEYUP); break;
           case "T": {
             ushort u = (ushort)int.Parse(p[1], ci);

@@ -398,10 +398,17 @@ function setBlank(on) {
         minimizable: false, maximizable: false, fullscreenable: false, show: false,
         hasShadow: false, thickFrame: false, webPreferences: {},
       });
-      try { w.setContentProtection(true); } catch {}   // WDA_EXCLUDEFROMCAPTURE
       try { w.setIgnoreMouseEvents(true); } catch {}    // injected/local mouse passes through
       w.loadURL('data:text/html,<body style="margin:0;height:100vh;background:#000"></body>');
       w.showInactive();
+      // Hide the black window from OUR capture via WDA_EXCLUDEFROMCAPTURE (0x11),
+      // set on the real HWND through the injector. (Electron's setContentProtection
+      // applies WDA_MONITOR instead, which shows black in the capture — the bug.)
+      try {
+        const h = w.getNativeWindowHandle();
+        const hwnd = (h.length >= 8 ? h.readBigUInt64LE() : BigInt(h.readUInt32LE())).toString();
+        inject('AFF ' + hwnd + ' 17');
+      } catch {}
       // Force it above the taskbar, Start menu and any fullscreen app.
       try { w.setBounds(b); } catch {}
       try { w.setAlwaysOnTop(true, 'screen-saver', 1); } catch {}

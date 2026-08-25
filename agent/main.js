@@ -18,6 +18,11 @@ const DEFAULT_CONFIG = {
 // Launched by the OS auto-start entry? Then start hidden (to tray).
 const STARTED_HIDDEN = process.argv.includes('--startup');
 
+// This build's agent code version (used for self-update). Bump agent/version.json
+// + rebuild the bundle to roll an update to every installed agent.
+let CODE_VERSION = 0;
+try { CODE_VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, 'version.json'), 'utf8')).codeVersion || 0; } catch {}
+
 // Deployment defaults baked into the build/installer (relay URL + key), so a
 // freshly installed agent auto-connects with zero setup by the end user.
 function bundledDefaults() {
@@ -149,6 +154,7 @@ ipcMain.handle('meta:get', () => {
     cpu: cpu.trim(),
     mem: Math.round(os.totalmem() / 1073741824) + ' GB',
     version: app.getVersion(),
+    build: CODE_VERSION,
     mac: primaryMac(),
     subnet: primarySubnet(),
   };
@@ -273,6 +279,52 @@ function termClose(reqId) {
 }
 app.on('before-quit', () => { for (const s of shells.values()) { try { s.kill(); } catch {} } });
 
+// ---------------------------------------------------------------------------
+// Self-update: fetch the latest agent JS bundle from the (baked, trusted) relay
+// over HTTPS, hot-swap the JS files, and relaunch. No reinstall, no re-upload.
+// Only the agent's own JS is updated — config (relay/key) and the compiled
+// injector are left untouched.
+// ---------------------------------------------------------------------------
+let updating = false;
+function relayHttpBase() {
+  const cfg = loadConfig();
+  return (cfg.relay || '').replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://');
+}
+function httpGetJson(url) {
+  return new Promise((resolve, reject) => {
+    const lib = url.startsWith('https') ? require('https') : require('http');
+    const r = lib.get(url, (res) => {
+      let b = '';
+      res.on('data', (c) => { b += c; if (b.length > 20e6) r.destroy(); });
+      res.on('end', () => { try { resolve(JSON.parse(b)); } catch (e) { reject(e); } });
+    });
+    r.on('error', reject);
+    r.setTimeout(15000, () => r.destroy(new Error('timeout')));
+  });
+}
+async function checkForUpdate() {
+  if (updating) return;
+  const base = relayHttpBase();
+  if (!base) return;
+  try {
+    const data = await httpGetJson(`${base}/api/agent-update?have=${CODE_VERSION}`);
+    if (!data || data.upToDate || !data.files || !(data.version > CODE_VERSION)) return;
+    // Sanity: every file must be non-empty before we overwrite anything.
+    const entries = Object.entries(data.files);
+    if (!entries.length || entries.some(([, c]) => typeof c !== 'string' || !c.length)) return;
+    updating = true;
+    for (const [name, content] of entries) {
+      const dest = path.join(__dirname, name);
+      const tmp = dest + '.new';
+      fs.writeFileSync(tmp, content);
+      fs.renameSync(tmp, dest); // atomic swap
+    }
+    // Relaunch into the new code (hidden, like autostart).
+    app.relaunch({ args: ['--startup'] });
+    app.exit(0);
+  } catch { /* offline or relay down — try again on the next tick */ }
+}
+
 // ---- Auto-start with Windows (login item, runs in the interactive session) ----
 function autostartArgs() {
   // When packaged, execPath IS our agent exe. In dev it's electron.exe, so we
@@ -323,6 +375,11 @@ app.whenReady().then(() => {
   // immediately on resume.
   powerMonitor.on('suspend', () => { if (win) try { win.webContents.send('power:suspend'); } catch {} });
   powerMonitor.on('resume', () => { if (win) try { win.webContents.send('power:resume'); } catch {} });
+
+  // Self-update: check shortly after start, on every resume, and every 30 min.
+  setTimeout(checkForUpdate, 15000);
+  setInterval(checkForUpdate, 30 * 60 * 1000);
+  powerMonitor.on('resume', () => setTimeout(checkForUpdate, 8000));
 });
 
 app.on('before-quit', () => { app.isQuitting = true; if (injector) try { injector.kill(); } catch {} });

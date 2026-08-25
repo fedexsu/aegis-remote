@@ -25,6 +25,9 @@ function sign(file) {
   run('powershell', ['-ExecutionPolicy', 'Bypass', '-File', 'signing/sign.ps1', file]);
 }
 
+console.log('0/4  Building agent self-update bundle...');
+run(process.execPath, ['scripts/build-agent-bundle.js']);
+
 console.log('1/4  Building agent...');
 run(process.execPath, ['build-agent.js']);
 

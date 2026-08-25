@@ -21,6 +21,12 @@ const PORT = process.env.PORT || 8443;
 const PUBLIC = path.join(__dirname, 'public');
 const INSTALLER_PATH = process.env.INSTALLER_PATH || path.join(__dirname, '..', 'release', 'AegisSetup.exe');
 
+// Agent self-update bundle (built by scripts/build-agent-bundle.js). Agents poll
+// /api/agent-update and hot-swap their JS to this version — no reinstall.
+let AGENT_BUNDLE = { version: 0, files: {} };
+try { AGENT_BUNDLE = JSON.parse(fs.readFileSync(path.join(__dirname, 'agent-bundle.json'), 'utf8')); }
+catch { /* no bundle shipped */ }
+
 // ---------------------------------------------------------------------------
 // Live connection state (online status); durable data lives in db.js.
 // ---------------------------------------------------------------------------
@@ -119,6 +125,14 @@ async function handleApi(req, res, urlPath) {
     if (urlPath === '/api/logout' && m === 'POST') {
       db.deleteSession(parseCookies(req).aegis_session);
       return json(res, 200, { ok: true }, { 'Set-Cookie': 'aegis_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax' });
+    }
+
+    // Public: agents poll this to self-update their JS. `have` is the agent's
+    // current codeVersion; if it's already current we return a tiny response.
+    if (urlPath === '/api/agent-update' && m === 'GET') {
+      const have = parseInt((req.url.split('?')[1] || '').match(/have=(\d+)/)?.[1] || '0', 10);
+      if (have >= AGENT_BUNDLE.version) return json(res, 200, { version: AGENT_BUNDLE.version, upToDate: true });
+      return json(res, 200, { version: AGENT_BUNDLE.version, files: AGENT_BUNDLE.files });
     }
 
     // Public: the uninstaller reports here (device id + enrollment key) right

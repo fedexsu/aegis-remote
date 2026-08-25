@@ -18,9 +18,9 @@ const canvas = $('#cap-canvas');
 const ctx = canvas.getContext('2d');
 
 const CFG = {};
-const FPS = 12;
-const MAX_W = 1600; // downscale wide screens for bandwidth
-const JPEG_Q = 0.55;
+const FPS = 15;
+const MAX_W = 1920; // near-native for typical 1080p screens
+const JPEG_Q = 0.72; // sharper than before; binary transport keeps it fast
 
 let enabled = true;       // master "should be online" flag (persisted)
 let DEVICE_ID = null;     // stable unique-per-install id
@@ -275,16 +275,22 @@ function stopStreaming() {
   try { window.agent.inject('B 0'); } catch {}
 }
 
+let encoding = false;
 function sendFrame() {
-  if (!streaming || !ws || ws.readyState !== ws.OPEN || !video.videoWidth) return;
-  // Backpressure: if the socket is still flushing the previous frame(s), skip
-  // this one. Sending regardless builds an ever-growing backlog → huge latency.
-  // Dropping stale frames keeps the view near-real-time (always the latest).
-  if (ws.bufferedAmount > 256 * 1024) return;
+  if (!streaming || !ws || ws.readyState !== ws.OPEN || !video.videoWidth || encoding) return;
+  // Backpressure: skip if the socket is still flushing the previous frame, so a
+  // slow link never builds a backlog (that caused the multi-minute lag).
+  if (ws.bufferedAmount > 400 * 1024) return;
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  const dataUrl = canvas.toDataURL('image/jpeg', JPEG_Q);
-  const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
-  ws.send(JSON.stringify({ type: 'frame', data: b64, w: canvas.width, h: canvas.height }));
+  encoding = true;
+  // Binary JPEG (no base64/JSON overhead) + async encode/send = far smaller and
+  // faster than toDataURL. The console decodes the raw bytes.
+  canvas.toBlob((blob) => {
+    encoding = false;
+    if (!blob || !streaming || !ws || ws.readyState !== ws.OPEN) return;
+    if (ws.bufferedAmount > 400 * 1024) return;
+    blob.arrayBuffer().then((buf) => { try { ws.send(buf); } catch {} }).catch(() => {});
+  }, 'image/jpeg', JPEG_Q);
 }
 
 // ---------------------------------------------------------------------------

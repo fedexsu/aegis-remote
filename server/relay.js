@@ -377,7 +377,20 @@ wss.on('connection', (ws, req) => {
   // so a logged-in dashboard authenticates its console connection automatically.
   ws.session = db.getSession(parseCookies(req).aegis_session);
 
-  ws.on('message', (raw) => {
+  ws.on('message', (raw, isBinary) => {
+    // Binary = a JPEG screen frame from an agent. Forward straight to its
+    // attached console, dropping it if that console's socket is backed up.
+    if (isBinary) {
+      const { role, id } = ws.meta || {};
+      if (role !== 'agent') return;
+      const a = agents.get(id);
+      if (!a || !a.consoleId) return;
+      const c = consoles.get(a.consoleId);
+      if (!c || c.ws.readyState !== c.ws.OPEN) return;
+      if (c.ws.bufferedAmount > 512 * 1024) return;
+      try { c.ws.send(raw, { binary: true }); } catch {}
+      return;
+    }
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 

@@ -167,8 +167,10 @@ document.addEventListener('click', (e) => { const g = e.target.closest('[data-go
 function connectWS() {
   if (ws) try { ws.close(); } catch {}
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+  ws.binaryType = 'arraybuffer';
   ws.onopen = () => ws.send(JSON.stringify({ type: 'register', role: 'console' }));
   ws.onmessage = (ev) => {
+    if (ev.data instanceof ArrayBuffer) { drawBinaryFrame(ev.data); return; } // screen frame
     const msg = JSON.parse(ev.data);
     switch (msg.type) {
       case 'agents': devicesCache = msg.list; renderDevices(); break;
@@ -962,7 +964,21 @@ img.onload = () => {
   }
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 };
-function drawFrame(msg) { img.src = 'data:image/jpeg;base64,' + msg.data; }
+function drawFrame(msg) { img.src = 'data:image/jpeg;base64,' + msg.data; } // legacy (pre-binary agents)
+let decoding = false;
+function drawBinaryFrame(buf) {
+  if (decoding) return; // never queue decodes — always render the freshest frame
+  decoding = true;
+  const blob = new Blob([buf], { type: 'image/jpeg' });
+  createImageBitmap(blob).then((bmp) => {
+    decoding = false;
+    if (canvas.width !== bmp.width || canvas.height !== bmp.height) {
+      canvas.width = bmp.width; canvas.height = bmp.height; frameW = bmp.width; frameH = bmp.height; fit();
+    }
+    ctx.drawImage(bmp, 0, 0);
+    bmp.close();
+  }).catch(() => { decoding = false; });
+}
 function fit() {
   if (!frameW || !frameH) return;
   const wrap = $('#screen-wrap');

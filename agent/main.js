@@ -10,6 +10,11 @@ const { app, BrowserWindow, ipcMain, desktopCapturer, session, Tray, Menu, nativ
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
+// Use Windows Graphics Capture for screen capture. It honors a window's
+// EXCLUDE-FROM-CAPTURE affinity, so the "Blank screen" black window (which has
+// setContentProtection) is hidden from OUR capture — the technician keeps seeing
+// the real desktop while the local person sees black.
+app.commandLine.appendSwitch('enable-features', 'AllowWgcDesktopCapturer,AllowWgcScreenCapturer,WebRtcAllowWgcDesktopCapturer');
 
 const { spawn } = require('child_process');
 const path = require('path');

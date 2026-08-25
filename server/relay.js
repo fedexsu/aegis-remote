@@ -387,7 +387,9 @@ wss.on('connection', (ws, req) => {
       if (!a || !a.consoleId) return;
       const c = consoles.get(a.consoleId);
       if (!c || c.ws.readyState !== c.ws.OPEN) return;
-      if (c.ws.bufferedAmount > 512 * 1024) return;
+      // Keep at most ~1 frame queued to the viewer; drop the rest so a slow
+      // viewer stays near-real-time instead of falling seconds behind.
+      if (c.ws.bufferedAmount > 48 * 1024) return;
       try { c.ws.send(raw, { binary: true }); } catch {}
       return;
     }

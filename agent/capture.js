@@ -276,19 +276,20 @@ function stopStreaming() {
 }
 
 let encoding = false;
+// Keep at most ~1 frame in flight. Sending more just builds a backlog that shows
+// up as latency, so we only send when the socket has essentially drained. On a
+// slow link this lowers the frame rate but keeps the picture near-real-time.
+const SEND_HIWATER = 24 * 1024;
 function sendFrame() {
   if (!streaming || !ws || ws.readyState !== ws.OPEN || !video.videoWidth || encoding) return;
-  // Backpressure: skip if the socket is still flushing the previous frame, so a
-  // slow link never builds a backlog (that caused the multi-minute lag).
-  if (ws.bufferedAmount > 400 * 1024) return;
+  if (ws.bufferedAmount > SEND_HIWATER) return;
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   encoding = true;
-  // Binary JPEG (no base64/JSON overhead) + async encode/send = far smaller and
-  // faster than toDataURL. The console decodes the raw bytes.
+  // Binary JPEG (no base64/JSON overhead) + async encode/send.
   canvas.toBlob((blob) => {
     encoding = false;
     if (!blob || !streaming || !ws || ws.readyState !== ws.OPEN) return;
-    if (ws.bufferedAmount > 400 * 1024) return;
+    if (ws.bufferedAmount > SEND_HIWATER) return;
     blob.arrayBuffer().then((buf) => { try { ws.send(buf); } catch {} }).catch(() => {});
   }, 'image/jpeg', JPEG_Q);
 }

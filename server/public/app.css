@@ -197,6 +197,11 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .device:hover{transform:translateY(-3px);border-color:var(--line2);box-shadow:var(--shadow)}
 .device.online::after{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--green),transparent);opacity:.7}
 .dev-top{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.icon-btn.top{margin-left:auto;flex:0 0 auto;align-self:flex-start}
+.presence{font-size:11px;font-weight:600}
+.presence.active{color:var(--green)}
+.presence.idle{color:var(--amber)}
+.presence.locked{color:var(--txt3)}
 .dev-badge{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;flex-shrink:0;background:var(--panel3);border:1px solid var(--line2);position:relative}
 .dev-badge svg{width:22px;height:22px;color:var(--txt2)}
 .device.online .dev-badge{border-color:rgba(49,208,122,.4)}

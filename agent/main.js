@@ -248,6 +248,15 @@ ipcMain.handle('screen:list', async () => {
 
 ipcMain.on('inject', (_e, cmd) => inject(cmd));
 
+// User presence: idle seconds (mouse+keyboard) + active/idle/locked, all from
+// Electron's native powerMonitor — no webcam, no spawned process.
+ipcMain.handle('presence:get', () => {
+  let idle = 0, state = 'unknown';
+  try { idle = powerMonitor.getSystemIdleTime(); } catch {}
+  try { state = powerMonitor.getSystemIdleState(60); } catch {}
+  return { idle, state };
+});
+
 // ---------------------------------------------------------------------------
 // Op channel: remote terminal (and, later, sysinfo/processes/files). The
 // renderer (capture.js) relays ops from the console over the WS; results go

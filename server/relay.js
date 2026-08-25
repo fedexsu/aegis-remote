@@ -58,6 +58,7 @@ function deviceListFor(adminId) {
       via: keyLabels[d.keyUsed] || null,   // which enrollment link added it
       res,                                  // screen resolution
       meta: d.meta || {},                   // { os, host, user, version, cpu, ... }
+      presence: online && live.presence ? live.presence : null, // active/idle/locked
     };
   });
 }
@@ -438,6 +439,7 @@ wss.on('connection', (ws, req) => {
       // The agent warns us it's about to sleep, so the imminent disconnect is
       // read as "sleeping" rather than a hard offline.
       if (msg.type === 'suspend') { a.suspendHint = Date.now(); return; }
+      if (msg.type === 'presence') { a.presence = { state: msg.state, idle: msg.idle, at: Date.now() }; pushDevices(adminId); return; }
       // Op replies from the agent → route back to the console that asked.
       if (msg.type === 'opStream' || msg.type === 'opResult' || msg.type === 'opEnd') {
         const route = opRoutes.get(msg.reqId);

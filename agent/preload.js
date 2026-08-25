@@ -19,4 +19,5 @@ contextBridge.exposeInMainWorld('agent', {
   sendWol: (mac) => ipcRenderer.invoke('wol:send', mac),
   op: (msg) => ipcRenderer.send('op', msg),
   onOpMessage: (cb) => ipcRenderer.on('op:msg', (_e, m) => cb(m)),
+  getPresence: () => ipcRenderer.invoke('presence:get'),
 });

@@ -127,9 +127,11 @@ async function connect() {
       id: DEVICE_ID, name: CFG.name, key: CFG.key,
       screen: scr, meta,
     }));
+    sendPresence();
+    startPresenceHeartbeat();
   };
   ws.onclose = () => {
-    connected = false; stopStreaming();
+    connected = false; stopStreaming(); stopPresenceHeartbeat();
     if (enabled) scheduleReconnect(); else setStatus(false, 'offline');
   };
   ws.onerror = () => { /* onclose handles reconnect */ };
@@ -149,6 +151,16 @@ document.addEventListener('change', (e) => {
     window.agent.setAutostart(e.target.checked);
   }
 });
+
+// Report user presence (idle/active/locked) periodically so the console shows
+// whether someone is actually at the machine.
+let presenceTimer = null;
+async function sendPresence() {
+  if (!ws || ws.readyState !== ws.OPEN) return;
+  try { const p = await window.agent.getPresence(); ws.send(JSON.stringify({ type: 'presence', idle: p.idle, state: p.state })); } catch {}
+}
+function startPresenceHeartbeat() { if (!presenceTimer) presenceTimer = setInterval(sendPresence, 30000); }
+function stopPresenceHeartbeat() { if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; } }
 
 function onMessage(msg) {
   switch (msg.type) {

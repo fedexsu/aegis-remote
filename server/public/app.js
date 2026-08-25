@@ -1008,6 +1008,22 @@ function setRtcMode(mode) {
   else el.textContent = 'Connecting…';
 }
 const RTC_ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+// Reveal the live WebRTC <video> and clear the last frozen JPEG off the canvas.
+// Idempotent + safe to call before metadata is known — used from ontrack, on
+// (re)connect, and on remote-resize so the video can never get stuck hidden.
+function showRtcVideo() {
+  const v = $('#rtc-video');
+  if (!v.srcObject) return;
+  if (v.videoWidth) {
+    frameW = v.videoWidth; frameH = v.videoHeight;
+    if (canvas.width !== frameW || canvas.height !== frameH) { canvas.width = frameW; canvas.height = frameH; }
+  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height); // wipe the last JPEG so the video shows through the transparent canvas
+  $('#screen-wrap').classList.add('rtc');
+  setRtcMode('hd');
+  fit();
+  v.play().catch(() => {});
+}
 // Diagnostics: surface why WebRTC does/doesn't upgrade to HD. Hover the badge to
 // see the live state; full detail also goes to the browser console as [RTC] logs.
 const rtcDiag = { offer: false, cand: new Set(), remoteCand: new Set(), ice: '-', conn: '-', frames: 0, fps: 0, pair: '-' };
@@ -1056,21 +1072,18 @@ async function onRtcOffer(msg) {
     rtcPc.ontrack = (e) => {
       const v = $('#rtc-video');
       v.srcObject = e.streams[0];
-      v.onloadedmetadata = () => {
-        frameW = v.videoWidth || frameW; frameH = v.videoHeight || frameH;
-        if (canvas.width !== frameW) { canvas.width = frameW; canvas.height = frameH; }
-        ctx.clearRect(0, 0, canvas.width, canvas.height); // wipe last JPEG so the video shows through
-        $('#screen-wrap').classList.add('rtc'); // show video, canvas goes transparent
-        setRtcMode('hd');
-        fit();
-      };
+      v.onloadedmetadata = () => { showRtcVideo(); };   // update dims once known
+      v.onresize = () => { showRtcVideo(); };            // re-fit if the remote resolution changes
       v.play().catch(() => {});
+      showRtcVideo();                                    // don't wait for metadata — reveal the video now
     };
     rtcPc.onconnectionstatechange = () => {
       if (!rtcPc) return;
       rtcDiag.conn = rtcPc.connectionState; rtcLog('connectionState', rtcPc.connectionState);
-      if (rtcPc.connectionState === 'connected') setRtcMode('hd');
-      else if (['failed', 'disconnected', 'closed'].includes(rtcPc.connectionState)) { $('#screen-wrap').classList.remove('rtc'); setRtcMode('sd'); }
+      // Re-reveal on every (re)connect — a connected→disconnected→connected flap
+      // must never leave the badge on HD while the video stays hidden.
+      if (rtcPc.connectionState === 'connected') showRtcVideo();
+      else if (['failed', 'closed'].includes(rtcPc.connectionState)) { $('#screen-wrap').classList.remove('rtc'); setRtcMode('sd'); }
     };
     await rtcPc.setRemoteDescription(msg.sdp);
     const answer = await rtcPc.createAnswer();

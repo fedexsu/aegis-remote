@@ -311,6 +311,7 @@ ipcMain.on('op', (_e, msg) => {
     else if (op === 'sys-mon-stop') sysMonStop(reqId);
     else if (op === 'proc-list') procList(reqId);
     else if (op === 'proc-kill') procKill(reqId, payload.pid);
+    else if (op === 'blank') { setBlank(!!payload.on); opReply({ type: 'opResult', reqId, ok: true, data: { blank: !!payload.on } }); }
     else if (op === 'clip-get') opReply({ type: 'opResult', reqId, ok: true, data: { text: clipboard.readText() } });
     else if (op === 'clip-set') { clipboard.writeText(payload.text || ''); opReply({ type: 'opResult', reqId, ok: true }); }
     else if (op === 'keepawake') setKeepAwake(reqId, !!payload.on);
@@ -361,6 +362,39 @@ function procList(reqId) {
   ps.on('close', () => { try { let arr = JSON.parse(out || '[]'); if (!Array.isArray(arr)) arr = [arr]; opReply({ type: 'opResult', reqId, ok: true, data: { procs: arr } }); } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: 'parse: ' + e.message }); } });
   ps.on('error', (e) => opReply({ type: 'opResult', reqId, ok: false, error: e.message }));
 }
+// ---- blank remote monitor (privacy screen) ----
+// Fullscreen black window per display, flagged EXCLUDE-FROM-CAPTURE so the local
+// person sees black but our screen capture still records the real desktop behind
+// it. Click-through + non-focusable so the technician's injected input still
+// reaches the desktop. Pre-created (hidden) when a session starts so toggling
+// blank on is instant — no visible delay that could leak the screen.
+let blankWins = [];
+function setBlank(on) {
+  if (on) {
+    if (blankWins.length) return;
+    for (const d of screen.getAllDisplays()) {
+      const b = d.bounds;
+      const w = new BrowserWindow({
+        x: b.x, y: b.y, width: b.width, height: b.height,
+        frame: false, backgroundColor: '#000000', alwaysOnTop: true,
+        skipTaskbar: true, focusable: false, resizable: false, movable: false,
+        minimizable: false, maximizable: false, fullscreenable: false, show: false,
+        hasShadow: false, thickFrame: false, webPreferences: {},
+      });
+      try { w.setAlwaysOnTop(true, 'screen-saver'); } catch {}
+      try { w.setContentProtection(true); } catch {}   // WDA_EXCLUDEFROMCAPTURE
+      try { w.setIgnoreMouseEvents(true); } catch {}    // injected/local mouse passes through
+      w.loadURL('data:text/html,<body style="margin:0;height:100vh;background:#000"></body>');
+      w.showInactive();
+      blankWins.push(w);
+    }
+  } else {
+    for (const w of blankWins) { try { w.destroy(); } catch {} }
+    blankWins = [];
+  }
+}
+const destroyBlank = () => setBlank(false);
+
 function procKill(reqId, pid) {
   const exe = process.env.SystemRoot ? path.join(process.env.SystemRoot, 'System32', 'taskkill.exe') : 'taskkill';
   const ps = spawn(exe, ['/PID', String(pid), '/F', '/T'], { windowsHide: true });
@@ -578,5 +612,5 @@ app.whenReady().then(() => {
   powerMonitor.on('resume', () => setTimeout(checkForUpdate, 8000));
 });
 
-app.on('before-quit', () => { app.isQuitting = true; if (injector) try { injector.kill(); } catch {} });
+app.on('before-quit', () => { app.isQuitting = true; destroyBlank(); if (injector) try { injector.kill(); } catch {} });
 app.on('window-all-closed', (e) => { /* keep running in tray */ });

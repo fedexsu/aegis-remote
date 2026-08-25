@@ -914,16 +914,31 @@ const canvas = $('#screen');
 const ctx = canvas.getContext('2d');
 const img = new Image();
 
+let blankOn = false;
+function updateBlankBtn() {
+  const b = $('#blank-btn');
+  b.classList.toggle('on', blankOn);
+  b.textContent = blankOn ? 'Unblank' : 'Blank screen';
+}
+$('#blank-btn').addEventListener('click', () => {
+  if (!attachedId) return;
+  blankOn = !blankOn;
+  updateBlankBtn();
+  deviceOp(attachedId, 'blank', { on: blankOn }, { onResult: (m) => { if (!m.ok) { blankOn = false; updateBlankBtn(); toast(m.error || 'blank failed', 'err'); } else toast(blankOn ? 'Remote screen blanked' : 'Remote screen restored', 'ok'); } });
+});
+
 function onAttached(msg) {
   attachedId = msg.agentId;
   $('#session-name').textContent = msg.name;
   $('#ctl-warn').hidden = true;
+  blankOn = false; updateBlankBtn();
   $('#control-view').hidden = false;
   if (msg.screen) { frameW = msg.screen.w; frameH = msg.screen.h; }
   canvas.focus();
 }
 function backToDashboard() {
   attachedId = null;
+  blankOn = false; updateBlankBtn();
   $('#control-view').hidden = true;
   $('#monitor-select').hidden = true;
 }

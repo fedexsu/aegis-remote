@@ -270,6 +270,8 @@ function stopStreaming() {
   window.agent.sessionState(false);
   if (captureTimer) { clearInterval(captureTimer); captureTimer = null; }
   stopCapture(); // release the screen capture so idle costs nothing
+  // Safety: never leave the machine blanked if the session ends/drops.
+  try { window.agent.op({ op: 'blank', reqId: 'auto-unblank', payload: { on: false } }); } catch {}
 }
 
 function sendFrame() {

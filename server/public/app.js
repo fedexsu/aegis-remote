@@ -260,6 +260,7 @@ function renderDevices() {
         <button class="btn primary connect" ${d.online && !d.busy ? '' : 'disabled style="opacity:.5;cursor:not-allowed"'}>${d.busy ? 'In use' : (st === 'sleep' ? 'Asleep' : 'Connect')}</button>
         ${d.online ? `<button class="btn ghost icon-btn term" title="Terminal"><svg viewBox="0 0 24 24" class="ic"><path d="M4 5h16v14H4z"/><path d="M8 9.5l2.5 2.5L8 14.5M13 15h3.5"/></svg></button>` : ''}
         ${d.online ? `<button class="btn ghost icon-btn files" title="Files"><svg viewBox="0 0 24 24" class="ic"><path d="M3 7h6l2 2h10v10H3z"/></svg></button>` : ''}
+        ${d.online ? `<button class="btn ghost icon-btn sys" title="System monitor"><svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg></button>` : ''}
         <button class="btn ghost icon-btn rename" title="Rename">
           <svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
         </button>
@@ -282,6 +283,8 @@ function renderDevices() {
     if (termBtn) termBtn.addEventListener('click', () => openTerminal(d));
     const filesBtn = el.querySelector('.files');
     if (filesBtn) filesBtn.addEventListener('click', () => openFiles(d));
+    const sysBtn = el.querySelector('.sys');
+    if (sysBtn) sysBtn.addEventListener('click', () => openSystem(d));
     el.querySelector('.rename').addEventListener('click', () => renameDevice(d));
     el.querySelector('.del').addEventListener('click', () => removeDevice(d));
     box.appendChild(el);
@@ -668,6 +671,115 @@ $('#files-mkdir').addEventListener('click', async () => {
   fsRequest('fs-mkdir', { path: joinPath(filesPath, vals[0].trim()) }, { onResult: (m) => { if (m.ok) { toast('Folder created', 'ok'); loadDir(filesPath); } else toast(m.error || 'failed', 'err'); } });
 });
 $('#files-upload').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) uploadFile(f); e.target.value = ''; });
+
+// ---------------------------------------------------------------------------
+// System overlay: monitor / processes / clipboard (op channel)
+// ---------------------------------------------------------------------------
+let sysAgentId = null, monReqId = null, procAutoTimer = null, procData = [];
+const cpuHist = [], memHist = [];
+
+function openSystem(d) {
+  sysAgentId = d.id;
+  $('#sys-name').textContent = d.name;
+  $('#sys-view').hidden = false;
+  cpuHist.length = 0; memHist.length = 0;
+  sysTab('monitor');
+  startMonitor();
+}
+function closeSystem() {
+  stopMonitor();
+  if (procAutoTimer) { clearInterval(procAutoTimer); procAutoTimer = null; }
+  $('#proc-auto').checked = false;
+  $('#sys-view').hidden = true;
+  sysAgentId = null;
+}
+function sysOp(op, payload, handlers) {
+  const reqId = newReqId();
+  if (handlers) fsOps.set(reqId, handlers);
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'op', agentId: sysAgentId, op, reqId, payload: payload || {} }));
+  return reqId;
+}
+function sysTab(name) {
+  $$('.sys-tabs .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+  $$('.sys-tab').forEach((p) => (p.hidden = p.dataset.tabpage !== name));
+  if (name === 'processes') refreshProcs();
+  if (name === 'clipboard') getClip();
+}
+$$('.sys-tabs .seg-btn').forEach((b) => b.addEventListener('click', () => sysTab(b.dataset.tab)));
+$('#sys-back').addEventListener('click', closeSystem);
+
+// --- monitor ---
+function startMonitor() {
+  monReqId = sysOp('sys-mon-start', {}, { onStream: (m) => { if (m.sample) renderSample(m.sample); } });
+}
+function stopMonitor() {
+  if (monReqId) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'op', agentId: sysAgentId, op: 'sys-mon-stop', reqId: monReqId, payload: {} })); fsOps.delete(monReqId); monReqId = null; }
+}
+function spark(id, hist) {
+  const pts = hist.map((v, i) => `${(i / Math.max(1, hist.length - 1) * 200).toFixed(1)},${(48 - v / 100 * 46 - 1).toFixed(1)}`).join(' ');
+  $(id).setAttribute('points', pts);
+}
+function renderSample(s) {
+  const memPct = s.memTotal ? Math.round(s.memUsed / s.memTotal * 100) : 0;
+  cpuHist.push(s.cpu); if (cpuHist.length > 40) cpuHist.shift();
+  memHist.push(memPct); if (memHist.length > 40) memHist.shift();
+  $('#mon-cpu').textContent = s.cpu + '%';
+  $('#mon-mem').textContent = memPct + '%';
+  $('#mon-mem-sub').textContent = `${fmtSize(s.memUsed)} / ${fmtSize(s.memTotal)}`;
+  spark('#cpu-line', cpuHist); spark('#mem-line', memHist);
+  const dh = Math.floor(s.uptime / 3600), dm = Math.floor((s.uptime % 3600) / 60);
+  $('#mon-uptime').textContent = `Uptime ${dh}h ${dm}m · ${s.cores} CPU cores`;
+  const box = $('#mon-disks'); box.innerHTML = '';
+  for (const d of (s.disks || [])) {
+    const pct = d.total ? Math.round(d.used / d.total * 100) : 0;
+    const el = document.createElement('div'); el.className = 'disk';
+    el.innerHTML = `<div class="disk-top"><span>${d.name}</span><span>${fmtSize(d.used)} / ${fmtSize(d.total)} (${pct}%)</span></div><div class="disk-bar"><i class="${pct > 90 ? 'hot' : ''}" style="width:${pct}%"></i></div>`;
+    box.appendChild(el);
+  }
+}
+
+// --- processes ---
+function refreshProcs() {
+  sysOp('proc-list', {}, { onResult: (m) => {
+    if (!m.ok) { toast(m.error || 'could not list processes', 'err'); return; }
+    procData = m.data.procs || []; renderProcs();
+  } });
+}
+function renderProcs() {
+  const q = ($('#proc-search').value || '').toLowerCase();
+  const rows = procData.filter((p) => !q || (p.ProcessName || '').toLowerCase().includes(q)).slice(0, 300);
+  const body = $('#proc-body'); body.innerHTML = '';
+  for (const p of rows) {
+    const tr = document.createElement('tr'); tr.className = 'frow';
+    tr.innerHTML = `<td><span class="fname file"><span class="fn"></span></span></td>
+      <td class="col-size">${p.Id}</td><td class="col-size">${fmtSize(p.ws)}</td>
+      <td class="col-size">${p.cpu != null ? p.cpu : ''}</td>
+      <td class="col-act"><span class="fact"><button class="del" title="Kill process"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button></span></td>`;
+    tr.querySelector('.fn').textContent = p.ProcessName;
+    tr.querySelector('.del').addEventListener('click', () => killProc(p));
+    body.appendChild(tr);
+  }
+}
+async function killProc(p) {
+  const ok = await modal({ title: 'Kill process?', message: `End "${p.ProcessName}" (PID ${p.Id}) and its child processes on the remote PC?`, confirmText: 'Kill', danger: true });
+  if (!ok) return;
+  sysOp('proc-kill', { pid: p.Id }, { onResult: (m) => { if (m.ok) { toast('Killed ' + p.ProcessName, 'ok'); setTimeout(refreshProcs, 500); } else toast(m.error || 'could not kill', 'err'); } });
+}
+$('#proc-refresh').addEventListener('click', refreshProcs);
+$('#proc-search').addEventListener('input', renderProcs);
+$('#proc-auto').addEventListener('change', (e) => {
+  if (procAutoTimer) { clearInterval(procAutoTimer); procAutoTimer = null; }
+  if (e.target.checked) procAutoTimer = setInterval(refreshProcs, 3000);
+});
+
+// --- clipboard ---
+function getClip() {
+  sysOp('clip-get', {}, { onResult: (m) => { if (m.ok) $('#clip-text').value = m.data.text || ''; else toast(m.error || 'could not read clipboard', 'err'); } });
+}
+$('#clip-get').addEventListener('click', getClip);
+$('#clip-set').addEventListener('click', () => {
+  sysOp('clip-set', { text: $('#clip-text').value }, { onResult: (m) => { if (m.ok) toast('Remote clipboard set', 'ok'); else toast(m.error || 'failed', 'err'); } });
+});
 
 // ---------------------------------------------------------------------------
 // Control session

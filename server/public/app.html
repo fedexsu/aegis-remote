@@ -160,6 +160,7 @@
           <div id="upload-status" class="hint"></div>
 
           <h3 class="sub-h">Your links</h3>
+          <div class="banner info">💡 Share the <b>enrollment link</b> (Copy link) — not the raw installer. The link bakes the key into the download filename so the machine enrolls automatically. A plain <code>AegisSetup.exe</code> run on its own has no key and won't appear here.</div>
           <div id="keys" class="link-list"></div>
         </section>
 
@@ -260,6 +261,69 @@
               <tbody id="files-body"></tbody>
             </table>
             <div id="files-empty" class="files-empty" hidden>Empty folder</div>
+          </div>
+        </div>
+
+        <!-- ===== SYSTEM OVERLAY (monitor / processes / clipboard) ===== -->
+        <div id="sys-view" class="control-view" hidden>
+          <div class="session-bar">
+            <button id="sys-back" class="btn ghost small">
+              <svg viewBox="0 0 24 24" class="ic"><path d="M15 6l-6 6 6 6"/></svg> Devices
+            </button>
+            <span class="sess-name" id="sys-name"></span>
+            <span class="spacer"></span>
+            <div class="seg sys-tabs">
+              <button class="seg-btn active" data-tab="monitor">Monitor</button>
+              <button class="seg-btn" data-tab="processes">Processes</button>
+              <button class="seg-btn" data-tab="clipboard">Clipboard</button>
+            </div>
+          </div>
+          <div class="sys-wrap">
+            <!-- Monitor -->
+            <div class="sys-tab" data-tabpage="monitor">
+              <div class="mon-grid">
+                <div class="mon-card">
+                  <div class="mon-top"><span>CPU</span><span class="mon-big" id="mon-cpu">—</span></div>
+                  <svg class="spark" id="cpu-spark" viewBox="0 0 200 48" preserveAspectRatio="none"><polyline id="cpu-line" points="" /></svg>
+                </div>
+                <div class="mon-card">
+                  <div class="mon-top"><span>Memory</span><span class="mon-big" id="mon-mem">—</span></div>
+                  <svg class="spark" id="mem-spark" viewBox="0 0 200 48" preserveAspectRatio="none"><polyline id="mem-line" points="" /></svg>
+                  <div class="mon-sub" id="mon-mem-sub"></div>
+                </div>
+                <div class="mon-card mon-wide">
+                  <div class="mon-top"><span>Disks</span></div>
+                  <div id="mon-disks" class="mon-disks"></div>
+                </div>
+                <div class="mon-card mon-wide">
+                  <div class="mon-sub" id="mon-uptime"></div>
+                </div>
+              </div>
+            </div>
+            <!-- Processes -->
+            <div class="sys-tab" data-tabpage="processes" hidden>
+              <div class="proc-bar">
+                <input id="proc-search" class="proc-search" placeholder="Filter processes…" />
+                <label class="switch small"><input type="checkbox" id="proc-auto" /><span class="track"></span><span class="sw-label">Auto</span></label>
+                <button id="proc-refresh" class="btn ghost small">Refresh</button>
+              </div>
+              <div class="files-wrap">
+                <table class="files-table">
+                  <thead><tr><th>Process</th><th class="col-size">PID</th><th class="col-size">Memory</th><th class="col-size">CPU (s)</th><th class="col-act"></th></tr></thead>
+                  <tbody id="proc-body"></tbody>
+                </table>
+              </div>
+            </div>
+            <!-- Clipboard -->
+            <div class="sys-tab" data-tabpage="clipboard" hidden>
+              <div class="clip-pane">
+                <div class="clip-row">
+                  <button id="clip-get" class="btn ghost small">⬇ Get remote clipboard</button>
+                  <button id="clip-set" class="btn primary small">⬆ Send to remote clipboard</button>
+                </div>
+                <textarea id="clip-text" class="clip-text" placeholder="Remote clipboard text appears here. Edit and click 'Send to remote clipboard' to set it on the remote PC."></textarea>
+              </div>
+            </div>
           </div>
         </div>
       </main>

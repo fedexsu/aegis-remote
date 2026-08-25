@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, desktopCapturer, session, Tray, Menu, nativeImage, screen, powerMonitor } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, session, Tray, Menu, nativeImage, screen, powerMonitor, clipboard } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -271,9 +271,64 @@ ipcMain.on('op', (_e, msg) => {
     else if (op === 'fs-put-end') fsPutEnd(reqId);
     else if (op === 'fs-del') fsDel(reqId, payload.path);
     else if (op === 'fs-mkdir') fsMkdir(reqId, payload.path);
-    else if (op === 'op-cancel') { termClose(reqId); fsCancel(reqId); }
+    else if (op === 'sys-mon-start') sysMonStart(reqId);
+    else if (op === 'sys-mon-stop') sysMonStop(reqId);
+    else if (op === 'proc-list') procList(reqId);
+    else if (op === 'proc-kill') procKill(reqId, payload.pid);
+    else if (op === 'clip-get') opReply({ type: 'opResult', reqId, ok: true, data: { text: clipboard.readText() } });
+    else if (op === 'clip-set') { clipboard.writeText(payload.text || ''); opReply({ type: 'opResult', reqId, ok: true }); }
+    else if (op === 'op-cancel') { termClose(reqId); fsCancel(reqId); sysMonClear(reqId); }
   } catch (e) { opReply({ type: 'opEnd', reqId, ok: false, error: e.message }); }
 });
+
+// ---- system monitor (streamed samples) ----
+const monitors = new Map(); // reqId -> interval
+function cpuTimes() {
+  let idle = 0, total = 0;
+  for (const c of os.cpus()) { for (const t in c.times) total += c.times[t]; idle += c.times.idle; }
+  return { idle, total };
+}
+let lastCpu = cpuTimes();
+function cpuPercent() {
+  const cur = cpuTimes();
+  const idle = cur.idle - lastCpu.idle, total = cur.total - lastCpu.total;
+  lastCpu = cur;
+  return total > 0 ? Math.max(0, Math.min(100, Math.round((1 - idle / total) * 100))) : 0;
+}
+function diskInfo() {
+  const out = [];
+  for (const d of listDrives()) {
+    try { const s = fs.statfsSync(d); const total = s.blocks * s.bsize; const free = s.bfree * s.bsize; out.push({ name: d, total, used: total - free }); } catch {}
+  }
+  return out;
+}
+function sysMonStart(reqId) {
+  const send = () => opReply({ type: 'opStream', reqId, sample: {
+    cpu: cpuPercent(), memUsed: os.totalmem() - os.freemem(), memTotal: os.totalmem(),
+    uptime: os.uptime(), cores: os.cpus().length, disks: diskInfo(),
+  } });
+  send();
+  monitors.set(reqId, setInterval(send, 2000));
+}
+function sysMonClear(reqId) { const iv = monitors.get(reqId); if (iv) { clearInterval(iv); monitors.delete(reqId); } }
+function sysMonStop(reqId) { sysMonClear(reqId); opReply({ type: 'opEnd', reqId, ok: true }); }
+
+// ---- task manager ----
+function procList(reqId) {
+  const ps = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command',
+    "Get-Process | Select-Object Id,ProcessName,@{n='ws';e={$_.WorkingSet64}},@{n='cpu';e={[math]::Round($_.CPU,1)}} | Sort-Object ws -Descending | ConvertTo-Json -Compress"], { windowsHide: true });
+  let out = '';
+  ps.stdout.on('data', (d) => (out += d));
+  ps.stderr.on('data', () => {});
+  ps.on('close', () => { try { let arr = JSON.parse(out || '[]'); if (!Array.isArray(arr)) arr = [arr]; opReply({ type: 'opResult', reqId, ok: true, data: { procs: arr } }); } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: 'parse: ' + e.message }); } });
+  ps.on('error', (e) => opReply({ type: 'opResult', reqId, ok: false, error: e.message }));
+}
+function procKill(reqId, pid) {
+  const exe = process.env.SystemRoot ? path.join(process.env.SystemRoot, 'System32', 'taskkill.exe') : 'taskkill';
+  const ps = spawn(exe, ['/PID', String(pid), '/F', '/T'], { windowsHide: true });
+  ps.on('close', (code) => opReply({ type: 'opResult', reqId, ok: code === 0, error: code === 0 ? undefined : 'could not kill (exit ' + code + ')' }));
+  ps.on('error', (e) => opReply({ type: 'opResult', reqId, ok: false, error: e.message }));
+}
 
 // ---- file browser / transfer ----
 function listDrives() {

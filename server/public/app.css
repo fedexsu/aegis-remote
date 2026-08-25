@@ -227,8 +227,8 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .dm{min-width:0}
 .dm-k{color:var(--txt3);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;font-weight:700}
 .dm-v{color:var(--txt);font-size:12.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dev-actions{display:flex;gap:8px;margin-top:4px}
-.dev-actions .btn{flex:1}
+.dev-actions{display:flex;gap:8px;margin-top:4px;flex-wrap:wrap}
+.dev-actions .connect{flex:1 1 90px}
 .icon-btn{width:36px;flex:0 0 auto !important;padding:0 !important;display:grid;place-items:center}
 
 /* ---------- empty states ---------- */
@@ -240,6 +240,8 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 /* ---------- banners / hints ---------- */
 .banner{padding:12px 16px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:16px}
 .banner.warn{background:rgba(245,181,68,.1);border:1px solid rgba(245,181,68,.3);color:#ffd98a}
+.banner.info{background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:#bcd2ff}
+.banner.info code{background:rgba(0,0,0,.3);padding:1px 6px;border-radius:5px;font-size:12px}
 .hint{color:var(--txt2);font-size:12.5px;min-height:16px;margin-bottom:12px}
 
 /* ---------- enrollment links ---------- */
@@ -339,6 +341,35 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .fact button:hover{background:var(--panel3);color:var(--txt)}
 .fact button.del:hover{color:var(--red)}
 .files-empty{text-align:center;padding:40px;color:var(--txt3)}
+
+/* ---------- system overlay ---------- */
+.sys-tabs{margin:0}
+.sys-wrap{flex:1;overflow:auto;background:#080c14;padding:18px}
+.mon-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:900px;margin:0 auto}
+.mon-card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+.mon-wide{grid-column:1 / -1}
+.mon-top{display:flex;align-items:center;justify-content:space-between;color:var(--txt2);font-weight:600;font-size:13px;margin-bottom:10px}
+.mon-big{font-size:26px;font-weight:700;color:var(--txt)}
+.spark{width:100%;height:48px;display:block}
+.spark polyline{fill:none;stroke:var(--accent);stroke-width:2;vector-effect:non-scaling-stroke}
+#mem-line{stroke:var(--green)}
+.mon-sub{color:var(--txt3);font-size:12px;margin-top:8px}
+.mon-disks{display:flex;flex-direction:column;gap:12px}
+.disk{}
+.disk-top{display:flex;justify-content:space-between;font-size:12.5px;color:var(--txt2);margin-bottom:5px}
+.disk-bar{height:8px;background:var(--panel3);border-radius:6px;overflow:hidden}
+.disk-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.disk-bar i.hot{background:linear-gradient(90deg,var(--amber),var(--red))}
+.proc-bar{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--line)}
+.proc-search{flex:1;background:var(--panel);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:8px 12px;font-size:13px}
+.proc-search:focus{outline:none;border-color:var(--accent)}
+.switch.small .track{width:34px;height:20px}
+.switch.small .track::after{width:14px;height:14px}
+.switch.small input:checked+.track::after{transform:translateX(14px)}
+.clip-pane{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+.clip-row{display:flex;gap:10px}
+.clip-text{width:100%;min-height:280px;background:var(--panel);border:1px solid var(--line2);border-radius:var(--radius-sm);color:var(--txt);padding:14px;font-family:ui-monospace,Consolas,monospace;font-size:13px;resize:vertical}
+.clip-text:focus{outline:none;border-color:var(--accent)}
 
 /* ===================================================================
    TOASTS

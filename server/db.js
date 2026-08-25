@@ -133,13 +133,14 @@ function revokeKey(adminId, keyStr) {
 }
 
 // ---- devices ----
-function upsertDevice(id, adminId, name, keyUsed) {
+function upsertDevice(id, adminId, name, keyUsed, meta) {
   let d = db.devices.find((x) => x.id === id);
   if (!d) {
-    d = { id, adminId, name, keyUsed, firstSeen: Date.now(), lastSeen: Date.now() };
+    d = { id, adminId, name, keyUsed, meta: meta || {}, firstSeen: Date.now(), lastSeen: Date.now() };
     db.devices.push(d);
   } else {
     d.adminId = adminId; d.name = name; d.keyUsed = keyUsed; d.lastSeen = Date.now();
+    if (meta && Object.keys(meta).length) d.meta = { ...(d.meta || {}), ...meta };
   }
   save();
   return d;
@@ -149,6 +150,21 @@ function touchDevice(id) {
   const d = db.devices.find((x) => x.id === id);
   if (d) { d.lastSeen = Date.now(); }
 }
+// Forget a device record (per-admin). The agent, if still installed & running,
+// will re-enroll on its next reconnect — this is for pruning stale/offline rows.
+function removeDevice(adminId, id) {
+  const before = db.devices.length;
+  db.devices = db.devices.filter((d) => !(d.id === id && d.adminId === adminId));
+  const removed = db.devices.length < before;
+  if (removed) save();
+  return removed;
+}
+// Optionally let an admin rename a device from the dashboard.
+function renameDevice(adminId, id, name) {
+  const d = db.devices.find((x) => x.id === id && x.adminId === adminId);
+  if (d) { d.name = name; save(); }
+  return !!d;
+}
 
 module.exports = {
   DATA_DIR,
@@ -156,5 +172,5 @@ module.exports = {
   hasAdmins, listAdmins, updatePassword,
   createSession, getSession, deleteSession,
   createKey, keysForAdmin, findValidKey, revokeKey,
-  upsertDevice, devicesForAdmin, touchDevice,
+  upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice,
 };

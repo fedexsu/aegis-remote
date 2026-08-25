@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('agent', {
   getConfig: () => ipcRenderer.invoke('cfg:get'),
   saveConfig: (cfg) => ipcRenderer.invoke('cfg:save', cfg),
   getDeviceId: () => ipcRenderer.invoke('device:id'),
+  getMeta: () => ipcRenderer.invoke('meta:get'),
   getScreenSource: () => ipcRenderer.invoke('screen:source'),
   getScreenSize: () => ipcRenderer.invoke('screen:size'),
   getMonitors: () => ipcRenderer.invoke('screen:list'),

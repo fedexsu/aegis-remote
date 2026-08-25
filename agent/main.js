@@ -136,6 +136,30 @@ function getDeviceId() {
 }
 ipcMain.handle('device:id', () => getDeviceId());
 
+// Host metadata reported on register, so the dashboard can show full PC info.
+ipcMain.handle('meta:get', () => {
+  let user = '';
+  try { user = os.userInfo().username; } catch {}
+  const cpu = (os.cpus()[0] || {}).model || '';
+  return {
+    os: `${osName()} ${os.release()}`,
+    host: os.hostname(),
+    user,
+    arch: os.arch(),
+    cpu: cpu.trim(),
+    mem: Math.round(os.totalmem() / 1073741824) + ' GB',
+    version: app.getVersion(),
+  };
+});
+function osName() {
+  switch (process.platform) {
+    case 'win32': return 'Windows';
+    case 'darwin': return 'macOS';
+    case 'linux': return 'Linux';
+    default: return process.platform;
+  }
+}
+
 ipcMain.handle('screen:source', async () => {
   const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
   const primary = sources[0];

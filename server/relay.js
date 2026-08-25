@@ -31,10 +31,23 @@ let seq = 1;
 function send(ws, obj) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj)); }
 
 function deviceListFor(adminId) {
+  const keyLabels = {};
+  for (const k of db.keysForAdmin(adminId)) keyLabels[k.key] = k.label;
   return db.devicesForAdmin(adminId).map((d) => {
     const live = agents.get(d.id);
     const online = !!(live && live.adminId === adminId);
-    return { id: d.id, name: d.name, online, busy: online ? !!live.consoleId : false, lastSeen: d.lastSeen };
+    const res = online && live.screen ? `${live.screen.w}×${live.screen.h}` : (d.meta && d.meta.screen) || null;
+    return {
+      id: d.id,
+      name: d.name,
+      online,
+      busy: online ? !!live.consoleId : false,
+      lastSeen: d.lastSeen,
+      firstSeen: d.firstSeen,
+      via: keyLabels[d.keyUsed] || null,   // which enrollment link added it
+      res,                                  // screen resolution
+      meta: d.meta || {},                   // { os, host, user, version, cpu, ... }
+    };
   });
 }
 function pushDevices(adminId) {
@@ -150,6 +163,27 @@ async function handleApi(req, res, urlPath) {
       return json(res, 200, { username: created.email, password });
     }
     if (urlPath === '/api/devices' && m === 'GET') return json(res, 200, { devices: deviceListFor(admin.id) });
+    // Remove (forget) a device. If it's currently online, kick the live agent
+    // too so it disappears immediately (it re-enrolls only if still installed).
+    if (urlPath === '/api/devices/remove' && m === 'POST') {
+      const b = await readBody(req);
+      const live = agents.get(b.id);
+      if (live && live.adminId === admin.id) { try { live.ws.close(); } catch {} agents.delete(b.id); }
+      const ok = db.removeDevice(admin.id, b.id);
+      pushDevices(admin.id);
+      return json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'device not found' });
+    }
+    // Rename a device.
+    if (urlPath === '/api/devices/rename' && m === 'POST') {
+      const b = await readBody(req);
+      const nm = (b.name || '').trim();
+      if (!nm) return json(res, 400, { error: 'name required' });
+      const live = agents.get(b.id);
+      if (live && live.adminId === admin.id) live.name = nm;
+      const ok = db.renameDevice(admin.id, b.id, nm);
+      pushDevices(admin.id);
+      return json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'device not found' });
+    }
     if (urlPath === '/api/keys' && m === 'GET') {
       const base = publicBase(req);
       const keys = db.keysForAdmin(admin.id).map((k) => ({
@@ -242,9 +276,11 @@ wss.on('connection', (ws, req) => {
         if (!k) { send(ws, { type: 'denied', reason: 'invalid key' }); return ws.close(); }
         const id = msg.id || 'dev-' + seq++;
         const name = msg.name || id;
-        db.upsertDevice(id, k.adminId, name, k.key);
+        const meta = (msg.meta && typeof msg.meta === 'object') ? msg.meta : {};
+        if (msg.screen) meta.screen = `${msg.screen.w}×${msg.screen.h}`;
+        db.upsertDevice(id, k.adminId, name, k.key, meta);
         ws.meta = { role: 'agent', id, adminId: k.adminId };
-        agents.set(id, { ws, name, adminId: k.adminId, consoleId: null });
+        agents.set(id, { ws, name, adminId: k.adminId, consoleId: null, screen: msg.screen || null });
         send(ws, { type: 'registered', id });
         pushDevices(k.adminId);
       } else if (msg.role === 'console') {

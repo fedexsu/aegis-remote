@@ -1,12 +1,16 @@
 'use strict';
 
 const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let ws = null, admin = null, attachedId = null;
 let frameW = 0, frameH = 0;
+let devicesCache = [];
+let filter = 'all';
+let search = '';
 const pressed = new Set();
 
 // ---------------------------------------------------------------------------
-// API
+// API + UI helpers
 // ---------------------------------------------------------------------------
 async function api(path, method, body) {
   const r = await fetch(path, {
@@ -19,12 +23,71 @@ async function api(path, method, body) {
   return data;
 }
 
+function toast(msg, kind = '') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + kind;
+  el.innerHTML = '<span class="tdot"></span><span></span>';
+  el.querySelector('span:last-child').textContent = msg;
+  $('#toasts').appendChild(el);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 260); }, 2800);
+}
+
+// Promise-based modal. type: 'prompt' | 'confirm' | 'password'
+function modal({ title, message, fields = [], confirmText = 'Confirm', danger = false }) {
+  return new Promise((resolve) => {
+    const back = document.createElement('div');
+    back.className = 'modal-back';
+    const fieldHtml = fields.map((f, i) =>
+      `<label class="field"><span>${f.label}</span>
+        <input data-i="${i}" type="${f.type || 'text'}" placeholder="${f.placeholder || ''}" value="${f.value || ''}"/></label>`).join('');
+    back.innerHTML = `<div class="modal">
+      <h3></h3>${message ? '<p></p>' : ''}${fieldHtml}
+      <div class="modal-actions">
+        <button class="btn ghost" data-act="cancel">Cancel</button>
+        <button class="btn ${danger ? 'danger' : 'primary'}" data-act="ok">${confirmText}</button>
+      </div></div>`;
+    back.querySelector('h3').textContent = title;
+    if (message) back.querySelector('p').textContent = message;
+    document.body.appendChild(back);
+    const inputs = $$('input', back);
+    if (inputs[0]) inputs[0].focus();
+    const done = (val) => { back.remove(); resolve(val); };
+    back.addEventListener('click', (e) => { if (e.target === back) done(null); });
+    back.querySelector('[data-act="cancel"]').onclick = () => done(null);
+    back.querySelector('[data-act="ok"]').onclick = () => {
+      if (!fields.length) return done(true);
+      done(inputs.map((i) => i.value));
+    };
+    back.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') back.querySelector('[data-act="ok"]').click();
+      if (e.key === 'Escape') done(null);
+    });
+  });
+}
+
+function relTime(ts) {
+  if (!ts) return '—';
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 45) return 'just now';
+  if (s < 90) return 'a minute ago';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + ' min ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
+  const d = Math.floor(h / 24);
+  if (d < 30) return d + (d === 1 ? ' day ago' : ' days ago');
+  return new Date(ts).toLocaleDateString();
+}
+function fmtDate(ts) { return ts ? new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—'; }
+
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
 $('#auth-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   $('#auth-err').textContent = '';
+  const btn = $('#au-submit');
+  btn.disabled = true;
   try {
     const data = await api('/api/login', 'POST', {
       email: $('#au-email').value.trim(),
@@ -33,46 +96,27 @@ $('#auth-form').addEventListener('submit', async (e) => {
     showApp(data.admin);
   } catch (err) {
     $('#auth-err').textContent = err.message;
+    btn.disabled = false;
   }
 });
 
-// Change own password
 async function changePassword() {
-  const cur = prompt('Current password:'); if (cur === null) return;
-  const nw = prompt('New password (6+ characters):'); if (nw === null) return;
+  const vals = await modal({
+    title: 'Change password',
+    fields: [
+      { label: 'Current password', type: 'password' },
+      { label: 'New password (6+ characters)', type: 'password' },
+    ],
+    confirmText: 'Update password',
+  });
+  if (!vals) return;
   try {
-    await api('/api/password', 'POST', { currentPassword: cur, newPassword: nw });
+    await api('/api/password', 'POST', { currentPassword: vals[0], newPassword: vals[1] });
     if (admin) admin.mustChangePassword = false;
-    alert('Password changed.');
-  } catch (e) { alert(e.message); }
+    toast('Password changed', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
 }
 $('#change-pw').addEventListener('click', changePassword);
-
-// Owner: generate + list customer accounts
-async function loadAccounts() {
-  try {
-    const { accounts } = await api('/api/accounts');
-    const box = $('#accounts'); box.innerHTML = '';
-    for (const a of accounts) {
-      const row = document.createElement('div');
-      row.className = 'keyrow';
-      row.innerHTML = '<span class="label"></span><span class="url"></span>';
-      row.querySelector('.label').textContent = a.username;
-      row.querySelector('.url').textContent = a.name && a.name !== a.username ? a.name : ('created ' + new Date(a.createdAt).toLocaleDateString());
-      box.appendChild(row);
-    }
-  } catch { /* not owner */ }
-}
-$('#gen-account').addEventListener('click', async () => {
-  const name = prompt('Customer name / label (optional):', '') || '';
-  try {
-    const d = await api('/api/accounts', 'POST', { name });
-    const out = $('#account-out');
-    out.hidden = false;
-    out.textContent = `New account — give these to the customer:\n\n  Username:  ${d.username}\n  Password:  ${d.password}\n\nThey'll be asked to change the password on first login.`;
-    loadAccounts();
-  } catch (e) { alert(e.message); }
-});
 
 $('#logout').addEventListener('click', async () => {
   try { await api('/api/logout', 'POST'); } catch {}
@@ -81,30 +125,37 @@ $('#logout').addEventListener('click', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// App shell
+// App shell + navigation
 // ---------------------------------------------------------------------------
 function showApp(a) {
   admin = a;
   $('#auth-view').hidden = true;
   $('#app-view').hidden = false;
-  $('#admin-name').textContent = a.name || a.email;
   const owner = a.role === 'owner';
-  $('#accounts-card').hidden = !owner;
+  $('#side-name').textContent = a.name || a.email;
+  $('#side-role').textContent = a.role || 'admin';
+  $('#side-avatar').textContent = (a.name || a.email || 'A').charAt(0).toUpperCase();
+  $('#set-user').textContent = a.email;
+  $('#set-role').textContent = a.role || 'admin';
+  $$('.owner-only').forEach((el) => (el.hidden = !owner));
   if (owner) loadAccounts();
   loadKeys();
   checkInstaller();
   connectWS();
-  if (a.mustChangePassword) setTimeout(() => { alert('Welcome! Please set your own password.'); changePassword(); }, 400);
+  if (a.mustChangePassword) setTimeout(() => { toast('Please set your own password', ''); changePassword(); }, 500);
 }
 function showAuth() { $('#auth-view').hidden = false; $('#app-view').hidden = true; }
 
+function goto(view) {
+  $$('.nav-item').forEach((n) => n.classList.toggle('active', n.dataset.view === view));
+  $$('.page').forEach((p) => (p.hidden = p.dataset.page !== view));
+}
+$$('.nav-item').forEach((n) => n.addEventListener('click', () => goto(n.dataset.view)));
+document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto]'); if (g) goto(g.dataset.goto); });
+
 (async function init() {
-  try {
-    const { admin: a } = await api('/api/me');
-    showApp(a);
-  } catch {
-    showAuth();
-  }
+  try { const { admin: a } = await api('/api/me'); showApp(a); }
+  catch { showAuth(); }
 })();
 
 // ---------------------------------------------------------------------------
@@ -117,47 +168,132 @@ function connectWS() {
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     switch (msg.type) {
-      case 'agents': renderDevices(msg.list); break;
+      case 'agents': devicesCache = msg.list; renderDevices(); break;
       case 'attached': onAttached(msg); break;
       case 'frame': drawFrame(msg); break;
       case 'monitors': renderMonitors(msg); break;
-      case 'agentGone': backToDashboard(); break;
-      case 'error': alert(msg.text); break;
+      case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); break;
+      case 'error': toast(msg.text, 'err'); break;
       case 'denied': showAuth(); break;
     }
   };
-  ws.onclose = () => { /* dashboard stays; could show a reconnect hint */ };
+  ws.onclose = () => {};
 }
 
 // ---------------------------------------------------------------------------
 // Devices
 // ---------------------------------------------------------------------------
-function renderDevices(list) {
+const DEV_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>';
+
+function statusOf(d) { return !d.online ? 'offline' : (d.busy ? 'busy' : 'online'); }
+function statusLabel(s) { return s === 'busy' ? 'In session' : s === 'online' ? 'Online' : 'Offline'; }
+
+function renderDevices() {
+  const list = devicesCache;
+  const online = list.filter((d) => d.online).length;
+  const busy = list.filter((d) => d.busy).length;
+  $('#st-total').textContent = list.length;
+  $('#st-online').textContent = online;
+  $('#st-busy').textContent = busy;
+  $('#st-offline').textContent = list.length - online;
+
+  const q = search.toLowerCase();
+  const shown = list.filter((d) => {
+    if (filter === 'online' && !d.online) return false;
+    if (filter === 'offline' && d.online) return false;
+    if (q) {
+      const hay = (d.name + ' ' + (d.meta?.host || '') + ' ' + (d.meta?.os || '') + ' ' + (d.meta?.user || '')).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
   const box = $('#devices');
-  $('#dev-count').textContent = list.length ? `${list.filter((d) => d.online).length}/${list.length} online` : '';
-  $('#dev-empty').style.display = list.length ? 'none' : 'block';
+  $('#dev-empty').hidden = list.length !== 0;
+  box.hidden = list.length === 0;
   box.innerHTML = '';
-  for (const d of list) {
+
+  for (const d of shown) {
+    const st = statusOf(d);
+    const m = d.meta || {};
     const el = document.createElement('div');
     el.className = 'device' + (d.online ? ' online' : '');
-    el.innerHTML = `<span class="dot"></span>
-      <div class="info"><div class="name"></div>
-        <div class="sub">${d.online ? (d.busy ? 'in session' : 'online') : 'offline'}</div></div>`;
-    el.querySelector('.name').textContent = d.name;
-    if (d.online && !d.busy) {
-      const b = document.createElement('button');
-      b.className = 'btn small primary'; b.textContent = 'Connect';
-      b.addEventListener('click', () => attach(d.id));
-      el.appendChild(b);
-    }
+    el.innerHTML = `
+      <div class="dev-top">
+        <div class="dev-badge">${DEV_SVG}</div>
+        <div class="dev-id">
+          <div class="dev-name" title=""></div>
+          <span class="dev-status st-${st}"><span class="status-dot"></span>${statusLabel(st)}</span>
+        </div>
+      </div>
+      <div class="dev-meta">
+        <div class="dm"><div class="dm-k">System</div><div class="dm-v" data-f="os">—</div></div>
+        <div class="dm"><div class="dm-k">Host</div><div class="dm-v" data-f="host">—</div></div>
+        <div class="dm"><div class="dm-k">User</div><div class="dm-v" data-f="user">—</div></div>
+        <div class="dm"><div class="dm-k">Screen</div><div class="dm-v" data-f="res">—</div></div>
+        <div class="dm"><div class="dm-k">Enrolled via</div><div class="dm-v" data-f="via">—</div></div>
+        <div class="dm"><div class="dm-k">Last seen</div><div class="dm-v" data-f="seen">—</div></div>
+      </div>
+      <div class="dev-actions">
+        <button class="btn primary connect" ${d.online && !d.busy ? '' : 'disabled style="opacity:.5;cursor:not-allowed"'}>
+          ${d.busy ? 'In use' : 'Connect'}
+        </button>
+        <button class="btn ghost icon-btn rename" title="Rename">
+          <svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
+        </button>
+        <button class="btn danger icon-btn del" title="Remove">
+          <svg viewBox="0 0 24 24" class="ic"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+        </button>
+      </div>`;
+    el.querySelector('.dev-name').textContent = d.name;
+    el.querySelector('.dev-name').title = d.id;
+    el.querySelector('[data-f="os"]').textContent = m.os || 'Unknown';
+    el.querySelector('[data-f="host"]').textContent = m.host || '—';
+    el.querySelector('[data-f="user"]').textContent = m.user || '—';
+    el.querySelector('[data-f="res"]').textContent = d.res || m.screen || '—';
+    el.querySelector('[data-f="via"]').textContent = d.via || '—';
+    el.querySelector('[data-f="seen"]').textContent = d.online ? 'now' : relTime(d.lastSeen);
+
+    const conn = el.querySelector('.connect');
+    if (d.online && !d.busy) conn.addEventListener('click', () => attach(d.id));
+    el.querySelector('.rename').addEventListener('click', () => renameDevice(d));
+    el.querySelector('.del').addEventListener('click', () => removeDevice(d));
     box.appendChild(el);
   }
 }
 function attach(id) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'attach', agentId: id })); }
 
+async function renameDevice(d) {
+  const vals = await modal({ title: 'Rename device', fields: [{ label: 'Name', value: d.name }], confirmText: 'Save' });
+  if (!vals || !vals[0].trim()) return;
+  try { await api('/api/devices/rename', 'POST', { id: d.id, name: vals[0].trim() }); toast('Renamed', 'ok'); }
+  catch (e) { toast(e.message, 'err'); }
+}
+async function removeDevice(d) {
+  const ok = await modal({
+    title: 'Remove device?',
+    message: d.online
+      ? `"${d.name}" is currently online. Removing it disconnects it now — but if the agent is still installed on that PC it will re-appear on next reconnect. To remove permanently, uninstall Aegis from that machine.`
+      : `Forget "${d.name}"? This removes it from your list.`,
+    confirmText: 'Remove', danger: true,
+  });
+  if (!ok) return;
+  try { await api('/api/devices/remove', 'POST', { id: d.id }); toast('Device removed', 'ok'); }
+  catch (e) { toast(e.message, 'err'); }
+}
+
+$('#dev-search').addEventListener('input', (e) => { search = e.target.value; renderDevices(); });
+$('#refresh-dev').addEventListener('click', () => { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'list' })); toast('Refreshed'); });
+$$('#dev-filter .seg-btn').forEach((b) => b.addEventListener('click', () => {
+  $$('#dev-filter .seg-btn').forEach((x) => x.classList.remove('active'));
+  b.classList.add('active'); filter = b.dataset.f; renderDevices();
+}));
+
 // ---------------------------------------------------------------------------
 // Enrollment keys / links
 // ---------------------------------------------------------------------------
+const LINK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1"/><path d="M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1"/></svg>';
+
 async function loadKeys() {
   try {
     const { keys } = await api('/api/keys');
@@ -165,35 +301,47 @@ async function loadKeys() {
     box.innerHTML = '';
     for (const k of keys) {
       const row = document.createElement('div');
-      row.className = 'keyrow' + (k.revoked ? ' revoked' : '');
-      row.innerHTML = `<span class="label"></span>
-        <span class="url"></span>
-        <button class="btn small copy">Copy</button>
-        ${k.revoked ? '<span class="pill">revoked</span>' : '<button class="btn small danger rev">Revoke</button>'}`;
-      row.querySelector('.label').textContent = k.label;
-      row.querySelector('.url').textContent = k.downloadUrl;
-      row.querySelector('.copy').addEventListener('click', () => {
-        navigator.clipboard.writeText(k.downloadUrl).then(() => { row.querySelector('.copy').textContent = 'Copied'; });
-      });
-      const rev = row.querySelector('.rev');
-      if (rev) rev.addEventListener('click', async () => { await api('/api/keys/revoke', 'POST', { key: k.key }); loadKeys(); });
+      row.className = 'linkrow' + (k.revoked ? ' revoked' : '');
+      row.innerHTML = `
+        <div class="link-ic">${LINK_SVG}</div>
+        <div class="link-body">
+          <div class="link-label"></div>
+          <div class="link-url"></div>
+        </div>
+        <div class="link-actions"></div>`;
+      row.querySelector('.link-label').textContent = k.label;
+      row.querySelector('.link-url').textContent = k.downloadUrl;
+      const acts = row.querySelector('.link-actions');
+      if (k.revoked) {
+        acts.innerHTML = '<span class="tag revoked">Revoked</span>';
+      } else {
+        const copy = document.createElement('button');
+        copy.className = 'btn ghost small'; copy.textContent = 'Copy link';
+        copy.addEventListener('click', () => navigator.clipboard.writeText(k.downloadUrl).then(() => { copy.textContent = 'Copied ✓'; toast('Link copied', 'ok'); setTimeout(() => (copy.textContent = 'Copy link'), 1500); }));
+        const rev = document.createElement('button');
+        rev.className = 'btn danger small'; rev.textContent = 'Revoke';
+        rev.addEventListener('click', async () => {
+          const ok = await modal({ title: 'Revoke link?', message: `"${k.label}" will stop working for new installs.`, confirmText: 'Revoke', danger: true });
+          if (!ok) return;
+          await api('/api/keys/revoke', 'POST', { key: k.key }); toast('Link revoked', 'ok'); loadKeys();
+        });
+        acts.append(copy, rev);
+      }
       box.appendChild(row);
     }
-  } catch (e) { /* not signed in */ }
+  } catch { /* not signed in */ }
 }
 $('#new-key').addEventListener('click', async () => {
-  const label = prompt('Name this link (e.g. a client or team):', 'New link');
-  if (label === null) return;
-  await api('/api/keys', 'POST', { label: label || 'Link' });
-  loadKeys();
+  const vals = await modal({ title: 'New enrollment link', fields: [{ label: 'Name this link (e.g. a client or team)', value: 'New link' }], confirmText: 'Create' });
+  if (!vals) return;
+  await api('/api/keys', 'POST', { label: vals[0] || 'Link' });
+  toast('Link created', 'ok'); loadKeys();
 });
 
-// Installer upload (raw binary body).
 async function checkInstaller() {
   try {
     const { ready } = await api('/api/installer');
-    $('#installer-status').textContent = ready
-      ? '' : '⚠ Upload the installer once so your links can be downloaded.';
+    $('#installer-banner').hidden = ready;
   } catch {}
 }
 $('#installer-file').addEventListener('change', async (e) => {
@@ -205,10 +353,52 @@ $('#installer-file').addEventListener('change', async (e) => {
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || 'upload failed');
     $('#upload-status').textContent = `✓ Installer uploaded (${Math.round(d.size / 1048576)} MB)`;
+    toast('Installer uploaded', 'ok');
     checkInstaller();
   } catch (err) {
-    $('#upload-status').textContent = '✗ ' + err.message;
+    $('#upload-status').textContent = '';
+    toast(err.message, 'err');
   }
+});
+
+// ---------------------------------------------------------------------------
+// Accounts (owner)
+// ---------------------------------------------------------------------------
+async function loadAccounts() {
+  try {
+    const { accounts } = await api('/api/accounts');
+    const box = $('#accounts');
+    box.innerHTML = '';
+    $('#acct-empty').hidden = accounts.length !== 0;
+    for (const a of accounts) {
+      const row = document.createElement('div');
+      row.className = 'acctrow';
+      row.innerHTML = `<div class="acct-av"></div><div><div class="acct-name"></div><div class="acct-sub"></div></div>`;
+      row.querySelector('.acct-av').textContent = (a.username || '?').charAt(0).toUpperCase();
+      row.querySelector('.acct-name').textContent = a.username;
+      row.querySelector('.acct-sub').textContent = (a.name && a.name !== a.username ? a.name + ' · ' : '') + 'created ' + fmtDate(a.createdAt);
+      box.appendChild(row);
+    }
+  } catch { /* not owner */ }
+}
+$('#gen-account').addEventListener('click', async () => {
+  const vals = await modal({ title: 'Generate customer account', fields: [{ label: 'Customer name / label (optional)', placeholder: 'Acme Corp' }], confirmText: 'Generate' });
+  if (!vals) return;
+  try {
+    const d = await api('/api/accounts', 'POST', { name: vals[0] || '' });
+    const out = $('#account-out');
+    out.hidden = false;
+    out.innerHTML = `<h4>✓ Account created — give these to the customer</h4>
+      <div class="cred-grid">
+        <span class="ck">Username</span><span class="cv" id="cu"></span><button class="btn ghost small" data-c="cu">Copy</button>
+        <span class="ck">Password</span><span class="cv" id="cp"></span><button class="btn ghost small" data-c="cp">Copy</button>
+      </div>
+      <div class="cred-note">They'll be prompted to change the password on first login.</div>`;
+    $('#cu', out).textContent = d.username;
+    $('#cp', out).textContent = d.password;
+    $$('[data-c]', out).forEach((b) => b.addEventListener('click', () => { navigator.clipboard.writeText($('#' + b.dataset.c, out).textContent); toast('Copied', 'ok'); }));
+    loadAccounts();
+  } catch (e) { toast(e.message, 'err'); }
 });
 
 // ---------------------------------------------------------------------------
@@ -250,7 +440,6 @@ function fit() {
 $('#fit').addEventListener('click', fit);
 window.addEventListener('resize', fit);
 
-// Monitor selector
 function renderMonitors(msg) {
   const sel = $('#monitor-select');
   const list = msg.list || [];

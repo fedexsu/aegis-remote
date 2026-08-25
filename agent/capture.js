@@ -106,10 +106,12 @@ async function connect() {
     // when a technician actually attaches (see startStreaming). Idle = no cost.
     let scr = { w: 1280, h: 720 };
     try { scr = await window.agent.getScreenSize(); } catch {}
+    let meta = {};
+    try { meta = await window.agent.getMeta(); } catch {}
     ws.send(JSON.stringify({
       type: 'register', role: 'agent',
       id: DEVICE_ID, name: CFG.name, key: CFG.key,
-      screen: scr,
+      screen: scr, meta,
     }));
   };
   ws.onclose = () => {

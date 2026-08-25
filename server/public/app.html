@@ -7,79 +7,216 @@
     <link rel="stylesheet" href="app.css" />
   </head>
   <body>
-    <!-- ============ AUTH ============ -->
-    <div id="auth-view">
+    <!-- ============================= AUTH ============================= -->
+    <div id="auth-view" class="auth-view">
+      <div class="auth-bg"></div>
       <div class="auth-card">
-        <div class="brand big">🛡️ <b>Aegis&nbsp;Remote</b></div>
-        <div class="auth-heading">Log in</div>
+        <div class="auth-logo">
+          <svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+            <defs>
+              <linearGradient id="shg" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#4f8cff"/><stop offset="1" stop-color="#2b5bd4"/>
+              </linearGradient>
+            </defs>
+            <path d="M24 3l16 6v11c0 10-6.8 17.5-16 22-9.2-4.5-16-12-16-22V9z" fill="url(#shg)"/>
+            <path d="M16.5 24.5l5.2 5.2L32 18.5" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h1 class="auth-title">Aegis Remote</h1>
+        <p class="auth-sub">Sign in to your control dashboard</p>
         <form id="auth-form" autocomplete="on">
-          <input id="au-email" type="text" placeholder="Username or email" autocomplete="username" required />
-          <input id="au-pass" type="password" placeholder="Password" autocomplete="current-password" required />
-          <button id="au-submit" type="submit" class="btn primary wide">Log in</button>
+          <label class="field">
+            <span>Username</span>
+            <input id="au-email" type="text" placeholder="you@company.com" autocomplete="username" required />
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <input id="au-pass" type="password" placeholder="••••••••" autocomplete="current-password" required />
+          </label>
+          <button id="au-submit" type="submit" class="btn primary block">
+            <span class="btn-label">Sign in</span>
+          </button>
           <div id="auth-err" class="err"></div>
         </form>
       </div>
     </div>
 
-    <!-- ============ APP ============ -->
-    <div id="app-view" hidden>
-      <header id="topbar">
-        <div class="brand">🛡️ <b>Aegis&nbsp;Remote</b></div>
-        <div class="who"><span id="admin-name"></span><button id="change-pw" class="btn small">Change password</button><button id="logout" class="btn small">Log out</button></div>
-      </header>
+    <!-- ============================= APP ============================= -->
+    <div id="app-view" class="app-shell" hidden>
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="side-brand">
+          <svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true">
+            <path d="M24 3l16 6v11c0 10-6.8 17.5-16 22-9.2-4.5-16-12-16-22V9z" fill="url(#shg)"/>
+            <path d="M16.5 24.5l5.2 5.2L32 18.5" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Aegis<b>Remote</b></span>
+        </div>
 
-      <!-- DASHBOARD -->
-      <div id="dashboard">
-        <section class="card" id="accounts-card" hidden>
-          <h2>Customer accounts</h2>
-          <p class="hint">Generate a login for a paying customer. Give them the username &amp; password —
-            they'll be prompted to change the password on first login.</p>
-          <div id="accounts"></div>
-          <button id="gen-account" class="btn">+ Generate account</button>
-          <pre id="account-out" class="output" hidden></pre>
-        </section>
+        <nav class="side-nav">
+          <button class="nav-item active" data-view="devices">
+            <svg viewBox="0 0 24 24" class="ic"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            <span>Devices</span>
+          </button>
+          <button class="nav-item" data-view="enrollment">
+            <svg viewBox="0 0 24 24" class="ic"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+            <span>Enrollment</span>
+          </button>
+          <button class="nav-item owner-only" data-view="accounts" hidden>
+            <svg viewBox="0 0 24 24" class="ic"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0111 0"/><path d="M17 8h4M19 6v4"/></svg>
+            <span>Accounts</span>
+          </button>
+          <button class="nav-item" data-view="settings">
+            <svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 00-2-1.2l-.3-2.5H9.7l-.3 2.5a7 7 0 00-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 005 12a7 7 0 00.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 002 1.2l.3 2.5h4.6l.3-2.5a7 7 0 002-1.2l2.3 1 2-3.4-2-1.5A7 7 0 0019 12z"/></svg>
+            <span>Settings</span>
+          </button>
+        </nav>
 
-        <section class="card">
-          <h2>Devices <span id="dev-count" class="pill"></span></h2>
-          <div id="devices"></div>
-          <div id="dev-empty" class="empty">No devices yet — share an enrollment link below to add one.</div>
-        </section>
+        <div class="side-foot">
+          <div class="side-user">
+            <div class="avatar" id="side-avatar">A</div>
+            <div class="su-meta">
+              <div class="su-name" id="side-name">—</div>
+              <div class="su-role" id="side-role">admin</div>
+            </div>
+          </div>
+          <button id="logout" class="btn ghost block small">Sign out</button>
+        </div>
+      </aside>
 
-        <section class="card">
-          <h2>Enrollment links</h2>
-          <p class="hint">
-            Send a link to the person you support. When they <b>download &amp; run</b> it, their
-            machine enrolls under your account and appears above. They can remove it anytime from
-            Windows <i>Add/Remove Programs</i>.
-          </p>
-          <div id="installer-status" class="hint"></div>
-          <div id="keys"></div>
-          <div class="key-actions">
-            <button id="new-key" class="btn">+ New link</button>
-            <label class="btn" id="upload-label">⬆ Upload installer
-              <input id="installer-file" type="file" accept=".exe" hidden />
-            </label>
-            <span id="upload-status" class="hint" style="margin:0"></span>
+      <!-- Main -->
+      <main class="main">
+        <!-- ===== DEVICES ===== -->
+        <section class="page" data-page="devices">
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">Devices</h1>
+              <p class="page-sub">Machines enrolled under your account</p>
+            </div>
+            <div class="page-actions">
+              <div class="search">
+                <svg viewBox="0 0 24 24" class="ic"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+                <input id="dev-search" type="text" placeholder="Search devices…" />
+              </div>
+              <button id="refresh-dev" class="btn ghost icon" title="Refresh">
+                <svg viewBox="0 0 24 24" class="ic"><path d="M20 11a8 8 0 10-2 5"/><path d="M20 4v6h-6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="stats" id="stats">
+            <div class="stat"><div class="stat-top"><span class="stat-label">Total</span><span class="stat-ic total">●</span></div><div class="stat-num" id="st-total">0</div></div>
+            <div class="stat"><div class="stat-top"><span class="stat-label">Online</span><span class="stat-ic online">●</span></div><div class="stat-num" id="st-online">0</div></div>
+            <div class="stat"><div class="stat-top"><span class="stat-label">In session</span><span class="stat-ic busy">●</span></div><div class="stat-num" id="st-busy">0</div></div>
+            <div class="stat"><div class="stat-top"><span class="stat-label">Offline</span><span class="stat-ic offline">●</span></div><div class="stat-num" id="st-offline">0</div></div>
+          </div>
+
+          <div class="seg" id="dev-filter">
+            <button class="seg-btn active" data-f="all">All</button>
+            <button class="seg-btn" data-f="online">Online</button>
+            <button class="seg-btn" data-f="offline">Offline</button>
+          </div>
+
+          <div id="devices" class="device-grid"></div>
+          <div id="dev-empty" class="empty" hidden>
+            <div class="empty-ic">🖥️</div>
+            <h3>No devices yet</h3>
+            <p>Create an enrollment link and send it to the machine you want to manage.</p>
+            <button class="btn primary" data-goto="enrollment">Go to Enrollment</button>
           </div>
         </section>
-      </div>
 
-      <!-- CONTROL -->
-      <div id="control-view" hidden>
-        <div id="session-bar">
-          <button id="back-dash" class="btn small">← Devices</button>
-          <span id="session-name"></span>
-          <span class="spacer"></span>
-          <select id="monitor-select" class="btn small" hidden></select>
-          <label class="ctl"><input type="checkbox" id="control" checked /> Control</label>
-          <button id="fit" class="btn small">Fit</button>
-          <button id="detach" class="btn small danger">Disconnect</button>
+        <!-- ===== ENROLLMENT ===== -->
+        <section class="page" data-page="enrollment" hidden>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">Enrollment</h1>
+              <p class="page-sub">Links people run to add their machine to your account</p>
+            </div>
+            <div class="page-actions">
+              <label class="btn ghost" id="upload-label">
+                <svg viewBox="0 0 24 24" class="ic"><path d="M12 16V4m0 0l-4 4m4-4l4 4"/><path d="M4 20h16"/></svg>
+                <span>Upload installer</span>
+                <input id="installer-file" type="file" accept=".exe" hidden />
+              </label>
+              <button id="new-key" class="btn primary">+ New link</button>
+            </div>
+          </div>
+
+          <div id="installer-banner" class="banner warn" hidden>
+            <span>⚠ Upload your <b>AegisSetup.exe</b> once so these links can be downloaded.</span>
+          </div>
+          <div id="upload-status" class="hint"></div>
+
+          <div id="keys" class="link-list"></div>
+        </section>
+
+        <!-- ===== ACCOUNTS (owner) ===== -->
+        <section class="page" data-page="accounts" hidden>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">Customer accounts</h1>
+              <p class="page-sub">Generate a login for a paying customer</p>
+            </div>
+            <div class="page-actions">
+              <button id="gen-account" class="btn primary">+ Generate account</button>
+            </div>
+          </div>
+          <div id="account-out" class="cred-card" hidden></div>
+          <div id="accounts" class="acct-list"></div>
+          <div id="acct-empty" class="empty" hidden>
+            <div class="empty-ic">👥</div>
+            <h3>No customer accounts</h3>
+            <p>Generate one and hand the credentials to your customer — they change the password on first login.</p>
+          </div>
+        </section>
+
+        <!-- ===== SETTINGS ===== -->
+        <section class="page" data-page="settings" hidden>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">Settings</h1>
+              <p class="page-sub">Your account</p>
+            </div>
+          </div>
+          <div class="settings-card">
+            <div class="set-row"><span class="set-k">Username</span><span class="set-v" id="set-user">—</span></div>
+            <div class="set-row"><span class="set-k">Role</span><span class="set-v" id="set-role">—</span></div>
+            <div class="set-row">
+              <span class="set-k">Password</span>
+              <span class="set-v"><button id="change-pw" class="btn ghost small">Change password</button></span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== CONTROL OVERLAY ===== -->
+        <div id="control-view" class="control-view" hidden>
+          <div id="session-bar" class="session-bar">
+            <button id="back-dash" class="btn ghost small">
+              <svg viewBox="0 0 24 24" class="ic"><path d="M15 6l-6 6 6 6"/></svg> Devices
+            </button>
+            <span class="sess-dot"></span>
+            <span id="session-name" class="sess-name"></span>
+            <span class="spacer"></span>
+            <select id="monitor-select" class="mini-select" hidden></select>
+            <label class="switch"><input type="checkbox" id="control" checked /><span class="track"></span><span class="sw-label">Control</span></label>
+            <button id="fit" class="btn ghost small">Fit</button>
+            <button id="detach" class="btn danger small">Disconnect</button>
+          </div>
+          <div id="screen-wrap" class="screen-wrap">
+            <canvas id="screen" tabindex="0"></canvas>
+          </div>
         </div>
-        <div id="screen-wrap">
-          <canvas id="screen" tabindex="0"></canvas>
-        </div>
-      </div>
+      </main>
     </div>
+
+    <!-- toast host -->
+    <div id="toasts" class="toasts"></div>
+
+    <!-- hidden svg defs for the sidebar shield gradient -->
+    <svg width="0" height="0" style="position:absolute"><defs>
+      <linearGradient id="shg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f8cff"/><stop offset="1" stop-color="#2b5bd4"/></linearGradient>
+    </defs></svg>
 
     <script src="app.js"></script>
   </body>

@@ -127,7 +127,7 @@ async function connect() {
       id: DEVICE_ID, name: CFG.name, key: CFG.key,
       screen: scr, meta,
     }));
-    sendPresence();
+    sendPresence(true);
     startPresenceHeartbeat();
   };
   ws.onclose = () => {
@@ -152,15 +152,25 @@ document.addEventListener('change', (e) => {
   }
 });
 
-// Report user presence (idle/active/locked) periodically so the console shows
-// whether someone is actually at the machine.
+// Report user presence (idle/active/locked). Poll often and push immediately on
+// a state change (so "active" appears the moment someone starts using the PC),
+// plus a 30s heartbeat so the idle-duration display stays fresh.
 let presenceTimer = null;
-async function sendPresence() {
+let lastPresenceState = null;
+let lastPresenceSent = 0;
+async function sendPresence(force) {
   if (!ws || ws.readyState !== ws.OPEN) return;
-  try { const p = await window.agent.getPresence(); ws.send(JSON.stringify({ type: 'presence', idle: p.idle, state: p.state })); } catch {}
+  let p;
+  try { p = await window.agent.getPresence(); } catch { return; }
+  const now = Date.now();
+  const changed = p.state !== lastPresenceState;
+  if (changed || force || (now - lastPresenceSent) >= 30000) {
+    lastPresenceState = p.state; lastPresenceSent = now;
+    try { ws.send(JSON.stringify({ type: 'presence', idle: p.idle, state: p.state })); } catch {}
+  }
 }
-function startPresenceHeartbeat() { if (!presenceTimer) presenceTimer = setInterval(sendPresence, 30000); }
-function stopPresenceHeartbeat() { if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; } }
+function startPresenceHeartbeat() { if (!presenceTimer) presenceTimer = setInterval(() => sendPresence(false), 5000); }
+function stopPresenceHeartbeat() { if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; } lastPresenceState = null; lastPresenceSent = 0; }
 
 function onMessage(msg) {
   switch (msg.type) {

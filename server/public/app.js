@@ -459,7 +459,8 @@ $('#new-key').addEventListener('click', async () => {
 async function checkInstaller() {
   try {
     const { ready } = await api('/api/installer');
-    $('#installer-banner').hidden = ready;
+    // Only the owner uploads the installer, so only they see the "upload it" nudge.
+    $('#installer-banner').hidden = ready || !(admin && admin.role === 'owner');
   } catch {}
 }
 $('#installer-file').addEventListener('change', async (e) => {

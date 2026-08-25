@@ -253,7 +253,9 @@ ipcMain.on('inject', (_e, cmd) => inject(cmd));
 ipcMain.handle('presence:get', () => {
   let idle = 0, state = 'unknown';
   try { idle = powerMonitor.getSystemIdleTime(); } catch {}
-  try { state = powerMonitor.getSystemIdleState(60); } catch {}
+  // 300s threshold: shows "idle" only after 5 min of no input; flips back to
+  // "active" the instant input resumes (idle time resets to ~0).
+  try { state = powerMonitor.getSystemIdleState(300); } catch {}
   return { idle, state };
 });
 

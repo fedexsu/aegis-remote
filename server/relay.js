@@ -193,7 +193,10 @@ async function handleApi(req, res, urlPath) {
     if (urlPath === '/api/me' && m === 'GET') return json(res, 200, { admin: db.publicAdmin(admin) });
 
     // Upload the installer to the persistent data dir (raw binary body).
+    // Owner-only: the installer is a single shared file served to every admin's
+    // enrollment links, so customers must not be able to replace it.
     if (urlPath === '/api/installer' && m === 'POST') {
+      if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
       const dest = path.join(db.DATA_DIR, 'AegisSetup.exe');
       try { fs.mkdirSync(db.DATA_DIR, { recursive: true }); } catch {}
       const tmp = dest + '.upload';

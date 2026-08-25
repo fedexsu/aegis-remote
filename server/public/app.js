@@ -214,6 +214,8 @@ function statusOf(d) {
   if (d.asleep) return 'sleep';
   return 'offline';
 }
+function closeCardMenus(except) { $$('.card-menu').forEach((m) => { if (m !== except) m.hidden = true; }); }
+document.addEventListener('click', () => closeCardMenus(null));
 function statusLabel(s) {
   return s === 'busy' ? 'In session' : s === 'online' ? 'Online'
     : s === 'uninstalled' ? 'Uninstalled' : s === 'sleep' ? 'Sleeping' : 'Offline';
@@ -264,7 +266,15 @@ function renderDevices() {
           <div class="dev-name" title=""></div>
           <span class="dev-status st-${st}"><span class="status-dot"></span>${statusLabel(st)}${pres ? ` <span class="presence ${pres.cls}">· ${pres.text}</span>` : ''}</span>
         </div>
-        ${d.online ? `<button class="btn ghost icon-btn sys top" title="System — monitor, processes, clipboard, power"><svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg></button>` : ''}
+        <div class="card-settings">
+          <button class="btn ghost icon-btn gear top" title="Device settings">
+            <svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          </button>
+          <div class="card-menu" hidden>
+            <button class="cm-rename"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>Rename</button>
+            <button class="cm-del danger"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>Remove</button>
+          </div>
+        </div>
       </div>
       <div class="dev-meta">
         <div class="dm"><div class="dm-k">System</div><div class="dm-v" data-f="os">—</div></div>
@@ -278,12 +288,7 @@ function renderDevices() {
         <button class="btn primary connect" ${d.online && !d.busy ? '' : 'disabled style="opacity:.5;cursor:not-allowed"'}>${d.busy ? 'In use' : (st === 'sleep' ? 'Asleep' : 'Connect')}</button>
         ${d.online ? `<button class="btn ghost icon-btn term" title="Terminal"><svg viewBox="0 0 24 24" class="ic"><path d="M4 5h16v14H4z"/><path d="M8 9.5l2.5 2.5L8 14.5M13 15h3.5"/></svg></button>` : ''}
         ${d.online ? `<button class="btn ghost icon-btn files" title="Files"><svg viewBox="0 0 24 24" class="ic"><path d="M3 7h6l2 2h10v10H3z"/></svg></button>` : ''}
-        <button class="btn ghost icon-btn rename" title="Rename">
-          <svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
-        </button>
-        <button class="btn danger icon-btn del" title="Remove">
-          <svg viewBox="0 0 24 24" class="ic"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
-        </button>
+        ${d.online ? `<button class="btn ghost icon-btn sys" title="System monitor — CPU, processes, power"><svg viewBox="0 0 24 24" class="ic"><path d="M3 12h4l2.5 7 4-14 2.5 7h5"/></svg></button>` : ''}
       </div>`;
     el.querySelector('.dev-name').textContent = d.name;
     el.querySelector('.dev-name').title = d.id;
@@ -302,8 +307,11 @@ function renderDevices() {
     if (filesBtn) filesBtn.addEventListener('click', () => openFiles(d));
     const sysBtn = el.querySelector('.sys');
     if (sysBtn) sysBtn.addEventListener('click', () => openSystem(d));
-    el.querySelector('.rename').addEventListener('click', () => renameDevice(d));
-    el.querySelector('.del').addEventListener('click', () => removeDevice(d));
+    // Settings cog → dropdown (Rename / Remove)
+    const gear = el.querySelector('.gear'), menu = el.querySelector('.card-menu');
+    gear.addEventListener('click', (e) => { e.stopPropagation(); closeCardMenus(menu); menu.hidden = !menu.hidden; });
+    el.querySelector('.cm-rename').addEventListener('click', () => { menu.hidden = true; renameDevice(d); });
+    el.querySelector('.cm-del').addEventListener('click', () => { menu.hidden = true; removeDevice(d); });
     box.appendChild(el);
   }
 }

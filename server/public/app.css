@@ -197,7 +197,14 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .device:hover{transform:translateY(-3px);border-color:var(--line2);box-shadow:var(--shadow)}
 .device.online::after{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--green),transparent);opacity:.7}
 .dev-top{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-.icon-btn.top{margin-left:auto;flex:0 0 auto;align-self:flex-start}
+.card-settings{margin-left:auto;align-self:flex-start;position:relative}
+.icon-btn.top{flex:0 0 auto}
+.card-menu{position:absolute;top:40px;right:0;z-index:20;min-width:150px;background:var(--panel3);border:1px solid var(--line2);border-radius:10px;box-shadow:var(--shadow);padding:5px;animation:pop .16s ease both}
+.card-menu button{display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;border:none;background:none;color:var(--txt);font-size:13px;font-weight:600;border-radius:7px;cursor:pointer;text-align:left}
+.card-menu button svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.card-menu button:hover{background:var(--panel2)}
+.card-menu button.danger{color:var(--red)}
+.card-menu button.danger:hover{background:rgba(255,93,108,.12)}
 .presence{font-size:11px;font-weight:600}
 .presence.active{color:var(--green)}
 .presence.idle{color:var(--amber)}

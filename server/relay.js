@@ -345,7 +345,6 @@ wss.on('connection', (ws, req) => {
         return;
       }
       if (msg.type === 'detach') { detachConsole(id); send(ws, { type: 'agents', list: deviceListFor(adminId) }); return; }
-      if (msg.type === 'wake') { doWake(adminId, msg.id, ws); return; }
       if (c.agentId && (msg.type === 'input' || msg.type === 'chat' || msg.type === 'monitor')) {
         const a = agents.get(c.agentId);
         if (a && a.adminId === adminId) send(a.ws, msg);
@@ -384,27 +383,6 @@ wss.on('connection', (ws, req) => {
     }
   });
 });
-
-// Wake a sleeping device via Wake-on-LAN. The cloud can't reach a home/office
-// LAN directly, so we relay the request to an ONLINE peer agent on the same
-// subnet, which broadcasts the magic packet locally.
-function doWake(adminId, targetId, consoleWs) {
-  const devs = db.devicesForAdmin(adminId);
-  const target = devs.find((d) => d.id === targetId);
-  if (!target) return send(consoleWs, { type: 'error', text: 'Device not found.' });
-  const mac = target.meta && target.meta.mac;
-  const subnet = target.meta && target.meta.subnet;
-  if (!mac) return send(consoleWs, { type: 'error', text: 'No MAC recorded — reinstall the updated agent on that PC so it can be woken.' });
-  let peer = null;
-  for (const [pid, a] of agents) {
-    if (a.adminId !== adminId || pid === targetId) continue;
-    const pd = devs.find((d) => d.id === pid);
-    if (pd && pd.meta && subnet && pd.meta.subnet === subnet) { peer = a; break; }
-  }
-  if (!peer) return send(consoleWs, { type: 'error', text: 'No awake PC on the same network to send the wake signal. Wake needs another Aegis device online on that LAN.' });
-  send(peer.ws, { type: 'wake', mac });
-  send(consoleWs, { type: 'info', text: `Wake signal sent to ${target.name || 'device'}. If Wake-on-LAN is enabled on it, it should come online shortly.` });
-}
 
 function detachConsole(consoleId) {
   const c = consoles.get(consoleId);

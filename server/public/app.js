@@ -254,9 +254,7 @@ function renderDevices() {
         <div class="dm"><div class="dm-k">Last seen</div><div class="dm-v" data-f="seen">—</div></div>
       </div>
       <div class="dev-actions">
-        ${st === 'sleep'
-          ? `<button class="btn primary wake"><svg viewBox="0 0 24 24" class="ic"><path d="M12 2v6"/><path d="M5.6 5.6l1.4 1.4M17 7l1.4-1.4"/><path d="M4 13a8 8 0 0116 0"/><path d="M2 17h20"/></svg> Wake</button>`
-          : `<button class="btn primary connect" ${d.online && !d.busy ? '' : 'disabled style="opacity:.5;cursor:not-allowed"'}>${d.busy ? 'In use' : 'Connect'}</button>`}
+        <button class="btn primary connect" ${d.online && !d.busy ? '' : 'disabled style="opacity:.5;cursor:not-allowed"'}>${d.busy ? 'In use' : (st === 'sleep' ? 'Asleep' : 'Connect')}</button>
         <button class="btn ghost icon-btn rename" title="Rename">
           <svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
         </button>
@@ -275,17 +273,12 @@ function renderDevices() {
 
     const conn = el.querySelector('.connect');
     if (conn && d.online && !d.busy) conn.addEventListener('click', () => attach(d.id));
-    const wakeBtn = el.querySelector('.wake');
-    if (wakeBtn) wakeBtn.addEventListener('click', () => wakeDevice(d));
     el.querySelector('.rename').addEventListener('click', () => renameDevice(d));
     el.querySelector('.del').addEventListener('click', () => removeDevice(d));
     box.appendChild(el);
   }
 }
 function attach(id) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'attach', agentId: id })); }
-function wakeDevice(d) {
-  if (ws && ws.readyState === ws.OPEN) { ws.send(JSON.stringify({ type: 'wake', id: d.id })); toast('Sending wake signal…'); }
-}
 
 async function renameDevice(d) {
   const vals = await modal({ title: 'Rename device', fields: [{ label: 'Name', value: d.name }], confirmText: 'Save' });

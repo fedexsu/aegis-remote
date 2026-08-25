@@ -1,6 +1,16 @@
 'use strict';
 
 const { app, BrowserWindow, ipcMain, desktopCapturer, session, Tray, Menu, nativeImage, screen, powerMonitor, clipboard, powerSaveBlocker } = require('electron');
+
+// CRITICAL for a headless (hidden-window) capture agent: Windows occlusion
+// detection marks the hidden window "occluded" and stops compositing its video,
+// which freezes the desktop-capture <video> element (stale/stagnant screen even
+// though timers run). Disabling it keeps the capture live. Also force GPU
+// compositing so frames keep flowing when unseen.
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');

@@ -178,8 +178,9 @@ function connectWS() {
       case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); break;
       case 'error': toast(msg.text, 'err'); break;
       case 'info': toast(msg.text, 'ok'); break;
-      case 'opStream': onOpStream(msg); break;
-      case 'opEnd': onOpEnd(msg); break;
+      case 'opStream': if (msg.reqId === termReqId) onOpStream(msg); else fsDispatch('stream', msg); break;
+      case 'opEnd': if (msg.reqId === termReqId) onOpEnd(msg); else fsDispatch('end', msg); break;
+      case 'opResult': fsDispatch('result', msg); break;
       case 'denied': showAuth(); break;
     }
   };
@@ -258,6 +259,7 @@ function renderDevices() {
       <div class="dev-actions">
         <button class="btn primary connect" ${d.online && !d.busy ? '' : 'disabled style="opacity:.5;cursor:not-allowed"'}>${d.busy ? 'In use' : (st === 'sleep' ? 'Asleep' : 'Connect')}</button>
         ${d.online ? `<button class="btn ghost icon-btn term" title="Terminal"><svg viewBox="0 0 24 24" class="ic"><path d="M4 5h16v14H4z"/><path d="M8 9.5l2.5 2.5L8 14.5M13 15h3.5"/></svg></button>` : ''}
+        ${d.online ? `<button class="btn ghost icon-btn files" title="Files"><svg viewBox="0 0 24 24" class="ic"><path d="M3 7h6l2 2h10v10H3z"/></svg></button>` : ''}
         <button class="btn ghost icon-btn rename" title="Rename">
           <svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
         </button>
@@ -278,6 +280,8 @@ function renderDevices() {
     if (conn && d.online && !d.busy) conn.addEventListener('click', () => attach(d.id));
     const termBtn = el.querySelector('.term');
     if (termBtn) termBtn.addEventListener('click', () => openTerminal(d));
+    const filesBtn = el.querySelector('.files');
+    if (filesBtn) filesBtn.addEventListener('click', () => openFiles(d));
     el.querySelector('.rename').addEventListener('click', () => renameDevice(d));
     el.querySelector('.del').addEventListener('click', () => removeDevice(d));
     box.appendChild(el);
@@ -507,6 +511,163 @@ $('#term-input').addEventListener('keydown', (e) => {
   if (!termReqId) { termAppend('\n[session closed — reopen the terminal]\n'); return; }
   sendOp('term-input', { data: line + '\r\n' });
 });
+
+// ---------------------------------------------------------------------------
+// File browser + transfer (op channel)
+// ---------------------------------------------------------------------------
+let filesAgentId = null, filesPath = '';
+const fsOps = new Map(); // reqId -> { onResult, onStream, onEnd }
+
+function fsDispatch(kind, msg) {
+  const h = fsOps.get(msg.reqId);
+  if (!h) return;
+  if (kind === 'stream') { h.onStream && h.onStream(msg); return; }
+  fsOps.delete(msg.reqId);
+  if (kind === 'result') h.onResult && h.onResult(msg);
+  else h.onEnd && h.onEnd(msg);
+}
+function opRaw(op, reqId, payload) {
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'op', agentId: filesAgentId, op, reqId, payload: payload || {} }));
+}
+function fsRequest(op, payload, handlers) {
+  const reqId = newReqId();
+  if (handlers) fsOps.set(reqId, handlers);
+  opRaw(op, reqId, payload);
+  return reqId;
+}
+const joinPath = (base, name) => (!base ? name : (base.endsWith('\\') ? base + name : base + '\\' + name));
+function fmtSize(b) {
+  if (!b) return '0 B';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; let n = b;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(1) : n) + ' ' + u[i];
+}
+
+function openFiles(d) {
+  filesAgentId = d.id;
+  $('#files-name').textContent = d.name;
+  $('#files-view').hidden = false;
+  loadDir('');
+}
+function closeFiles() { $('#files-view').hidden = true; filesAgentId = null; }
+function loadDir(p) {
+  fsRequest('fs-list', { path: p }, { onResult: (m) => {
+    if (!m.ok) { toast(m.error || 'cannot open', 'err'); return; }
+    filesPath = m.data.path;
+    renderCrumbs(m.data.path);
+    renderFiles(m.data);
+    $('#files-up').disabled = false;
+    $('#files-up').dataset.parent = m.data.parent || '';
+  } });
+}
+function renderCrumbs(p) {
+  const box = $('#files-crumbs');
+  box.innerHTML = '';
+  const root = document.createElement('span'); root.className = 'crumb'; root.textContent = 'Drives';
+  root.addEventListener('click', () => loadDir(''));
+  box.appendChild(root);
+  if (!p) return;
+  const parts = p.split('\\').filter(Boolean); // ["C:", "Users", "USER"]
+  let acc = '';
+  parts.forEach((seg, i) => {
+    const sep = document.createElement('span'); sep.className = 'crumb-sep'; sep.textContent = '›'; box.appendChild(sep);
+    acc = i === 0 ? seg + '\\' : acc + (acc.endsWith('\\') ? '' : '\\') + seg;
+    const c = document.createElement('span'); c.className = 'crumb'; c.textContent = seg;
+    const target = acc;
+    c.addEventListener('click', () => loadDir(target));
+    box.appendChild(c);
+  });
+}
+const DIR_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10H3z"/></svg>';
+const FILE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg>';
+function renderFiles(data) {
+  const body = $('#files-body'); body.innerHTML = '';
+  $('#files-empty').hidden = data.entries.length !== 0;
+  for (const e of data.entries) {
+    const tr = document.createElement('tr'); tr.className = 'frow';
+    tr.innerHTML = `<td><span class="fname ${e.isDir ? 'dir' : 'file'}">${e.isDir ? DIR_ICON : FILE_ICON}<span class="fn"></span></span></td>
+      <td class="col-size">${e.isDir ? '' : fmtSize(e.size)}</td>
+      <td class="col-mod">${e.mtime ? new Date(e.mtime).toLocaleString() : ''}</td>
+      <td class="col-act"><span class="fact"></span></td>`;
+    tr.querySelector('.fn').textContent = e.name;
+    const full = joinPath(data.path, e.name);
+    if (e.isDir) tr.querySelector('.fname').addEventListener('click', () => loadDir(e.name.endsWith(':\\') ? e.name : full));
+    const act = tr.querySelector('.fact');
+    if (!e.isDir) {
+      const dl = document.createElement('button'); dl.title = 'Download';
+      dl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 21h16"/></svg>';
+      dl.addEventListener('click', () => downloadFile(full, e.name, e.size));
+      act.appendChild(dl);
+    }
+    const del = document.createElement('button'); del.className = 'del'; del.title = 'Delete';
+    del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
+    del.addEventListener('click', () => deleteEntry(full, e.name));
+    act.appendChild(del);
+    body.appendChild(tr);
+  }
+}
+function showFp(text, frac) { $('#files-progress').hidden = false; $('#fp-text').textContent = text; $('#fp-fill').style.width = Math.round((frac || 0) * 100) + '%'; }
+function hideFp() { $('#files-progress').hidden = true; $('#fp-fill').style.width = '0'; }
+
+function downloadFile(full, name, size) {
+  const parts = []; let received = 0;
+  showFp('Downloading ' + name + '…', 0);
+  fsRequest('fs-get', { path: full }, {
+    onStream: (m) => {
+      if (m.b64) {
+        const bin = atob(m.b64); const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        parts.push(arr); received += arr.length;
+        showFp('Downloading ' + name + '…', size ? received / size : 0);
+      }
+    },
+    onEnd: (m) => {
+      hideFp();
+      if (!m.ok) { toast(m.error || 'download failed', 'err'); return; }
+      const blob = new Blob(parts);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      toast('Downloaded ' + name, 'ok');
+    },
+  });
+}
+async function uploadFile(file) {
+  const dest = joinPath(filesPath, file.name);
+  const reqId = newReqId();
+  fsOps.set(reqId, { onEnd: (m) => { hideFp(); if (m.ok) { toast('Uploaded ' + file.name, 'ok'); loadDir(filesPath); } else toast(m.error || 'upload failed', 'err'); } });
+  opRaw('fs-put-begin', reqId, { path: dest });
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const CH = 192 * 1024;
+  showFp('Uploading ' + file.name + '…', 0);
+  for (let off = 0; off < buf.length; off += CH) {
+    const slice = buf.subarray(off, off + CH);
+    opRaw('fs-put-chunk', reqId, { b64: bytesToB64(slice) });
+    showFp('Uploading ' + file.name + '…', buf.length ? off / buf.length : 1);
+    while (ws && ws.bufferedAmount > 4e6) await new Promise((r) => setTimeout(r, 20));
+  }
+  opRaw('fs-put-end', reqId, {});
+  showFp('Finishing ' + file.name + '…', 1);
+}
+function bytesToB64(bytes) {
+  let bin = ''; const S = 0x8000;
+  for (let i = 0; i < bytes.length; i += S) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + S));
+  return btoa(bin);
+}
+async function deleteEntry(full, name) {
+  const ok = await modal({ title: 'Delete?', message: `Permanently delete "${name}" from the remote PC?`, confirmText: 'Delete', danger: true });
+  if (!ok) return;
+  fsRequest('fs-del', { path: full }, { onResult: (m) => { if (m.ok) { toast('Deleted', 'ok'); loadDir(filesPath); } else toast(m.error || 'delete failed', 'err'); } });
+}
+$('#files-back').addEventListener('click', closeFiles);
+$('#files-refresh').addEventListener('click', () => loadDir(filesPath));
+$('#files-up').addEventListener('click', (e) => loadDir(e.currentTarget.dataset.parent || ''));
+$('#files-mkdir').addEventListener('click', async () => {
+  const vals = await modal({ title: 'New folder', fields: [{ label: 'Folder name' }], confirmText: 'Create' });
+  if (!vals || !vals[0].trim()) return;
+  fsRequest('fs-mkdir', { path: joinPath(filesPath, vals[0].trim()) }, { onResult: (m) => { if (m.ok) { toast('Folder created', 'ok'); loadDir(filesPath); } else toast(m.error || 'failed', 'err'); } });
+});
+$('#files-upload').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) uploadFile(f); e.target.value = ''; });
 
 // ---------------------------------------------------------------------------
 // Control session

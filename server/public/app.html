@@ -238,6 +238,30 @@
             <input id="term-input" class="term-input" placeholder="Type a command and press Enter…" autocomplete="off" autocapitalize="off" spellcheck="false" />
           </div>
         </div>
+
+        <!-- ===== FILE BROWSER OVERLAY ===== -->
+        <div id="files-view" class="control-view" hidden>
+          <div class="session-bar">
+            <button id="files-back" class="btn ghost small">
+              <svg viewBox="0 0 24 24" class="ic"><path d="M15 6l-6 6 6 6"/></svg> Devices
+            </button>
+            <span class="sess-name" id="files-name"></span>
+            <span class="spacer"></span>
+            <button id="files-up" class="btn ghost small" title="Up one level"><svg viewBox="0 0 24 24" class="ic"><path d="M12 19V5M5 12l7-7 7 7"/></svg> Up</button>
+            <button id="files-refresh" class="btn ghost small" title="Refresh"><svg viewBox="0 0 24 24" class="ic"><path d="M20 11a8 8 0 10-2 5"/><path d="M20 4v6h-6"/></svg></button>
+            <button id="files-mkdir" class="btn ghost small">New folder</button>
+            <label class="btn primary small" id="files-upload-label">Upload<input id="files-upload" type="file" hidden /></label>
+          </div>
+          <div class="files-path"><span id="files-crumbs"></span></div>
+          <div id="files-progress" class="files-progress" hidden><div class="fp-bar"><i id="fp-fill"></i></div><span id="fp-text"></span></div>
+          <div class="files-wrap">
+            <table class="files-table">
+              <thead><tr><th>Name</th><th class="col-size">Size</th><th class="col-mod">Modified</th><th class="col-act"></th></tr></thead>
+              <tbody id="files-body"></tbody>
+            </table>
+            <div id="files-empty" class="files-empty" hidden>Empty folder</div>
+          </div>
+        </div>
       </main>
     </div>
 

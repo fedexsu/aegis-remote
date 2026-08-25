@@ -311,6 +311,35 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .term-input{flex:1;background:none;border:none;color:var(--txt);font-family:ui-monospace,Consolas,monospace;font-size:13px;padding:6px 0}
 .term-input:focus{outline:none}
 
+/* ---------- file browser ---------- */
+.files-path{padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--line);font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:var(--txt2);overflow-x:auto;white-space:nowrap}
+.crumb{color:var(--accent);cursor:pointer}
+.crumb:hover{text-decoration:underline}
+.crumb-sep{color:var(--txt3);margin:0 4px}
+.files-progress{display:flex;align-items:center;gap:12px;padding:8px 16px;background:var(--bg2);border-bottom:1px solid var(--line)}
+.fp-bar{flex:1;height:6px;background:var(--panel3);border-radius:6px;overflow:hidden}
+.fp-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .15s}
+#fp-text{font-size:12px;color:var(--txt2);white-space:nowrap}
+.files-wrap{flex:1;overflow:auto;background:#080c14}
+.files-table{width:100%;border-collapse:collapse;font-size:13px}
+.files-table thead th{position:sticky;top:0;background:var(--bg2);text-align:left;padding:10px 16px;color:var(--txt3);font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--line)}
+.files-table td{padding:9px 16px;border-bottom:1px solid rgba(35,48,71,.5)}
+.col-size,.col-mod{width:150px;color:var(--txt2)}
+.col-act{width:90px;text-align:right}
+.frow:hover{background:var(--panel)}
+.fname{display:flex;align-items:center;gap:10px}
+.fname svg{width:18px;height:18px;flex-shrink:0}
+.fname.dir{color:var(--txt);cursor:pointer;font-weight:600}
+.fname.dir svg{color:var(--amber)}
+.fname.file svg{color:var(--txt3)}
+.fname.dir:hover{color:var(--accent)}
+.fact{display:inline-flex;gap:4px;justify-content:flex-end}
+.fact button{background:none;border:none;color:var(--txt3);cursor:pointer;padding:4px;border-radius:6px;display:grid;place-items:center}
+.fact button svg{width:16px;height:16px}
+.fact button:hover{background:var(--panel3);color:var(--txt)}
+.fact button.del:hover{color:var(--red)}
+.files-empty{text-align:center;padding:40px;color:var(--txt3)}
+
 /* ===================================================================
    TOASTS
    =================================================================== */

@@ -179,7 +179,7 @@ function connectWS() {
       case 'frame': drawFrame(msg); break;
       case 'monitors': renderMonitors(msg); break;
       case 'rtc-offer': onRtcOffer(msg); break;
-      case 'rtc-ice': if (rtcPc && msg.candidate) rtcPc.addIceCandidate(msg.candidate).catch(() => {}); break;
+      case 'rtc-ice': if (rtcPc && msg.candidate) { rtcDiag.remoteCand.add(candType(msg.candidate)); rtcLog('remote candidate', candType(msg.candidate)); rtcPc.addIceCandidate(msg.candidate).catch((e) => rtcLog('addIceCandidate error', e.message)); } break;
       case 'control': $('#ctl-warn').hidden = msg.available !== false ? true : false; if (msg.available === false) toast('Control is blocked on this device (antivirus removed the input helper)', 'err'); break;
       case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); break;
       case 'error': toast(msg.text, 'err'); break;
@@ -1008,11 +1008,29 @@ function setRtcMode(mode) {
   else el.textContent = 'Connecting…';
 }
 const RTC_ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+// Diagnostics: surface why WebRTC does/doesn't upgrade to HD. Hover the badge to
+// see the live state; full detail also goes to the browser console as [RTC] logs.
+const rtcDiag = { offer: false, cand: new Set(), remoteCand: new Set(), ice: '-', conn: '-' };
+function rtcLog(...a) { try { console.log('[RTC]', ...a); } catch {} rtcRenderDiag(); }
+function candType(c) { const m = /(?:^|\s)typ\s+(\w+)/.exec(c && c.candidate || ''); return m ? m[1] : '?'; }
+function rtcRenderDiag() {
+  const el = $('#rtc-mode'); if (!el) return;
+  el.title = `offer:${rtcDiag.offer ? '✓' : '✗'}  ice:${rtcDiag.ice}  conn:${rtcDiag.conn}\n`
+    + `local cand: ${[...rtcDiag.cand].join(',') || 'none'}\n`
+    + `remote cand: ${[...rtcDiag.remoteCand].join(',') || 'none'}`;
+}
 async function onRtcOffer(msg) {
   closeConsoleRtc();
+  rtcDiag.offer = true; rtcDiag.cand = new Set(); rtcDiag.remoteCand = new Set(); rtcDiag.ice = 'new'; rtcDiag.conn = 'new';
+  rtcLog('offer received; iceServers =', JSON.stringify(rtcIceServers || RTC_ICE));
   try {
     rtcPc = new RTCPeerConnection({ iceServers: rtcIceServers || RTC_ICE });
-    rtcPc.onicecandidate = (e) => { if (e.candidate && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rtc-ice', candidate: e.candidate })); };
+    rtcPc.onicecandidate = (e) => {
+      if (e.candidate) { rtcDiag.cand.add(candType(e.candidate)); rtcLog('local candidate', candType(e.candidate), e.candidate.candidate); }
+      else rtcLog('local ICE gathering complete');
+      if (e.candidate && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rtc-ice', candidate: e.candidate }));
+    };
+    rtcPc.oniceconnectionstatechange = () => { if (rtcPc) { rtcDiag.ice = rtcPc.iceConnectionState; rtcLog('iceConnectionState', rtcPc.iceConnectionState); } };
     rtcPc.ontrack = (e) => {
       const v = $('#rtc-video');
       v.srcObject = e.streams[0];
@@ -1028,6 +1046,7 @@ async function onRtcOffer(msg) {
     };
     rtcPc.onconnectionstatechange = () => {
       if (!rtcPc) return;
+      rtcDiag.conn = rtcPc.connectionState; rtcLog('connectionState', rtcPc.connectionState);
       if (rtcPc.connectionState === 'connected') setRtcMode('hd');
       else if (['failed', 'disconnected', 'closed'].includes(rtcPc.connectionState)) { $('#screen-wrap').classList.remove('rtc'); setRtcMode('sd'); }
     };

@@ -319,7 +319,6 @@
               <button class="seg-btn active" data-tab="monitor">Monitor</button>
               <button class="seg-btn" data-tab="processes">Processes</button>
               <button class="seg-btn" data-tab="clipboard">Clipboard</button>
-              <button class="seg-btn" data-tab="power">Power</button>
             </div>
           </div>
           <div class="sys-wrap">
@@ -356,26 +355,6 @@
                   <thead><tr><th>Process</th><th class="col-size">PID</th><th class="col-size">Memory</th><th class="col-size">CPU (s)</th><th class="col-act"></th></tr></thead>
                   <tbody id="proc-body"></tbody>
                 </table>
-              </div>
-            </div>
-            <!-- Power -->
-            <div class="sys-tab" data-tabpage="power" hidden>
-              <div class="power-pane">
-                <div class="power-keepawake">
-                  <div>
-                    <div class="pk-title">Keep this PC awake</div>
-                    <div class="pk-sub">Prevents sleep so the machine stays reachable (screen can still turn off).</div>
-                  </div>
-                  <label class="switch"><input type="checkbox" id="keepawake-toggle" /><span class="track"></span></label>
-                </div>
-                <div class="power-grid">
-                  <button class="power-btn" data-power="lock"><span class="pb-ic">🔒</span>Lock</button>
-                  <button class="power-btn" data-power="logoff"><span class="pb-ic">🚪</span>Sign out</button>
-                  <button class="power-btn" data-power="sleep"><span class="pb-ic">🌙</span>Sleep</button>
-                  <button class="power-btn warn" data-power="restart"><span class="pb-ic">🔄</span>Restart</button>
-                  <button class="power-btn danger" data-power="shutdown"><span class="pb-ic">⏻</span>Shut down</button>
-                </div>
-                <div class="pk-sub">Restart/Shut down/Sleep will disconnect the device. After a restart it reconnects automatically at login.</div>
               </div>
             </div>
             <!-- Clipboard -->

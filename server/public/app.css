@@ -205,6 +205,15 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .card-menu button:hover{background:var(--panel2)}
 .card-menu button.danger{color:var(--red)}
 .card-menu button.danger:hover{background:rgba(255,93,108,.12)}
+.power-menu{min-width:190px}
+.pm-ka{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 11px;font-size:13px;font-weight:600;cursor:pointer}
+.pm-div{height:1px;background:var(--line);margin:5px 0}
+.power-menu .pw{display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;border:none;background:none;color:var(--txt);font-size:13px;font-weight:600;border-radius:7px;cursor:pointer;text-align:left}
+.power-menu .pw:hover{background:var(--panel2)}
+.power-menu .pw.warn{color:var(--amber)}
+.power-menu .pw.danger{color:var(--red)}
+.power-menu .pw.warn:hover{background:rgba(245,181,68,.12)}
+.power-menu .pw.danger:hover{background:rgba(255,93,108,.12)}
 .presence{font-size:11px;font-weight:600}
 .presence.active{color:var(--green)}
 .presence.idle{color:var(--amber)}

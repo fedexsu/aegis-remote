@@ -1010,14 +1010,36 @@ function setRtcMode(mode) {
 const RTC_ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
 // Diagnostics: surface why WebRTC does/doesn't upgrade to HD. Hover the badge to
 // see the live state; full detail also goes to the browser console as [RTC] logs.
-const rtcDiag = { offer: false, cand: new Set(), remoteCand: new Set(), ice: '-', conn: '-' };
+const rtcDiag = { offer: false, cand: new Set(), remoteCand: new Set(), ice: '-', conn: '-', frames: 0, fps: 0, pair: '-' };
+let rtcStatsTimer = null, rtcLastFrames = 0;
 function rtcLog(...a) { try { console.log('[RTC]', ...a); } catch {} rtcRenderDiag(); }
 function candType(c) { const m = /(?:^|\s)typ\s+(\w+)/.exec(c && c.candidate || ''); return m ? m[1] : '?'; }
 function rtcRenderDiag() {
   const el = $('#rtc-mode'); if (!el) return;
   el.title = `offer:${rtcDiag.offer ? '✓' : '✗'}  ice:${rtcDiag.ice}  conn:${rtcDiag.conn}\n`
     + `local cand: ${[...rtcDiag.cand].join(',') || 'none'}\n`
-    + `remote cand: ${[...rtcDiag.remoteCand].join(',') || 'none'}`;
+    + `remote cand: ${[...rtcDiag.remoteCand].join(',') || 'none'}\n`
+    + `video: ${rtcDiag.frames} frames decoded, ~${rtcDiag.fps} fps  pair:${rtcDiag.pair}`;
+}
+function startRtcStats() {
+  if (rtcStatsTimer) clearInterval(rtcStatsTimer);
+  rtcLastFrames = 0;
+  rtcStatsTimer = setInterval(async () => {
+    if (!rtcPc) return;
+    try {
+      const stats = await rtcPc.getStats();
+      stats.forEach((r) => {
+        if (r.type === 'inbound-rtp' && r.kind === 'video') {
+          const f = r.framesDecoded || 0;
+          rtcDiag.fps = Math.max(0, f - rtcLastFrames) / 2; rtcLastFrames = f; rtcDiag.frames = f;
+        }
+        if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') {
+          rtcDiag.pair = (r.availableIncomingBitrate ? Math.round(r.availableIncomingBitrate / 1000) + 'kbps' : 'ok');
+        }
+      });
+      rtcLog('stats: frames=' + rtcDiag.frames + ' fps=' + rtcDiag.fps);
+    } catch {}
+  }, 2000);
 }
 async function onRtcOffer(msg) {
   closeConsoleRtc();
@@ -1054,9 +1076,11 @@ async function onRtcOffer(msg) {
     const answer = await rtcPc.createAnswer();
     await rtcPc.setLocalDescription(answer);
     if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rtc-answer', sdp: rtcPc.localDescription }));
+    startRtcStats();
   } catch (e) { closeConsoleRtc(); }
 }
 function closeConsoleRtc() {
+  if (rtcStatsTimer) { clearInterval(rtcStatsTimer); rtcStatsTimer = null; }
   if (rtcPc) { try { rtcPc.close(); } catch {} rtcPc = null; }
   const v = $('#rtc-video'); try { v.srcObject = null; } catch {}
   $('#screen-wrap').classList.remove('rtc');

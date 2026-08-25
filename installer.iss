@@ -69,10 +69,29 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM injector.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
-// The enrollment key travels in this setup's own filename: AegisSetup-<KEY>.exe
-// (served by the relay at /dl/<KEY>). Extract it so the agent enrolls under the
-// right admin, with no per-download rebuild.
-function GetEnrollKey: String;
+// The enrollment key is embedded as a trailer at the END of this exe by the
+// relay (##AEGIS-KEY##[KEY]##AEGIS-END##), read from the file itself so it works
+// no matter how the download was renamed. Falls back to the filename
+// (AegisSetup-<KEY>.exe) for older/manual installers.
+function GetKeyFromTrailer: String;
+var
+  data: AnsiString;
+  p1, p2: Integer;
+begin
+  Result := '';
+  try
+    if not LoadStringFromFile(ExpandConstant('{srcexe}'), data) then exit;
+    p1 := Pos('##AEGIS-KEY##[', data);
+    if p1 > 0 then
+    begin
+      data := Copy(data, p1 + 14, Length(data)); { 14 = Length('##AEGIS-KEY##[') }
+      p2 := Pos(']##AEGIS-END##', data);
+      if p2 > 0 then Result := String(Copy(data, 1, p2 - 1));
+    end;
+  except
+  end;
+end;
+function GetKeyFromFilename: String;
 var
   fn: String;
 begin
@@ -84,6 +103,11 @@ begin
     if (Length(Result) >= 4) and (Lowercase(Copy(Result, Length(Result) - 3, 4)) = '.exe') then
       Result := Copy(Result, 1, Length(Result) - 4);
   end;
+end;
+function GetEnrollKey: String;
+begin
+  Result := GetKeyFromTrailer;
+  if Result = '' then Result := GetKeyFromFilename;
 end;
 
 // After install: write the agent's config (relay + enrollment key) and launch it.

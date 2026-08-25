@@ -326,12 +326,20 @@ function handleDownload(req, res, urlPath) {
       const k = db.incKeyDownload(key);
       if (k) pushStats(k.adminId);
     }
+    // Embed the enrollment key as a trailer at the END of the .exe so the
+    // installer can read it from its own file even if the download gets renamed
+    // (browsers add "(1)", users Save-As, etc.). Trailing bytes after the Inno
+    // overlay are ignored by the loader/extractor but readable by the installer.
+    const trailer = Buffer.from(`##AEGIS-KEY##[${key}]##AEGIS-END##`, 'ascii');
     res.writeHead(200, {
       'Content-Type': 'application/octet-stream',
-      'Content-Length': st.size,
+      'Content-Length': st.size + trailer.length,
       'Content-Disposition': `attachment; filename="AegisSetup-${key}.exe"`,
     });
-    fs.createReadStream(file).pipe(res);
+    const rs = fs.createReadStream(file);
+    rs.on('error', () => { try { res.destroy(); } catch {} });
+    rs.on('end', () => res.end(trailer));
+    rs.pipe(res, { end: false });
   });
 }
 

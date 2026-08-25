@@ -91,6 +91,31 @@ function createAdmin(username, password, name, role) {
   save();
   return { admin, key };
 }
+// ---- Telegram alerts (per admin) ----
+const DEFAULT_ALERT_RULES = {
+  install:   { on: true,  template: '✅ New install: {device} enrolled\n{os} · {user}@{host}\n{time}' },
+  online:    { on: false, template: '🟢 {device} is back ONLINE\n{user}@{host} · {time}' },
+  offline:   { on: true,  template: '🔴 {device} went OFFLINE\n{user}@{host} · {time}' },
+  uninstall: { on: true,  template: '🗑️ {device} was UNINSTALLED\n{time}' },
+};
+function getAlerts(adminId) {
+  const a = findAdminById(adminId);
+  const al = (a && a.alerts) || {};
+  const rules = {};
+  for (const k of Object.keys(DEFAULT_ALERT_RULES)) rules[k] = { ...DEFAULT_ALERT_RULES[k], ...(al.rules ? al.rules[k] : null) };
+  return { botToken: al.botToken || '', chatId: al.chatId || '', rules };
+}
+function setAlerts(adminId, alerts) {
+  const a = findAdminById(adminId);
+  if (!a) return false;
+  a.alerts = {
+    botToken: (alerts.botToken || '').trim(),
+    chatId: (alerts.chatId || '').trim(),
+    rules: alerts.rules || {},
+  };
+  save();
+  return true;
+}
 const findAdminByEmail = (email) => db.admins.find((a) => a.email === (email || '').toLowerCase().trim());
 const findAdminById = (id) => db.admins.find((a) => a.id === id);
 const publicAdmin = (a) => a && ({ id: a.id, email: a.email, name: a.name, role: a.role || 'admin', mustChangePassword: !!a.mustChangePassword });
@@ -221,5 +246,6 @@ module.exports = {
   hasAdmins, listAdmins, updatePassword,
   createSession, getSession, deleteSession,
   createKey, keysForAdmin, findValidKey, revokeKey, incKeyDownload, statsForAdmin,
+  getAlerts, setAlerts,
   upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, markUninstalled, setAsleep,
 };

@@ -64,6 +64,39 @@ function deviceListFor(adminId) {
 function pushDevices(adminId) {
   for (const c of consoles.values()) if (c.adminId === adminId && !c.agentId) send(c.ws, { type: 'agents', list: deviceListFor(adminId) });
 }
+
+// ---------------------------------------------------------------------------
+// Telegram alerts
+// ---------------------------------------------------------------------------
+const offlineTimers = new Map();  // deviceId -> timeout (debounce offline)
+const offlineFlagged = new Set(); // deviceIds currently considered offline
+const OFFLINE_DEBOUNCE = 60000;   // 60s before a drop counts as "offline"
+
+function tgSend(token, chatId, text) {
+  return new Promise((resolve) => {
+    const https = require('https');
+    const body = JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true });
+    const req = https.request({ hostname: 'api.telegram.org', path: `/bot${token}/sendMessage`, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
+      (res) => { let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => { let j = {}; try { j = JSON.parse(b); } catch {} resolve({ ok: res.statusCode === 200 && j.ok, desc: j.description || ('HTTP ' + res.statusCode) }); }); });
+    req.on('error', (e) => resolve({ ok: false, desc: e.message }));
+    req.setTimeout(10000, () => req.destroy(new Error('timeout')));
+    req.write(body); req.end();
+  });
+}
+function fmtAlert(tpl, device) {
+  const m = (device && device.meta) || {};
+  return (tpl || '').replace(/{device}/g, (device && device.name) || 'device')
+    .replace(/{os}/g, m.os || '—').replace(/{user}/g, m.user || '—')
+    .replace(/{host}/g, m.host || '—').replace(/{time}/g, new Date().toLocaleString());
+}
+function sendAlert(adminId, type, device) {
+  const a = db.getAlerts(adminId);
+  if (!a.botToken || !a.chatId) return;
+  const rule = a.rules[type];
+  if (!rule || !rule.on) return;
+  tgSend(a.botToken, a.chatId, fmtAlert(rule.template, device));
+}
+const dbDevice = (adminId, id) => db.devicesForAdmin(adminId).find((d) => d.id === id);
 // Push live download/install funnel metrics to an admin's open dashboards.
 function pushStats(adminId) {
   const stats = db.statsForAdmin(adminId);
@@ -142,9 +175,12 @@ async function handleApi(req, res, urlPath) {
       const b = await readBody(req);
       const adminId = db.markUninstalled(b.id, b.key);
       if (adminId) {
+        const dev = dbDevice(adminId, b.id);
         const live = agents.get(b.id);
         if (live) { try { live.ws.close(); } catch {} agents.delete(b.id); }
+        if (offlineTimers.has(b.id)) { clearTimeout(offlineTimers.get(b.id)); offlineTimers.delete(b.id); }
         pushDevices(adminId); pushStats(adminId);
+        sendAlert(adminId, 'uninstall', dev);
       }
       return json(res, adminId ? 200 : 404, adminId ? { ok: true } : { error: 'unknown device' });
     }
@@ -240,6 +276,19 @@ async function handleApi(req, res, urlPath) {
       const b = await readBody(req);
       return json(res, 200, { ok: db.revokeKey(admin.id, b.key) });
     }
+    if (urlPath === '/api/alerts' && m === 'GET') return json(res, 200, { alerts: db.getAlerts(admin.id) });
+    if (urlPath === '/api/alerts' && m === 'POST') {
+      const b = await readBody(req);
+      db.setAlerts(admin.id, { botToken: b.botToken, chatId: b.chatId, rules: b.rules });
+      return json(res, 200, { ok: true });
+    }
+    if (urlPath === '/api/alerts/test' && m === 'POST') {
+      const b = await readBody(req);
+      const token = (b.botToken || '').trim(), chatId = (b.chatId || '').trim();
+      if (!token || !chatId) return json(res, 400, { error: 'Enter both a bot token and a chat ID first.' });
+      const r = await tgSend(token, chatId, '🛡️ Aegis Remote test alert — your Telegram alerts are working.');
+      return json(res, r.ok ? 200 : 400, r.ok ? { ok: true } : { error: r.desc || 'Telegram rejected the message' });
+    }
     return json(res, 404, { error: 'not found' });
   } catch (e) {
     return json(res, 400, { error: e.message });
@@ -324,12 +373,19 @@ wss.on('connection', (ws, req) => {
         const name = msg.name || id;
         const meta = (msg.meta && typeof msg.meta === 'object') ? msg.meta : {};
         if (msg.screen) meta.screen = `${msg.screen.w}×${msg.screen.h}`;
+        const known = !!dbDevice(k.adminId, id);
         db.upsertDevice(id, k.adminId, name, k.key, meta);
         ws.meta = { role: 'agent', id, adminId: k.adminId };
         agents.set(id, { ws, name, adminId: k.adminId, consoleId: null, screen: msg.screen || null });
         send(ws, { type: 'registered', id });
         pushDevices(k.adminId);
         pushStats(k.adminId);   // an enrollment = an install; refresh the funnel
+        // Telegram alerts: new install, or a genuine offline→online recovery.
+        if (offlineTimers.has(id)) { clearTimeout(offlineTimers.get(id)); offlineTimers.delete(id); }
+        const dev = dbDevice(k.adminId, id);
+        if (!known) sendAlert(k.adminId, 'install', dev);
+        else if (offlineFlagged.has(id)) sendAlert(k.adminId, 'online', dev);
+        offlineFlagged.delete(id);
       } else if (msg.role === 'console') {
         const s = ws.session || db.getSession(msg.token);
         if (!s) { send(ws, { type: 'denied', reason: 'not signed in' }); return ws.close(); }
@@ -405,9 +461,20 @@ wss.on('connection', (ws, req) => {
       const a = agents.get(id);
       if (a && a.consoleId) { const c = consoles.get(a.consoleId); if (c) { c.agentId = null; send(c.ws, { type: 'agentGone' }); } }
       // If a suspend was signalled just before this drop, it's sleeping, not dead.
-      if (a && a.suspendHint && (Date.now() - a.suspendHint) < 90000) db.setAsleep(id, true);
+      const sleeping = a && a.suspendHint && (Date.now() - a.suspendHint) < 90000;
+      if (sleeping) db.setAsleep(id, true);
       agents.delete(id);
       if (adminId) pushDevices(adminId);
+      // Telegram "offline" alert, debounced so brief reconnects don't spam.
+      // (A sleeping machine is reported as sleeping, not a hard offline.)
+      if (adminId && !sleeping) {
+        if (offlineTimers.has(id)) clearTimeout(offlineTimers.get(id));
+        offlineTimers.set(id, setTimeout(() => {
+          offlineTimers.delete(id); offlineFlagged.add(id);
+          const dev = dbDevice(adminId, id);
+          if (dev && !dev.uninstalledAt && !agents.get(id)) sendAlert(adminId, 'offline', dev);
+        }, OFFLINE_DEBOUNCE));
+      }
     } else if (role === 'console') {
       detachConsole(id);
       // Cancel this console's open ops so the agent tears down any live shells.

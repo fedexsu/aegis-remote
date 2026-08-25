@@ -275,6 +275,22 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .cred-grid .cv{font-family:ui-monospace,Consolas,monospace;font-size:14px;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;padding:8px 12px}
 .cred-note{color:var(--txt2);font-size:12px;margin-top:12px}
 
+/* ---------- alerts ---------- */
+.alerts-conn{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:var(--radius);padding:18px;max-width:620px;margin-bottom:8px}
+.alerts-conn .field{margin-bottom:12px}
+.alerts-help{margin-top:6px;color:var(--txt2);font-size:12.5px}
+.alerts-help summary{cursor:pointer;color:var(--accent);font-weight:600}
+.alerts-help ol{margin:10px 0 0;padding-left:18px;line-height:1.7}
+.alerts-help code,.hint code,.banner.info code{background:rgba(0,0,0,.3);padding:1px 6px;border-radius:5px;font-size:12px}
+.alerts-rules{display:flex;flex-direction:column;gap:12px;max-width:760px}
+.alert-rule{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+.ar-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.ar-name{font-weight:700;display:flex;align-items:center;gap:8px}
+.ar-badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--panel3);color:var(--txt2)}
+.ar-tpl{width:100%;margin-top:10px;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:10px;font-size:12.5px;font-family:ui-monospace,Consolas,monospace;resize:vertical;min-height:56px}
+.ar-tpl:focus{outline:none;border-color:var(--accent)}
+.ar-tpl[disabled]{opacity:.5}
+
 /* ---------- settings ---------- */
 .settings-card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:var(--radius);max-width:560px;overflow:hidden}
 .set-row{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line)}

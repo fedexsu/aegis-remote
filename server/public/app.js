@@ -142,6 +142,7 @@ function showApp(a) {
   if (owner) loadAccounts();
   loadKeys();
   loadStats();
+  loadAlerts();
   checkInstaller();
   connectWS();
   if (a.mustChangePassword) setTimeout(() => { toast('Please set your own password', ''); changePassword(); }, 500);
@@ -423,6 +424,54 @@ $('#installer-file').addEventListener('change', async (e) => {
     $('#upload-status').textContent = '';
     toast(err.message, 'err');
   }
+});
+
+// ---------------------------------------------------------------------------
+// Telegram alerts
+// ---------------------------------------------------------------------------
+const ALERT_META = [
+  { key: 'install', name: 'New install', badge: '✅', desc: 'a machine enrolls' },
+  { key: 'online', name: 'Back online', badge: '🟢', desc: 'a device recovers from offline' },
+  { key: 'offline', name: 'Went offline', badge: '🔴', desc: 'a device drops for over a minute' },
+  { key: 'uninstall', name: 'Uninstalled', badge: '🗑️', desc: 'the agent is removed' },
+];
+async function loadAlerts() {
+  try {
+    const { alerts } = await api('/api/alerts');
+    $('#al-token').value = alerts.botToken || '';
+    $('#al-chat').value = alerts.chatId || '';
+    const box = $('#alerts-rules'); box.innerHTML = '';
+    for (const meta of ALERT_META) {
+      const r = alerts.rules[meta.key] || { on: false, template: '' };
+      const el = document.createElement('div');
+      el.className = 'alert-rule'; el.dataset.key = meta.key;
+      el.innerHTML = `<div class="ar-top">
+          <span class="ar-name"><span>${meta.badge}</span> ${meta.name} <span class="ar-badge">when ${meta.desc}</span></span>
+          <label class="switch"><input type="checkbox" class="ar-on" ${r.on ? 'checked' : ''}/><span class="track"></span></label>
+        </div>
+        <textarea class="ar-tpl" ${r.on ? '' : 'disabled'}></textarea>`;
+      el.querySelector('.ar-tpl').value = r.template || '';
+      const on = el.querySelector('.ar-on'), tpl = el.querySelector('.ar-tpl');
+      on.addEventListener('change', () => { tpl.disabled = !on.checked; });
+      box.appendChild(el);
+    }
+  } catch { /* not signed in */ }
+}
+function collectAlerts() {
+  const rules = {};
+  $$('#alerts-rules .alert-rule').forEach((el) => {
+    rules[el.dataset.key] = { on: el.querySelector('.ar-on').checked, template: el.querySelector('.ar-tpl').value };
+  });
+  return { botToken: $('#al-token').value.trim(), chatId: $('#al-chat').value.trim(), rules };
+}
+$('#alerts-save').addEventListener('click', async () => {
+  try { await api('/api/alerts', 'POST', collectAlerts()); toast('Alerts saved', 'ok'); }
+  catch (e) { toast(e.message, 'err'); }
+});
+$('#alerts-test').addEventListener('click', async () => {
+  const c = collectAlerts();
+  try { await api('/api/alerts/test', 'POST', { botToken: c.botToken, chatId: c.chatId }); toast('Test sent — check Telegram', 'ok'); }
+  catch (e) { toast(e.message, 'err'); }
 });
 
 // ---------------------------------------------------------------------------

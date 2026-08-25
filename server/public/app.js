@@ -927,11 +927,21 @@ $('#blank-btn').addEventListener('click', () => {
   deviceOp(attachedId, 'blank', { on: blankOn }, { onResult: (m) => { if (!m.ok) { blankOn = false; updateBlankBtn(); toast(m.error || 'blank failed', 'err'); } else toast(blankOn ? 'Remote screen blanked' : 'Remote screen restored', 'ok'); } });
 });
 
+let lockOn = false;
+function updateLockBtn() { const b = $('#lock-btn'); b.classList.toggle('on', lockOn); b.textContent = lockOn ? 'Unlock input' : 'Lock input'; }
+$('#lock-btn').addEventListener('click', () => {
+  if (!attachedId) return;
+  lockOn = !lockOn;
+  updateLockBtn();
+  deviceOp(attachedId, 'lockinput', { on: lockOn }, { onResult: (m) => { if (!m.ok) { lockOn = false; updateLockBtn(); toast(m.error || 'failed', 'err'); } else toast(lockOn ? 'Local input locked' : 'Local input unlocked', 'ok'); } });
+});
+
 function onAttached(msg) {
   attachedId = msg.agentId;
   $('#session-name').textContent = msg.name;
   $('#ctl-warn').hidden = true;
   blankOn = false; updateBlankBtn();
+  lockOn = false; updateLockBtn();
   $('#control-view').hidden = false;
   if (msg.screen) { frameW = msg.screen.w; frameH = msg.screen.h; }
   canvas.focus();
@@ -939,6 +949,7 @@ function onAttached(msg) {
 function backToDashboard() {
   attachedId = null;
   blankOn = false; updateBlankBtn();
+  lockOn = false; updateLockBtn();
   $('#control-view').hidden = true;
   $('#monitor-select').hidden = true;
 }

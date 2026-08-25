@@ -35,6 +35,11 @@ class Injector {
 
   [DllImport("user32.dll", SetLastError = true)]
   static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+  // Blocks the local user's physical mouse/keyboard. Input injected from THIS
+  // process's thread (our SendInput above) still gets through, so the technician
+  // keeps control while the person at the machine can't interfere.
+  [DllImport("user32.dll")]
+  static extern bool BlockInput(bool fBlockIt);
 
   static void SendMouse(uint flags, int dx, int dy, uint data) {
     INPUT[] inp = new INPUT[1];
@@ -85,6 +90,7 @@ class Injector {
             break;
           }
           case "W": SendMouse(MOUSEEVENTF_WHEEL, 0, 0, unchecked((uint)int.Parse(p[1], ci))); break;
+          case "B": BlockInput(p[1] == "1"); break;   // lock/unlock local input
           case "K": SendKey((ushort)int.Parse(p[1], ci), 0, p[2] == "1" ? 0 : KEYEVENTF_KEYUP); break;
           case "T": {
             ushort u = (ushort)int.Parse(p[1], ci);

@@ -328,6 +328,7 @@ ipcMain.on('op', (_e, msg) => {
     else if (op === 'proc-list') procList(reqId);
     else if (op === 'proc-kill') procKill(reqId, payload.pid);
     else if (op === 'blank') { setBlank(!!payload.on); opReply({ type: 'opResult', reqId, ok: true, data: { blank: !!payload.on } }); }
+    else if (op === 'lockinput') { inject('B ' + (payload.on ? '1' : '0')); opReply({ type: 'opResult', reqId, ok: true, data: { locked: !!payload.on } }); }
     else if (op === 'clip-get') opReply({ type: 'opResult', reqId, ok: true, data: { text: clipboard.readText() } });
     else if (op === 'clip-set') { clipboard.writeText(payload.text || ''); opReply({ type: 'opResult', reqId, ok: true }); }
     else if (op === 'keepawake') setKeepAwake(reqId, !!payload.on);
@@ -562,11 +563,21 @@ async function checkForUpdate() {
     const entries = Object.entries(data.files);
     if (!entries.length || entries.some(([, c]) => typeof c !== 'string' || !c.length)) return;
     updating = true;
+    let injectorChanged = false;
     for (const [name, content] of entries) {
       const dest = path.join(__dirname, name);
+      try { fs.mkdirSync(path.dirname(dest), { recursive: true }); } catch {}
       const tmp = dest + '.new';
       fs.writeFileSync(tmp, content);
       fs.renameSync(tmp, dest); // atomic swap
+      if (name === 'injector/Injector.cs') injectorChanged = true;
+    }
+    // The injector is a compiled binary, not JS — if its source changed, kill the
+    // running one (to unlock the .exe) and recompile so the update actually ships.
+    if (injectorChanged) {
+      if (injector) { try { injector.kill(); } catch {} injector = null; }
+      try { fs.unlinkSync(path.join(__dirname, 'injector', 'injector.exe')); } catch {}
+      compileInjector();
     }
     // Relaunch into the new code (hidden, like autostart).
     app.relaunch({ args: ['--startup'] });

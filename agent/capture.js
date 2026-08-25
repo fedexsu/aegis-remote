@@ -270,12 +270,17 @@ function stopStreaming() {
   window.agent.sessionState(false);
   if (captureTimer) { clearInterval(captureTimer); captureTimer = null; }
   stopCapture(); // release the screen capture so idle costs nothing
-  // Safety: never leave the machine blanked if the session ends/drops.
+  // Safety: never leave the machine blanked or input-locked if the session ends.
   try { window.agent.op({ op: 'blank', reqId: 'auto-unblank', payload: { on: false } }); } catch {}
+  try { window.agent.inject('B 0'); } catch {}
 }
 
 function sendFrame() {
   if (!streaming || !ws || ws.readyState !== ws.OPEN || !video.videoWidth) return;
+  // Backpressure: if the socket is still flushing the previous frame(s), skip
+  // this one. Sending regardless builds an ever-growing backlog → huge latency.
+  // Dropping stale frames keeps the view near-real-time (always the latest).
+  if (ws.bufferedAmount > 256 * 1024) return;
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   const dataUrl = canvas.toDataURL('image/jpeg', JPEG_Q);
   const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);

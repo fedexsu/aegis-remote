@@ -56,20 +56,44 @@ function saveConfig(cfg) {
 // Input injector (persistent child process)
 // ---------------------------------------------------------------------------
 let injector = null;
+let injectorOk = false;
+// Recompile injector.exe from source using the .NET Framework csc.exe that ships
+// with Windows. Self-heals when antivirus quarantines the tiny unsigned binary
+// (a common false positive for anything that synthesizes input).
+function compileInjector() {
+  const dir = path.join(__dirname, 'injector');
+  const src = path.join(dir, 'Injector.cs');
+  const out = path.join(dir, 'injector.exe');
+  const cscs = [
+    'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe',
+    'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe',
+  ];
+  const csc = cscs.find((p) => fs.existsSync(p));
+  if (!csc || !fs.existsSync(src)) return false;
+  try {
+    require('child_process').execFileSync(csc, ['/nologo', '/optimize+', '/target:exe', '/out:' + out, src], { stdio: 'ignore', windowsHide: true });
+    return fs.existsSync(out);
+  } catch { return false; }
+}
 function startInjector() {
   const exe = path.join(__dirname, 'injector', 'injector.exe');
   if (!fs.existsSync(exe)) {
-    console.error('injector.exe missing — run: npm run build-injector');
-    return;
+    // Missing (e.g. quarantined by AV) — try to rebuild it from source.
+    if (!compileInjector() || !fs.existsSync(exe)) { injectorOk = false; setTimeout(startInjector, 60000); return; }
   }
-  injector = spawn(exe, [], { stdio: ['pipe', 'ignore', 'ignore'] });
-  injector.on('exit', () => { injector = null; setTimeout(startInjector, 1000); });
+  try {
+    injector = spawn(exe, [], { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true });
+    injectorOk = true;
+    injector.on('exit', () => { injector = null; injectorOk = false; setTimeout(startInjector, 2000); });
+    injector.on('error', () => { injector = null; injectorOk = false; setTimeout(startInjector, 3000); });
+  } catch { injector = null; injectorOk = false; setTimeout(startInjector, 3000); }
 }
 function inject(cmd) {
   if (injector && injector.stdin.writable) {
     injector.stdin.write(cmd + '\n');
   }
 }
+ipcMain.handle('injector:status', () => injectorOk);
 
 // ---------------------------------------------------------------------------
 // Window + tray

@@ -20,4 +20,5 @@ contextBridge.exposeInMainWorld('agent', {
   op: (msg) => ipcRenderer.send('op', msg),
   onOpMessage: (cb) => ipcRenderer.on('op:msg', (_e, m) => cb(m)),
   getPresence: () => ipcRenderer.invoke('presence:get'),
+  getInjectorStatus: () => ipcRenderer.invoke('injector:status'),
 });

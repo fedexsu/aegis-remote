@@ -176,6 +176,7 @@ function connectWS() {
       case 'attached': onAttached(msg); break;
       case 'frame': drawFrame(msg); break;
       case 'monitors': renderMonitors(msg); break;
+      case 'control': $('#ctl-warn').hidden = msg.available !== false ? true : false; if (msg.available === false) toast('Control is blocked on this device (antivirus removed the input helper)', 'err'); break;
       case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); break;
       case 'error': toast(msg.text, 'err'); break;
       case 'info': toast(msg.text, 'ok'); break;
@@ -916,6 +917,7 @@ const img = new Image();
 function onAttached(msg) {
   attachedId = msg.agentId;
   $('#session-name').textContent = msg.name;
+  $('#ctl-warn').hidden = true;
   $('#control-view').hidden = false;
   if (msg.screen) { frameW = msg.screen.w; frameH = msg.screen.h; }
   canvas.focus();

@@ -467,7 +467,7 @@ wss.on('connection', (ws, req) => {
       if (!a.consoleId) return;
       const c = consoles.get(a.consoleId);
       if (!c) return;
-      if (msg.type === 'frame' || msg.type === 'chat' || msg.type === 'screen' || msg.type === 'monitors') send(c.ws, msg);
+      if (msg.type === 'frame' || msg.type === 'chat' || msg.type === 'screen' || msg.type === 'monitors' || msg.type === 'control') send(c.ws, msg);
       return;
     }
   });

@@ -249,6 +249,9 @@ async function startStreaming() {
       list: MONITORS.map((m) => ({ id: m.id, label: m.label, primary: m.primary })),
       selected: selectedSourceId,
     }));
+    // Tell the console whether input control is actually available (the injector
+    // can be blocked/removed by antivirus), so it's not a silent failure.
+    try { const ok = await window.agent.getInjectorStatus(); ws.send(JSON.stringify({ type: 'control', available: !!ok })); } catch {}
   }
   captureTimer = setInterval(sendFrame, 1000 / FPS);
 }

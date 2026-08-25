@@ -119,10 +119,35 @@ function deleteSession(token) {
 
 // ---- enrollment keys ----
 function createKey(adminId, label) {
-  const key = { key: genKey(), adminId, label: label || 'Key', createdAt: Date.now(), revoked: false };
+  const key = { key: genKey(), adminId, label: label || 'Key', createdAt: Date.now(), revoked: false, downloads: 0 };
   db.keys.push(key);
   save();
   return key;
+}
+// Count a download of the installer for a given enrollment key.
+function incKeyDownload(keyStr) {
+  const k = db.keys.find((x) => x.key === keyStr);
+  if (!k) return null;
+  k.downloads = (k.downloads || 0) + 1;
+  save();
+  return k;
+}
+// Aggregate live funnel metrics for an admin: how many installers were
+// downloaded vs. how many machines actually enrolled (installed), overall and
+// per enrollment link.
+function statsForAdmin(adminId) {
+  const keys = db.keys.filter((k) => k.adminId === adminId);
+  const devices = db.devices.filter((d) => d.adminId === adminId);
+  let downloads = 0;
+  const byKey = keys.map((k) => {
+    const dl = k.downloads || 0;
+    const installs = devices.filter((d) => d.keyUsed === k.key).length;
+    downloads += dl;
+    return { key: k.key, label: k.label, revoked: !!k.revoked, downloads: dl, installs };
+  });
+  const installs = devices.length;
+  const conversion = downloads ? Math.round((installs / downloads) * 100) : 0;
+  return { downloads, installs, conversion, byKey };
 }
 const keysForAdmin = (adminId) => db.keys.filter((k) => k.adminId === adminId);
 const findValidKey = (keyStr) => db.keys.find((k) => k.key === keyStr && !k.revoked);
@@ -171,6 +196,6 @@ module.exports = {
   createAdmin, findAdminByEmail, findAdminById, publicAdmin, verifyPassword,
   hasAdmins, listAdmins, updatePassword,
   createSession, getSession, deleteSession,
-  createKey, keysForAdmin, findValidKey, revokeKey,
+  createKey, keysForAdmin, findValidKey, revokeKey, incKeyDownload, statsForAdmin,
   upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice,
 };

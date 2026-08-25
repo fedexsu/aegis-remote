@@ -156,6 +156,24 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .stat-ic.offline{color:var(--txt3)}
 .stat-num{font-size:30px;font-weight:700;margin-top:8px;letter-spacing:.5px}
 
+.stats.stats-3{grid-template-columns:repeat(3,1fr)}
+.stat-svg{width:17px;height:17px;color:var(--txt3)}
+.stat-svg.dl{color:var(--accent)}
+.stat-svg.in{color:var(--green)}
+.stat-svg.cv{color:#c08cff}
+.stat-foot{color:var(--txt3);font-size:11px;margin-top:4px}
+.stat-num.flash{animation:flashNum .6s ease}
+@keyframes flashNum{0%{color:var(--accent);transform:scale(1.12)}100%{color:var(--txt);transform:scale(1)}}
+.sub-h{font-size:13px;color:var(--txt2);font-weight:700;margin:22px 0 12px;text-transform:uppercase;letter-spacing:.5px}
+
+/* per-link metric chips */
+.link-stats{display:flex;gap:8px;margin-top:8px}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;background:var(--panel3);border:1px solid var(--line2);color:var(--txt2)}
+.chip svg{width:12px;height:12px}
+.chip.dl svg{color:var(--accent)}
+.chip.in svg{color:var(--green)}
+.chip b{color:var(--txt)}
+
 /* ---------- segmented filter ---------- */
 .seg{display:inline-flex;background:var(--panel);border:1px solid var(--line2);border-radius:10px;padding:3px;margin-bottom:18px;gap:2px}
 .seg-btn{border:none;background:transparent;color:var(--txt2);font-weight:600;font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;transition:background .16s,color .16s}

@@ -53,6 +53,11 @@ function deviceListFor(adminId) {
 function pushDevices(adminId) {
   for (const c of consoles.values()) if (c.adminId === adminId && !c.agentId) send(c.ws, { type: 'agents', list: deviceListFor(adminId) });
 }
+// Push live download/install funnel metrics to an admin's open dashboards.
+function pushStats(adminId) {
+  const stats = db.statsForAdmin(adminId);
+  for (const c of consoles.values()) if (c.adminId === adminId) send(c.ws, { type: 'stats', stats });
+}
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -162,6 +167,7 @@ async function handleApi(req, res, urlPath) {
       const { admin: created } = db.createAdmin(username, password, b.name || username, 'admin');
       return json(res, 200, { username: created.email, password });
     }
+    if (urlPath === '/api/stats' && m === 'GET') return json(res, 200, { stats: db.statsForAdmin(admin.id) });
     if (urlPath === '/api/devices' && m === 'GET') return json(res, 200, { devices: deviceListFor(admin.id) });
     // Remove (forget) a device. If it's currently online, kick the live agent
     // too so it disappears immediately (it re-enrolls only if still installed).
@@ -223,10 +229,17 @@ function installerFile() {
 // Serve the installer with the key in its filename (installer self-configures).
 function handleDownload(req, res, urlPath) {
   const key = decodeURIComponent(urlPath.slice('/dl/'.length)).trim();
-  if (!db.findValidKey(key)) { res.writeHead(404); return res.end('invalid or revoked link'); }
+  const valid = db.findValidKey(key);
+  if (!valid) { res.writeHead(404); return res.end('invalid or revoked link'); }
   const file = installerFile();
   fs.stat(file, (err, st) => {
     if (err) { res.writeHead(503); return res.end('installer not uploaded yet'); }
+    // Count the download and push the updated funnel to the admin's dashboards.
+    // Skip range/partial requests so a resumed/segmented download isn't double-counted.
+    if (!req.headers.range) {
+      const k = db.incKeyDownload(key);
+      if (k) pushStats(k.adminId);
+    }
     res.writeHead(200, {
       'Content-Type': 'application/octet-stream',
       'Content-Length': st.size,
@@ -283,6 +296,7 @@ wss.on('connection', (ws, req) => {
         agents.set(id, { ws, name, adminId: k.adminId, consoleId: null, screen: msg.screen || null });
         send(ws, { type: 'registered', id });
         pushDevices(k.adminId);
+        pushStats(k.adminId);   // an enrollment = an install; refresh the funnel
       } else if (msg.role === 'console') {
         const s = ws.session || db.getSession(msg.token);
         if (!s) { send(ws, { type: 'denied', reason: 'not signed in' }); return ws.close(); }

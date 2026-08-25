@@ -5,6 +5,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let ws = null, admin = null, attachedId = null;
 let frameW = 0, frameH = 0;
 let devicesCache = [];
+let statsCache = { downloads: 0, installs: 0, conversion: 0, byKey: [] };
 let filter = 'all';
 let search = '';
 const pressed = new Set();
@@ -140,6 +141,7 @@ function showApp(a) {
   $$('.owner-only').forEach((el) => (el.hidden = !owner));
   if (owner) loadAccounts();
   loadKeys();
+  loadStats();
   checkInstaller();
   connectWS();
   if (a.mustChangePassword) setTimeout(() => { toast('Please set your own password', ''); changePassword(); }, 500);
@@ -169,6 +171,7 @@ function connectWS() {
     const msg = JSON.parse(ev.data);
     switch (msg.type) {
       case 'agents': devicesCache = msg.list; renderDevices(); break;
+      case 'stats': applyStats(msg.stats); break;
       case 'attached': onAttached(msg); break;
       case 'frame': drawFrame(msg); break;
       case 'monitors': renderMonitors(msg); break;
@@ -302,11 +305,16 @@ async function loadKeys() {
     for (const k of keys) {
       const row = document.createElement('div');
       row.className = 'linkrow' + (k.revoked ? ' revoked' : '');
+      row.dataset.key = k.key;
       row.innerHTML = `
         <div class="link-ic">${LINK_SVG}</div>
         <div class="link-body">
           <div class="link-label"></div>
           <div class="link-url"></div>
+          <div class="link-stats">
+            <span class="chip dl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0l-4 4m4-4l4 4"/><path d="M4 20h16"/></svg><b class="c-dl">0</b> downloads</span>
+            <span class="chip in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg><b class="c-in">0</b> installs</span>
+          </div>
         </div>
         <div class="link-actions"></div>`;
       row.querySelector('.link-label').textContent = k.label;
@@ -329,7 +337,34 @@ async function loadKeys() {
       }
       box.appendChild(row);
     }
+    applyStats(statsCache); // fill per-link chips with the latest counts
   } catch { /* not signed in */ }
+}
+
+// ---- live download/install metrics ----
+async function loadStats() {
+  try { const { stats } = await api('/api/stats'); applyStats(stats); } catch {}
+}
+function setNum(el, val) {
+  if (!el) return;
+  const prev = el.textContent;
+  el.textContent = val;
+  if (String(prev) !== String(val)) { el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+}
+function applyStats(s) {
+  if (!s) return;
+  statsCache = s;
+  setNum($('#mt-downloads'), s.downloads || 0);
+  setNum($('#mt-installs'), s.installs || 0);
+  setNum($('#mt-conversion'), s.conversion || 0);
+  const map = {};
+  for (const k of (s.byKey || [])) map[k.key] = k;
+  $$('.linkrow').forEach((row) => {
+    const k = map[row.dataset.key];
+    if (!k) return;
+    setNum(row.querySelector('.c-dl'), k.downloads || 0);
+    setNum(row.querySelector('.c-in'), k.installs || 0);
+  });
 }
 $('#new-key').addEventListener('click', async () => {
   const vals = await modal({ title: 'New enrollment link', fields: [{ label: 'Name this link (e.g. a client or team)', value: 'New link' }], confirmText: 'Create' });

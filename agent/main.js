@@ -118,9 +118,15 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // CRITICAL: the window is hidden (headless agent). Without this, Chromium
+      // throttles the hidden window's timers/media to ~1fps and stalls it — which
+      // froze the screen stream AND delayed op replies (terminal/files/system/
+      // clipboard all came back empty). Keep it running at full rate.
+      backgroundThrottling: false,
     },
   });
   win.setMenuBarVisibility(false);
+  try { win.webContents.setBackgroundThrottling(false); } catch {}
   win.loadFile(path.join(__dirname, 'index.html'));
   win.on('close', (e) => {
     // Minimize to tray instead of quitting (unattended agent keeps running).
@@ -381,11 +387,15 @@ function setBlank(on) {
         minimizable: false, maximizable: false, fullscreenable: false, show: false,
         hasShadow: false, thickFrame: false, webPreferences: {},
       });
-      try { w.setAlwaysOnTop(true, 'screen-saver'); } catch {}
       try { w.setContentProtection(true); } catch {}   // WDA_EXCLUDEFROMCAPTURE
       try { w.setIgnoreMouseEvents(true); } catch {}    // injected/local mouse passes through
       w.loadURL('data:text/html,<body style="margin:0;height:100vh;background:#000"></body>');
       w.showInactive();
+      // Force it above the taskbar, Start menu and any fullscreen app.
+      try { w.setBounds(b); } catch {}
+      try { w.setAlwaysOnTop(true, 'screen-saver', 1); } catch {}
+      try { w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch {}
+      try { w.moveTop(); } catch {}
       blankWins.push(w);
     }
   } else {

@@ -269,6 +269,7 @@
             <label class="switch"><input type="checkbox" id="control" checked /><span class="track"></span><span class="sw-label">Control</span></label>
             <button id="blank-btn" class="btn ghost small" title="Black out the remote monitor (they see black; you still see & control)">Blank screen</button>
             <button id="lock-btn" class="btn ghost small" title="Block the local keyboard &amp; mouse so the person there can't interfere">Lock input</button>
+            <button id="share-btn" class="btn ghost small" title="Create a view-only link to let someone watch this session in a browser">Share view</button>
             <button id="fit" class="btn ghost small">Fit</button>
             <button id="detach" class="btn danger small">Disconnect</button>
           </div>
@@ -281,6 +282,7 @@
               <path d="M2 2 L2 17 L6.2 13 L9 19.5 L11.6 18.3 L8.9 12 L14.5 12 Z"
                     fill="#fff" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/>
             </svg>
+            <div id="drop-hint" class="drop-hint" hidden><div>Drop files to send to their Desktop</div></div>
           </div>
         </div>
 
@@ -312,6 +314,7 @@
             </button>
             <span class="sess-name" id="files-name"></span>
             <span class="spacer"></span>
+            <input id="files-search" class="files-search" placeholder="Search this folder…" title="Search filenames under the current folder (recursive)" />
             <button id="files-up" class="btn ghost small" title="Up one level"><svg viewBox="0 0 24 24" class="ic"><path d="M12 19V5M5 12l7-7 7 7"/></svg> Up</button>
             <button id="files-refresh" class="btn ghost small" title="Refresh"><svg viewBox="0 0 24 24" class="ic"><path d="M20 11a8 8 0 10-2 5"/><path d="M20 4v6h-6"/></svg></button>
             <button id="files-mkdir" class="btn ghost small">New folder</button>
@@ -394,7 +397,8 @@
                   <button id="clip-get" class="btn ghost small"><svg viewBox="0 0 24 24" class="ic"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 21h16"/></svg> Get remote clipboard</button>
                   <button id="clip-set" class="btn primary small"><svg viewBox="0 0 24 24" class="ic"><path d="M12 21V9m0 0l-4 4m4-4l4 4"/><path d="M4 3h16"/></svg> Send to remote clipboard</button>
                 </div>
-                <textarea id="clip-text" class="clip-text" placeholder="Remote clipboard text appears here. Edit and click 'Send to remote clipboard' to set it on the remote PC."></textarea>
+                <textarea id="clip-text" class="clip-text" placeholder="Remote clipboard text appears here. Edit and click 'Send to remote clipboard'. Tip: paste an image (Ctrl+V) here to push it to the remote clipboard."></textarea>
+                <div id="clip-img-wrap" hidden><div class="clip-img-label">Remote clipboard image:</div><img id="clip-img" class="clip-img" alt="remote clipboard image" /></div>
               </div>
             </div>
           </div>

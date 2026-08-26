@@ -173,7 +173,7 @@ function connectWS() {
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => ws.send(JSON.stringify({ type: 'register', role: 'console' }));
   ws.onmessage = (ev) => {
-    if (ev.data instanceof ArrayBuffer) { drawBinaryFrame(ev.data); return; } // screen frame
+    if (ev.data instanceof ArrayBuffer) { if (!$('#screen-wrap').classList.contains('rtc')) drawBinaryFrame(ev.data); return; } // JPEG frame (ignored while WebRTC video is up)
     const msg = JSON.parse(ev.data);
     switch (msg.type) {
       case 'agents': devicesCache = msg.list; renderDevices(); break;
@@ -808,18 +808,21 @@ function downloadFile(full, name, size) {
     },
   });
 }
-async function uploadFile(file) {
-  const dest = joinPath(filesPath, file.name);
+async function uploadFile(file) { return uploadFileTo(file, joinPath(filesPath, file.name), { onDone: () => loadDir(filesPath) }); }
+// Chunked upload of a File to an explicit remote path. Used by the Files overlay
+// and by drag-and-drop onto the live screen (targets the remote Desktop).
+async function uploadFileTo(file, dest, opts) {
+  opts = opts || {};
   const reqId = newReqId();
-  fsOps.set(reqId, { onEnd: (m) => { hideFp(); if (m.ok) { toast('Uploaded ' + file.name, 'ok'); loadDir(filesPath); } else toast(m.error || 'upload failed', 'err'); } });
+  fsOps.set(reqId, { onEnd: (m) => { hideFp(); if (m.ok) { toast('Sent ' + file.name, 'ok'); if (opts.onDone) opts.onDone(); } else toast(m.error || 'transfer failed', 'err'); } });
   opRaw('fs-put-begin', reqId, { path: dest });
   const buf = new Uint8Array(await file.arrayBuffer());
   const CH = 192 * 1024;
-  showFp('Uploading ' + file.name + '…', 0);
+  showFp('Sending ' + file.name + '…', 0);
   for (let off = 0; off < buf.length; off += CH) {
     const slice = buf.subarray(off, off + CH);
     opRaw('fs-put-chunk', reqId, { b64: bytesToB64(slice) });
-    showFp('Uploading ' + file.name + '…', buf.length ? off / buf.length : 1);
+    showFp('Sending ' + file.name + '…', buf.length ? off / buf.length : 1);
     while (ws && ws.bufferedAmount > 4e6) await new Promise((r) => setTimeout(r, 20));
   }
   opRaw('fs-put-end', reqId, {});
@@ -844,6 +847,44 @@ $('#files-mkdir').addEventListener('click', async () => {
   fsRequest('fs-mkdir', { path: joinPath(filesPath, vals[0].trim()) }, { onResult: (m) => { if (m.ok) { toast('Folder created', 'ok'); loadDir(filesPath); } else toast(m.error || 'failed', 'err'); } });
 });
 $('#files-upload').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) uploadFile(f); e.target.value = ''; });
+// Recursive filename search under the current folder.
+$('#files-search').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { const q = e.target.value.trim(); if (q) runFileSearch(q); else loadDir(filesPath); }
+  if (e.key === 'Escape') { e.target.value = ''; loadDir(filesPath); }
+});
+function runFileSearch(q) {
+  showFp('Searching for "' + q + '"…', 0);
+  fsRequest('fs-search', { root: filesPath, query: q }, { onResult: (m) => {
+    hideFp();
+    if (!m.ok) { toast(m.error || 'search failed', 'err'); return; }
+    renderSearchResults(m.data.entries || [], q);
+  } });
+}
+function renderSearchResults(entries, q) {
+  const body = $('#files-body'); body.innerHTML = '';
+  $('#files-empty').hidden = entries.length !== 0;
+  if (!entries.length) { toast('No matches for "' + q + '"'); return; }
+  toast(entries.length + (entries.length === 300 ? '+' : '') + ' match' + (entries.length === 1 ? '' : 'es'), 'ok');
+  for (const e of entries) {
+    const tr = document.createElement('tr'); tr.className = 'frow';
+    tr.innerHTML = `<td><span class="fname file">${FILE_ICON}<span class="fn"></span></span><div class="fpath-cell"></div></td>
+      <td class="col-size">${fmtSize(e.size)}</td>
+      <td class="col-mod">${e.mtime ? new Date(e.mtime).toLocaleString() : ''}</td>
+      <td class="col-act"><span class="fact"></span></td>`;
+    tr.querySelector('.fn').textContent = e.name;
+    tr.querySelector('.fpath-cell').textContent = e.full;
+    const act = tr.querySelector('.fact');
+    const openBtn = document.createElement('button'); openBtn.title = 'Open containing folder';
+    openBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10H3z"/></svg>';
+    openBtn.addEventListener('click', () => { const dir = e.full.substring(0, e.full.lastIndexOf('\\')); $('#files-search').value = ''; loadDir(dir); });
+    act.appendChild(openBtn);
+    const dl = document.createElement('button'); dl.title = 'Download';
+    dl.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 21h16"/></svg>';
+    dl.addEventListener('click', () => downloadFile(e.full, e.name, e.size));
+    act.appendChild(dl);
+    body.appendChild(tr);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // System overlay: monitor / processes / clipboard (op channel)
@@ -990,9 +1031,28 @@ $('#proc-auto').addEventListener('change', (e) => {
 
 // --- clipboard ---
 function getClip() {
-  sysOp('clip-get', {}, { onResult: (m) => { if (m.ok) $('#clip-text').value = m.data.text || ''; else toast(m.error || 'could not read clipboard', 'err'); } });
+  sysOp('clip-get', {}, { onResult: (m) => {
+    if (!m.ok) { toast(m.error || 'could not read clipboard', 'err'); return; }
+    if (m.data.kind === 'image' && m.data.image) {
+      $('#clip-img').src = m.data.image; $('#clip-img-wrap').hidden = false; $('#clip-text').value = '';
+    } else {
+      $('#clip-img-wrap').hidden = true; $('#clip-text').value = m.data.text || '';
+    }
+  } });
 }
 $('#clip-get').addEventListener('click', getClip);
+// Paste an image (Ctrl+V) into the clipboard pane → push it to the remote clipboard.
+$('#clip-text').addEventListener('paste', (e) => {
+  const items = (e.clipboardData && e.clipboardData.items) || [];
+  for (const it of items) {
+    if (it.type && it.type.startsWith('image/')) {
+      const f = it.getAsFile(); if (!f) continue;
+      const rd = new FileReader();
+      rd.onload = () => sysOp('clip-set', { image: rd.result }, { onResult: (m) => { if (m.ok) toast('Image sent to remote clipboard', 'ok'); else toast(m.error || 'failed', 'err'); } });
+      rd.readAsDataURL(f); e.preventDefault(); return;
+    }
+  }
+});
 $('#clip-set').addEventListener('click', () => {
   sysOp('clip-set', { text: $('#clip-text').value }, { onResult: (m) => { if (m.ok) toast('Remote clipboard set', 'ok'); else toast(m.error || 'failed', 'err'); } });
 });
@@ -1090,9 +1150,51 @@ $('#lock-btn').addEventListener('click', () => {
   deviceOp(attachedId, 'lockinput', { on: lockOn }, { onResult: (m) => { if (!m.ok) { lockOn = false; updateLockBtn(); toast(m.error || 'failed', 'err'); } else toast(lockOn ? 'Local input locked' : 'Local input unlocked', 'ok'); } });
 });
 
+// Guest share link — let someone watch this session in a browser (view-only).
+$('#share-btn').addEventListener('click', async () => {
+  if (!attachedId) return;
+  try {
+    const r = await fetch('/api/guest-link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: attachedId }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'failed');
+    const vals = await modal({
+      title: 'Guest view link',
+      message: 'Anyone with this link can WATCH this session in a browser — view-only, no control, no login. It expires in ' + d.expiresInMin + ' minutes.',
+      fields: [{ label: 'Share link', value: d.url }], confirmText: 'Copy link',
+    });
+    if (vals) { try { await navigator.clipboard.writeText(d.url); toast('Guest link copied', 'ok'); } catch { toast('Copy failed — select and copy manually', 'err'); } }
+  } catch (e) { toast(e.message, 'err'); }
+});
+
+// Drag-and-drop files onto the live screen → send them to the remote Desktop.
+let remoteDesktop = null;
+function fetchRemotePaths() {
+  if (!attachedId || !ws || ws.readyState !== ws.OPEN) return;
+  const reqId = newReqId();
+  fsOps.set(reqId, { onResult: (m) => { if (m.ok && m.data) remoteDesktop = m.data.desktop || null; } });
+  ws.send(JSON.stringify({ type: 'op', agentId: attachedId, op: 'paths', reqId, payload: {} }));
+}
+async function handleScreenDrop(files) {
+  if (!attachedId) return;
+  if (!remoteDesktop) { fetchRemotePaths(); toast('Preparing transfer — drop again in a second', 'err'); return; }
+  filesAgentId = attachedId; // route fs ops to the machine we're viewing
+  for (const f of files) {
+    if (f.size > 500 * 1024 * 1024) { toast(f.name + ' is too large (500MB max)', 'err'); continue; }
+    await uploadFileTo(f, joinPath(remoteDesktop, f.name));
+  }
+}
+(function bindScreenDrop() {
+  const sw = $('#screen-wrap'); if (!sw) return;
+  const hint = () => $('#drop-hint');
+  sw.addEventListener('dragover', (e) => { if (!attachedId) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; hint().hidden = false; });
+  sw.addEventListener('dragleave', (e) => { if (e.relatedTarget && sw.contains(e.relatedTarget)) return; hint().hidden = true; });
+  sw.addEventListener('drop', (e) => { e.preventDefault(); hint().hidden = true; const files = [...((e.dataTransfer && e.dataTransfer.files) || [])]; if (files.length) handleScreenDrop(files); });
+})();
+
 function onAttached(msg) {
   attachedId = msg.agentId;
   loadBlankImage(); // make sure we have the owner's current blank image for this session
+  remoteDesktop = null; fetchRemotePaths(); // for drag-and-drop file sends
   rtcIceServers = msg.iceServers || null;
   $('#session-name').textContent = msg.name;
   $('#ctl-warn').hidden = true;

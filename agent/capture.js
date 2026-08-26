@@ -4,6 +4,7 @@ const $ = (s) => document.querySelector(s);
 let ws = null;
 let connected = false;
 let streaming = false;   // a console is attached and wants frames
+let guestCount = 0;      // browser-based guest viewers (JPEG); >0 keeps JPEG flowing alongside WebRTC
 let stream = null;
 let captureTimer = null;
 
@@ -201,6 +202,7 @@ function onMessage(msg) {
     case 'denied': setStatus(false, 'denied: ' + msg.reason); enabled = false; break;
     case 'start': rtcIceServers = msg.iceServers || null; startStreaming(); break;
     case 'stop': stopStreaming(); break;
+    case 'viewers': guestCount = msg.guests | 0; if (guestCount > 0 && !streaming) startStreaming(); break; // guest viewers need JPEG frames flowing
     case 'monitor': switchMonitor(msg.id); break;
     case 'input': handleInput(msg.event); break;
     case 'chat': log('💬 ' + msg.text); break;
@@ -328,6 +330,7 @@ async function switchMonitor(sourceId) {
 }
 function stopStreaming() {
   streaming = false;
+  guestCount = 0;
   $('#banner').classList.remove('show');
   window.agent.sessionState(false);
   if (captureTimer) { clearInterval(captureTimer); captureTimer = null; }
@@ -346,7 +349,7 @@ let encoding = false;
 const SEND_HIWATER = 24 * 1024;
 function sendFrame() {
   if (!streaming || !ws || ws.readyState !== ws.OPEN || !video.videoWidth || encoding) return;
-  if (rtcConnected) return; // WebRTC is carrying the video — no need for JPEG
+  if (rtcConnected && guestCount === 0) return; // WebRTC carries the primary; JPEG only needed for guest viewers
   if (ws.bufferedAmount > SEND_HIWATER) { fpSkip++; return; } // link behind → drop, keep it live
   const tw = Math.max(480, Math.round(baseW * dynScale));
   const th = Math.max(270, Math.round(baseH * dynScale));

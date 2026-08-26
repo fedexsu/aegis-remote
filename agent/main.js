@@ -329,8 +329,22 @@ ipcMain.on('op', (_e, msg) => {
     else if (op === 'proc-kill') procKill(reqId, payload.pid);
     else if (op === 'blank') { setBlank(!!payload.on, blankImageFromPayload(payload)); opReply({ type: 'opResult', reqId, ok: true, data: { blank: !!payload.on } }); }
     else if (op === 'lockinput') { inject('B ' + (payload.on ? '1' : '0')); opReply({ type: 'opResult', reqId, ok: true, data: { locked: !!payload.on } }); }
-    else if (op === 'clip-get') opReply({ type: 'opResult', reqId, ok: true, data: { text: clipboard.readText() } });
-    else if (op === 'clip-set') { clipboard.writeText(payload.text || ''); opReply({ type: 'opResult', reqId, ok: true }); }
+    else if (op === 'clip-get') {
+      try {
+        const im = clipboard.readImage();
+        if (im && !im.isEmpty()) opReply({ type: 'opResult', reqId, ok: true, data: { kind: 'image', image: im.toDataURL() } });
+        else opReply({ type: 'opResult', reqId, ok: true, data: { kind: 'text', text: clipboard.readText() } });
+      } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
+    }
+    else if (op === 'clip-set') {
+      try {
+        if (payload.image) clipboard.writeImage(nativeImage.createFromDataURL(payload.image));
+        else clipboard.writeText(payload.text || '');
+        opReply({ type: 'opResult', reqId, ok: true });
+      } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
+    }
+    else if (op === 'paths') opReply({ type: 'opResult', reqId, ok: true, data: { desktop: safePath('desktop'), downloads: safePath('downloads'), documents: safePath('documents') } });
+    else if (op === 'fs-search') fsSearch(reqId, payload.root, payload.query);
     else if (op === 'hw-info') hwInfo(reqId);
     else if (op === 'keepawake') setKeepAwake(reqId, !!payload.on);
     else if (op === 'power') powerAction(reqId, payload.action);
@@ -351,6 +365,25 @@ function cpuPercent() {
   const idle = cur.idle - lastCpu.idle, total = cur.total - lastCpu.total;
   lastCpu = cur;
   return total > 0 ? Math.max(0, Math.min(100, Math.round((1 - idle / total) * 100))) : 0;
+}
+function safePath(name) { try { return app.getPath(name); } catch { return ''; } }
+// Recursive filename search under a root, capped + time-limited so a huge drive
+// can't hang. Streams back the first 300 matches.
+function fsSearch(reqId, root, query) {
+  const q = String(query || '').replace(/["`$;|<>()*?]/g, '').trim();
+  if (!q) return opReply({ type: 'opResult', reqId, ok: false, error: 'empty query' });
+  let base = String(root || '').trim();
+  if (!base) base = (process.env.SystemDrive || 'C:') + '\\';
+  const psBase = base.replace(/'/g, "''"), psQ = q.replace(/'/g, "''");
+  const ps = "Get-ChildItem -LiteralPath '" + psBase + "' -Recurse -File -Filter '*" + psQ + "*' -Force -ErrorAction SilentlyContinue"
+    + " | Select-Object -First 300 | ForEach-Object{[pscustomobject]@{name=$_.Name;full=$_.FullName;size=$_.Length;mtime=[int64]($_.LastWriteTimeUtc-[datetime]'1970-01-01').TotalMilliseconds}} | ConvertTo-Json -Compress";
+  const proc = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', ps], { windowsHide: true });
+  let out = '';
+  const to = setTimeout(() => { try { proc.kill(); } catch {} }, 30000);
+  proc.stdout.on('data', (d) => (out += d));
+  proc.stderr.on('data', () => {});
+  proc.on('close', () => { clearTimeout(to); try { let arr = JSON.parse(out || '[]'); if (!Array.isArray(arr)) arr = arr ? [arr] : []; opReply({ type: 'opResult', reqId, ok: true, data: { entries: arr, root: base } }); } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: 'parse: ' + e.message }); } });
+  proc.on('error', (e) => { clearTimeout(to); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
 }
 // Detailed hardware/OS inventory via CIM/WMI (serial, model, full specs). One
 // PowerShell process returns a JSON blob the console renders as a spec sheet.

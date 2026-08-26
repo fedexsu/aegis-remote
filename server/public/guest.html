@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Aegis — Guest View</title>
+<style>
+  :root{--bg:#05070c;--panel:#0d1220;--line:#1b2436;--txt:#e7ecf5;--txt2:#8a97ad;--green:#31d07a;--red:#ff5d6c;--accent:#4f8cff}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:system-ui,Segoe UI,Roboto,sans-serif}
+  .bar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .logo{font-weight:800;letter-spacing:.3px}
+  .logo span{color:var(--accent)}
+  .who{color:var(--txt2);font-size:13px}
+  .pill{margin-left:auto;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;background:rgba(49,208,122,.14);color:var(--green);border:1px solid rgba(49,208,122,.35)}
+  .pill.off{background:rgba(255,93,108,.14);color:var(--red);border-color:rgba(255,93,108,.35)}
+  .stage{position:absolute;inset:56px 0 0 0;display:grid;place-items:center;overflow:auto;padding:14px}
+  canvas{max-width:100%;max-height:100%;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.5);background:#000}
+  .msg{position:absolute;inset:56px 0 0 0;display:grid;place-items:center;text-align:center;padding:24px}
+  .msg .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:28px 30px;max-width:420px}
+  .msg h2{margin:0 0 8px;font-size:18px}
+  .msg p{margin:0;color:var(--txt2);font-size:14px;line-height:1.5}
+  .foot{position:fixed;bottom:10px;left:0;right:0;text-align:center;color:var(--txt2);font-size:11px}
+</style>
+</head>
+<body>
+  <div class="bar">
+    <div class="logo">Aegis<span>·</span>Guest</div>
+    <div class="who" id="who">Connecting…</div>
+    <div class="pill" id="pill">Live</div>
+  </div>
+  <div class="stage" id="stage" hidden><canvas id="screen"></canvas></div>
+  <div class="msg" id="msg"><div class="card"><h2 id="mt">Connecting…</h2><p id="mp">Joining the session.</p></div></div>
+  <div class="foot">View-only guest session · Aegis Remote</div>
+<script>
+  const token = location.pathname.split('/').filter(Boolean).pop();
+  const canvas = document.getElementById('screen'), ctx = canvas.getContext('2d');
+  const pill = document.getElementById('pill');
+  function showMsg(title, body, off) {
+    document.getElementById('mt').textContent = title;
+    document.getElementById('mp').textContent = body || '';
+    document.getElementById('msg').hidden = false;
+    document.getElementById('stage').hidden = true;
+    if (off) { pill.textContent = 'Ended'; pill.classList.add('off'); }
+  }
+  function showStage() { document.getElementById('msg').hidden = true; document.getElementById('stage').hidden = false; }
+  let decoding = false;
+  function drawFrame(buf) {
+    if (decoding) return; decoding = true;
+    createImageBitmap(new Blob([buf], { type: 'image/jpeg' })).then((bmp) => {
+      decoding = false;
+      if (canvas.width !== bmp.width || canvas.height !== bmp.height) { canvas.width = bmp.width; canvas.height = bmp.height; showStage(); }
+      ctx.drawImage(bmp, 0, 0); bmp.close();
+    }).catch(() => { decoding = false; });
+  }
+  let ws;
+  function connect() {
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'register', role: 'guest', token }));
+    ws.onmessage = (ev) => {
+      if (ev.data instanceof ArrayBuffer) { drawFrame(ev.data); return; }
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      if (m.type === 'guestReady') {
+        document.getElementById('who').textContent = 'Viewing ' + (m.name || 'device');
+        showMsg('Waiting for the screen…', 'Connected. Waiting for the first frame from ' + (m.name || 'the device') + '.');
+      } else if (m.type === 'denied') {
+        showMsg('Can’t join', m.reason || 'This link is not valid.', true);
+        try { ws.close(); } catch {}
+      } else if (m.type === 'sessionEnded') {
+        showMsg('Session ended', m.reason || 'The host ended the session.', true);
+      }
+    };
+    ws.onclose = () => { if (!document.getElementById('msg').hidden && pill.classList.contains('off')) return; showMsg('Disconnected', 'The guest session has ended.', true); };
+    ws.onerror = () => {};
+  }
+  connect();
+</script>
+</body>
+</html>

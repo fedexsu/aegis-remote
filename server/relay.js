@@ -30,12 +30,30 @@ catch { /* no bundle shipped */ }
 // ---------------------------------------------------------------------------
 // Live connection state (online status); durable data lives in db.js.
 // ---------------------------------------------------------------------------
-const agents = new Map();   // deviceId -> { ws, name, adminId, consoleId }
+const agents = new Map();   // deviceId -> { ws, name, adminId, consoleId, streaming }
 const consoles = new Map(); // consoleId -> { ws, adminId, agentId }
 const opRoutes = new Map(); // reqId -> { consoleId, agentId } — routes op replies back
+const guests = new Map();   // agentId -> Set(ws) — browser guest viewers (view-only JPEG)
+const guestTokens = new Map(); // token -> { adminId, agentId, exp } — share links
 let seq = 1;
 
 function send(ws, obj) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj)); }
+// Total viewers = attached console (if any) + guests. Start the agent's capture
+// when the first viewer arrives, stop it when the last leaves, and always tell
+// the agent the guest count (so it emits JPEG frames for guests alongside WebRTC).
+function updateViewers(agentId) {
+  const a = agents.get(agentId); if (!a) return;
+  const g = (guests.get(agentId) || new Set()).size;
+  const want = (a.consoleId ? 1 : 0) + g;
+  if (want > 0 && !a.streaming) { a.streaming = true; send(a.ws, { type: 'start', iceServers: iceServers() }); }
+  else if (want === 0 && a.streaming) { a.streaming = false; send(a.ws, { type: 'stop' }); }
+  send(a.ws, { type: 'viewers', guests: g });
+}
+function dropGuests(agentId, reason) {
+  const gs = guests.get(agentId); if (!gs) return;
+  for (const g of gs) { try { send(g, { type: 'sessionEnded', reason: reason || 'ended' }); g.close(); } catch {} }
+  guests.delete(agentId);
+}
 
 // ICE servers for WebRTC, sent to both the agent and console so they match and
 // can be changed centrally. STUN attempts direct P2P; TURN relays the media when
@@ -266,6 +284,21 @@ async function handleApi(req, res, urlPath) {
       return json(res, 200, { ok: true });
     }
 
+    // Create a share link so someone can watch a live session in a browser with
+    // no install/login. Bound to one device the admin owns; expires in 30 min.
+    if (urlPath === '/api/guest-link' && m === 'POST') {
+      const b = await readBody(req);
+      const a = agents.get(b.agentId);
+      if (!a || a.adminId !== admin.id) return json(res, 404, { error: 'device not found or offline' });
+      const now = Date.now();
+      for (const [t, v] of guestTokens) if (v.exp < now) guestTokens.delete(t); // prune expired
+      const token = require('crypto').randomBytes(18).toString('base64url');
+      const ttlMin = 30;
+      guestTokens.set(token, { adminId: admin.id, agentId: b.agentId, exp: now + ttlMin * 60000 });
+      const proto = req.headers['x-forwarded-proto'] || 'http';
+      return json(res, 200, { url: `${proto}://${req.headers['host']}/guest/${token}`, expiresInMin: ttlMin });
+    }
+
     // Change own password.
     if (urlPath === '/api/password' && m === 'POST') {
       const b = await readBody(req);
@@ -407,6 +440,14 @@ const server = http.createServer((req, res) => {
   const urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
   if (urlPath.startsWith('/api/')) return handleApi(req, res, urlPath);
   if (urlPath.startsWith('/dl/')) return handleDownload(req, res, urlPath);
+  // Guest viewer page — join a live session in a browser with no install/login.
+  // The token is in the URL and validated when the guest opens its WebSocket.
+  if (urlPath.startsWith('/guest/')) {
+    return fs.readFile(path.join(PUBLIC, 'guest.html'), (err, data) => {
+      if (err) { res.writeHead(404); return res.end('not found'); }
+      res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(data);
+    });
+  }
 
   let rel = urlPath === '/' ? '/app.html' : urlPath;
   const file = path.join(PUBLIC, path.normalize(rel).replace(/^(\.\.[/\\])+/, ''));
@@ -458,13 +499,16 @@ wss.on('connection', (ws, req) => {
       const { role, id } = ws.meta || {};
       if (role !== 'agent') return;
       const a = agents.get(id);
-      if (!a || !a.consoleId) return;
-      const c = consoles.get(a.consoleId);
-      if (!c || c.ws.readyState !== c.ws.OPEN) return;
-      // Keep at most ~1 frame queued to the viewer; drop the rest so a slow
-      // viewer stays near-real-time instead of falling seconds behind.
-      if (c.ws.bufferedAmount > 48 * 1024) return;
-      try { c.ws.send(raw, { binary: true }); } catch {}
+      if (!a) return;
+      // Attached console (ignored by it while WebRTC is up — see app.js).
+      if (a.consoleId) {
+        const c = consoles.get(a.consoleId);
+        // Keep at most ~1 frame queued so a slow viewer stays near-real-time.
+        if (c && c.ws.readyState === c.ws.OPEN && c.ws.bufferedAmount <= 48 * 1024) { try { c.ws.send(raw, { binary: true }); } catch {} }
+      }
+      // Guest viewers (browser, view-only) get the JPEG stream.
+      const gs = guests.get(id);
+      if (gs) for (const g of gs) { if (g.readyState === g.OPEN && g.bufferedAmount <= 96 * 1024) { try { g.send(raw, { binary: true }); } catch {} } }
       return;
     }
     let msg;
@@ -499,6 +543,17 @@ wss.on('connection', (ws, req) => {
         consoles.set(id, { ws, adminId: s.adminId, agentId: null });
         send(ws, { type: 'registered', id });
         send(ws, { type: 'agents', list: deviceListFor(s.adminId) });
+      } else if (msg.role === 'guest') {
+        // Browser guest viewer — no account. Auth is the share token in the URL.
+        const t = guestTokens.get(msg.token);
+        if (!t || t.exp < Date.now()) { send(ws, { type: 'denied', reason: 'This guest link has expired.' }); return ws.close(); }
+        const a = agents.get(t.agentId);
+        if (!a || a.adminId !== t.adminId) { send(ws, { type: 'denied', reason: 'That device is offline right now.' }); return ws.close(); }
+        ws.meta = { role: 'guest', id: 'guest-' + seq++, adminId: t.adminId, agentId: t.agentId };
+        if (!guests.has(t.agentId)) guests.set(t.agentId, new Set());
+        guests.get(t.agentId).add(ws);
+        send(ws, { type: 'guestReady', name: a.name, screen: a.screen });
+        updateViewers(t.agentId); // starts capture / raises guest count so JPEG flows
       }
       return;
     }
@@ -515,9 +570,8 @@ wss.on('connection', (ws, req) => {
         if (!a || a.adminId !== adminId) { send(ws, { type: 'error', text: 'device offline' }); return; }
         if (a.consoleId && a.consoleId !== id) { send(ws, { type: 'error', text: 'device busy' }); return; }
         c.agentId = msg.agentId; a.consoleId = id;
-        const ice = iceServers();
-        send(ws, { type: 'attached', agentId: msg.agentId, name: a.name, screen: a.screen, iceServers: ice });
-        send(a.ws, { type: 'start', iceServers: ice });
+        send(ws, { type: 'attached', agentId: msg.agentId, name: a.name, screen: a.screen, iceServers: iceServers() });
+        updateViewers(msg.agentId); // sends 'start' to the agent (if not already streaming) + guest count
         pushDevices(adminId);
         return;
       }
@@ -579,6 +633,7 @@ wss.on('connection', (ws, req) => {
       // stale close must NOT tear it down or the device flaps offline while it's up.
       if (a && a.ws !== ws) return;
       if (a && a.consoleId) { const c = consoles.get(a.consoleId); if (c) { c.agentId = null; send(c.ws, { type: 'agentGone' }); } }
+      dropGuests(id, 'The device went offline.'); // end any guest sessions on this device
       // If a suspend was signalled just before this drop, it's sleeping, not dead.
       const sleeping = a && a.suspendHint && (Date.now() - a.suspendHint) < 90000;
       if (sleeping) db.setAsleep(id, true);
@@ -604,6 +659,10 @@ wss.on('connection', (ws, req) => {
         opRoutes.delete(reqId);
       }
       consoles.delete(id);
+    } else if (role === 'guest') {
+      const agentId = ws.meta && ws.meta.agentId;
+      const gs = agentId && guests.get(agentId);
+      if (gs) { gs.delete(ws); if (!gs.size) guests.delete(agentId); updateViewers(agentId); } // stops capture if that was the last viewer
     }
   });
 });
@@ -613,8 +672,10 @@ function detachConsole(consoleId) {
   if (!c) return;
   if (c.agentId) {
     const a = agents.get(c.agentId);
-    if (a) { a.consoleId = null; send(a.ws, { type: 'stop' }); }
+    const agentId = c.agentId;
+    if (a) { a.consoleId = null; }
     c.agentId = null;
+    updateViewers(agentId); // stops capture only if no guests are still watching
   }
   if (c.adminId) pushDevices(c.adminId);
 }

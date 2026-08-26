@@ -208,6 +208,16 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .hw-row:first-of-type{border-top:none}
 .hw-k{color:var(--txt3)}
 .hw-v{color:var(--txt);word-break:break-word}
+/* drag-drop to screen */
+.drop-hint{position:absolute;inset:0;z-index:5;display:grid;place-items:center;background:rgba(5,7,12,.72);backdrop-filter:blur(2px);pointer-events:none}
+.drop-hint div{border:2px dashed var(--accent);border-radius:14px;padding:22px 30px;font-weight:700;color:#dfe8ff;background:rgba(79,140,255,.12)}
+/* files search + search-results */
+.files-search{background:var(--panel3);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:6px 10px;font-size:13px;width:190px}
+.files-search:focus{outline:none;border-color:var(--accent)}
+.fpath-cell{color:var(--txt3);font-size:11px}
+/* clipboard image */
+.clip-img{max-width:100%;max-height:260px;border-radius:8px;border:1px solid var(--line2);margin-top:6px}
+.clip-img-label{color:var(--txt3);font-size:12px;margin-top:10px}
 .dev-top{display:flex;align-items:center;gap:12px;margin-bottom:14px}
 .card-settings{margin-left:auto;align-self:flex-start;position:relative}
 .icon-btn.top{flex:0 0 auto}

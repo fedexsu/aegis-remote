@@ -267,6 +267,9 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .sc-tile.toggle.on .sc-tile-sw::after{transform:translateX(16px);background:#fff}
 .sc-tile.recording{border-color:var(--red)}
 .sc-tile.recording .sc-tile-ic svg{color:var(--red)}
+.sc-tile.soon{opacity:.5}
+.sc-tile.soon::after{content:"SOON";position:absolute;top:5px;right:6px;font-size:7.5px;font-weight:800;letter-spacing:.4px;color:var(--txt3);border:1px solid var(--line2);border-radius:4px;padding:1px 3px}
+.sc-tile{position:relative}
 .sc-hint{font-size:11.5px;color:var(--txt3)}
 .sc-hint.sc-wide{margin-top:8px;max-width:220px;display:block}
 .mini-select{background:var(--panel2);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:7px 10px;font-size:13px}

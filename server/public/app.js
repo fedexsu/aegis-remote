@@ -1351,7 +1351,8 @@ function onAttached(msg) {
   attachedId = msg.agentId;
   loadBlankImage(); // make sure we have the owner's current blank image for this session
   remoteDesktop = null; remoteTemp = null; fetchRemotePaths(); // for drag-drop + blank cover
-  $('#control').checked = false; // start in view-only; technician flips Control on to take over
+  $('#control').checked = false; syncSuspend(); // start in view-only; technician flips Control on to take over
+  $('#ka-tile').classList.remove('on');
   rtcIceServers = msg.iceServers || null;
   $('#session-name').textContent = msg.name;
   $('#ctl-warn').hidden = true;
@@ -1616,6 +1617,22 @@ $('#ka-tile').addEventListener('click', () => {
   const on = !$('#ka-tile').classList.contains('on');
   deviceOp(attachedId, 'keepawake', { on }, { onResult: (m) => { if (m.ok) { $('#ka-tile').classList.toggle('on', !!m.data.keepAwake); toast(m.data.keepAwake ? 'Wake lock on' : 'Wake lock off', 'ok'); } else toast(m.error || 'failed', 'err'); } });
 });
+// Send Clipboard Keystrokes — type the technician's clipboard onto the remote.
+$('#clipkeys-btn').addEventListener('click', async () => {
+  if (!attachedId) return;
+  try {
+    const t = await navigator.clipboard.readText();
+    if (!t) { toast('Your clipboard is empty', 'err'); return; }
+    sendInput({ kind: 'text', ch: t });
+    toast('Typed your clipboard onto the remote', 'ok');
+  } catch { toast('Couldn’t read your clipboard (grant permission)', 'err'); }
+});
+// Suspend My Input — mirror of the Control toggle (on = view-only).
+function syncSuspend() { $('#suspend-tile').classList.toggle('on', !$('#control').checked); }
+$('#suspend-tile').addEventListener('click', () => { $('#control').checked = $('#suspend-tile').classList.contains('on'); syncSuspend(); toast($('#control').checked ? 'Control resumed' : 'Your input is suspended (view-only)', 'ok'); });
+$('#control').addEventListener('change', syncSuspend);
+// "Coming soon" tiles keep the panel visually complete (like ScreenConnect).
+$$('.sc-tile.soon').forEach((t) => t.addEventListener('click', () => toast((t.dataset.soon || 'This feature') + ' — coming soon', 'ok')));
 document.addEventListener('fullscreenchange', () => setTimeout(fit, 60)); // re-fit after entering/leaving fullscreen
 
 function renderMonitors(msg) {

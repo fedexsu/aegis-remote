@@ -167,14 +167,19 @@ document.addEventListener('click', (e) => { const g = e.target.closest('[data-go
 // ---------------------------------------------------------------------------
 // WebSocket (console)
 // ---------------------------------------------------------------------------
+let consoleReconnectT = null;
 function connectWS() {
-  if (ws) try { ws.close(); } catch {}
+  if (consoleReconnectT) { clearTimeout(consoleReconnectT); consoleReconnectT = null; }
+  if (ws) { try { ws.onclose = null; ws.close(); } catch {} }
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
   ws.binaryType = 'arraybuffer';
-  ws.onopen = () => ws.send(JSON.stringify({ type: 'register', role: 'console' }));
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: 'register', role: 'console' }));
+    if (attachedId) backToDashboard(); // any live session was lost on the drop — reset the UI
+  };
   ws.onmessage = (ev) => {
     if (ev.data instanceof ArrayBuffer) { if (!$('#screen-wrap').classList.contains('rtc')) drawBinaryFrame(ev.data); return; } // JPEG frame (ignored while WebRTC video is up)
-    const msg = JSON.parse(ev.data);
+    let msg; try { msg = JSON.parse(ev.data); } catch { return; }
     switch (msg.type) {
       case 'agents': devicesCache = msg.list; renderDevices(); break;
       case 'stats': applyStats(msg.stats); break;
@@ -193,7 +198,10 @@ function connectWS() {
       case 'denied': showAuth(); break;
     }
   };
-  ws.onclose = () => {};
+  // Auto-reconnect (e.g. after a relay redeploy) so Join and everything else keep
+  // working without a page refresh.
+  ws.onclose = () => { if (admin && !consoleReconnectT) consoleReconnectT = setTimeout(connectWS, 2000); };
+  ws.onerror = () => { try { ws.close(); } catch {} };
 }
 
 // ---------------------------------------------------------------------------

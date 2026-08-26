@@ -265,6 +265,12 @@
           <div id="screen-wrap" class="screen-wrap">
             <video id="rtc-video" autoplay playsinline muted></video>
             <canvas id="screen" tabindex="0"></canvas>
+            <!-- Synthetic pointer shown while the remote screen is blanked (the
+                 real cursor is hidden on the remote, so it's absent from the view). -->
+            <svg id="synth-cursor" width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+              <path d="M2 2 L2 17 L6.2 13 L9 19.5 L11.6 18.3 L8.9 12 L14.5 12 Z"
+                    fill="#fff" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/>
+            </svg>
           </div>
         </div>
 

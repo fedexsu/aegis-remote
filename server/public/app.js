@@ -923,7 +923,22 @@ function updateBlankBtn() {
   const b = $('#blank-btn');
   b.classList.toggle('on', blankOn);
   b.textContent = blankOn ? 'Unblank' : 'Blank screen';
+  // Drive the synthetic cursor: while blanked the remote cursor is hidden, so
+  // show our own pointer in the view (and hide the browser cursor over the canvas).
+  $('#screen-wrap').classList.toggle('blank', blankOn);
+  if (blankOn) positionSynthCursor();
 }
+// Track the technician's pointer over the screen so the synthetic cursor sits
+// exactly where they're aiming (its tip is at ~2,2 in the SVG, hence the -2).
+let lastPointer = { x: 0, y: 0 };
+function positionSynthCursor() {
+  const r = $('#screen-wrap').getBoundingClientRect();
+  $('#synth-cursor').style.transform = `translate(${lastPointer.x - r.left - 2}px, ${lastPointer.y - r.top - 2}px)`;
+}
+$('#screen-wrap').addEventListener('mousemove', (e) => {
+  lastPointer = { x: e.clientX, y: e.clientY };
+  if (blankOn) positionSynthCursor();
+});
 $('#blank-btn').addEventListener('click', () => {
   if (!attachedId) return;
   blankOn = !blankOn;

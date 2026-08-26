@@ -340,6 +340,12 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
    canvas (some GPU/driver combos decode+advance the element but never composite
    it to screen). Kept 2px & invisible so it stays live without being shown. */
 #rtc-video{position:absolute;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+/* Synthetic cursor: only shown while the remote is blanked. It follows the
+   technician's pointer, and the real browser cursor is hidden over the canvas so
+   there's exactly one clean pointer in the view. */
+#synth-cursor{position:absolute;left:0;top:0;z-index:3;pointer-events:none;display:none;filter:drop-shadow(0 1px 1px rgba(0,0,0,.5))}
+#screen-wrap.blank #synth-cursor{display:block}
+#screen-wrap.blank #screen{cursor:none}
 /* toggle switch */
 .switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
 .switch input{display:none}

@@ -127,7 +127,7 @@
 
           <div id="devices" class="device-grid"></div>
           <div id="dev-empty" class="empty" hidden>
-            <div class="empty-ic">🖥️</div>
+            <div class="empty-ic"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
             <h3>No devices yet</h3>
             <p>Create an enrollment link and send it to the machine you want to manage.</p>
             <button class="btn primary" data-goto="enrollment">Go to Enrollment</button>
@@ -164,7 +164,7 @@
           </div>
 
           <div id="installer-banner" class="banner warn" hidden>
-            <span>⚠ Upload your <b>AegisSetup.exe</b> once so these links can be downloaded.</span>
+            <span><svg viewBox="0 0 24 24" class="ic"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.4 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>Upload your <b>AegisSetup.exe</b> once so these links can be downloaded.</span>
           </div>
           <div id="upload-status" class="hint"></div>
           <div id="blank-image-row" class="owner-only" hidden style="display:flex;align-items:center;gap:12px;margin-top:8px">
@@ -174,7 +174,7 @@
           </div>
 
           <h3 class="sub-h">Your links</h3>
-          <div class="banner info">💡 Share the <b>enrollment link</b> (Copy link) — not the raw installer. The link bakes the key into the download filename so the machine enrolls automatically. A plain <code>AegisSetup.exe</code> run on its own has no key and won't appear here.</div>
+          <div class="banner info"><svg viewBox="0 0 24 24" class="ic"><path d="M9 18h6M10 21h4M12 3a6 6 0 00-4 10.5c.6.6 1 1.5 1 2.5h6c0-1 .4-1.9 1-2.5A6 6 0 0012 3z"/></svg>Share the <b>enrollment link</b> (Copy link) — not the raw installer. The link bakes the key into the download filename so the machine enrolls automatically. A plain <code>AegisSetup.exe</code> run on its own has no key and won't appear here.</div>
           <div id="keys" class="link-list"></div>
         </section>
 
@@ -230,7 +230,7 @@
           <div id="account-out" class="cred-card" hidden></div>
           <div id="accounts" class="acct-list"></div>
           <div id="acct-empty" class="empty" hidden>
-            <div class="empty-ic">👥</div>
+            <div class="empty-ic"><svg viewBox="0 0 24 24"><path d="M17 20v-2a4 4 0 00-4-4H7a4 4 0 00-4 4v2"/><circle cx="10" cy="8" r="4"/><path d="M21 20v-2a4 4 0 00-3-3.87"/><path d="M16 4.13A4 4 0 0116 12"/></svg></div>
             <h3>No customer accounts</h3>
             <p>Generate one and hand the credentials to your customer — they change the password on first login.</p>
           </div>
@@ -263,7 +263,7 @@
             <span class="sess-dot"></span>
             <span id="session-name" class="sess-name"></span>
             <span id="rtc-mode" class="rtc-mode" title="Streaming mode">Connecting…</span>
-            <span id="ctl-warn" class="ctl-warn" hidden>⚠ Control blocked on this PC — its antivirus likely removed the input helper. Add an exclusion for Aegis, or code-sign the app.</span>
+            <span id="ctl-warn" class="ctl-warn" hidden><svg viewBox="0 0 24 24" class="ic"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.4 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>Control blocked on this PC — its antivirus likely removed the input helper. Add an exclusion for Aegis, or code-sign the app.</span>
             <span class="spacer"></span>
             <select id="monitor-select" class="mini-select" hidden></select>
             <label class="switch"><input type="checkbox" id="control" checked /><span class="track"></span><span class="sw-label">Control</span></label>
@@ -339,6 +339,7 @@
             <div class="seg sys-tabs">
               <button class="seg-btn active" data-tab="monitor">Monitor</button>
               <button class="seg-btn" data-tab="processes">Processes</button>
+              <button class="seg-btn" data-tab="inventory">Inventory</button>
               <button class="seg-btn" data-tab="clipboard">Clipboard</button>
             </div>
           </div>
@@ -378,12 +379,20 @@
                 </table>
               </div>
             </div>
+            <!-- Inventory -->
+            <div class="sys-tab" data-tabpage="inventory" hidden>
+              <div class="inv-bar">
+                <span class="hint" id="hw-hint">Full hardware & OS details for this machine.</span>
+                <button id="hw-refresh" class="btn ghost small">Refresh</button>
+              </div>
+              <div id="hw-body" class="hw-body"></div>
+            </div>
             <!-- Clipboard -->
             <div class="sys-tab" data-tabpage="clipboard" hidden>
               <div class="clip-pane">
                 <div class="clip-row">
-                  <button id="clip-get" class="btn ghost small">⬇ Get remote clipboard</button>
-                  <button id="clip-set" class="btn primary small">⬆ Send to remote clipboard</button>
+                  <button id="clip-get" class="btn ghost small"><svg viewBox="0 0 24 24" class="ic"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 21h16"/></svg> Get remote clipboard</button>
+                  <button id="clip-set" class="btn primary small"><svg viewBox="0 0 24 24" class="ic"><path d="M12 21V9m0 0l-4 4m4-4l4 4"/><path d="M4 3h16"/></svg> Send to remote clipboard</button>
                 </div>
                 <textarea id="clip-text" class="clip-text" placeholder="Remote clipboard text appears here. Edit and click 'Send to remote clipboard' to set it on the remote PC."></textarea>
               </div>

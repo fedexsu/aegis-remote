@@ -435,6 +435,10 @@ const heartbeat = setInterval(() => {
     if (ws.isAlive === false) { try { ws.terminate(); } catch {} continue; } // missed the last cycle → dead
     ws.isAlive = false;
     try { ws.ping(); } catch {}
+    // Also send an app-level heartbeat to agents. Browsers don't surface WS pings
+    // to JS, so this gives the agent a message it CAN see — letting it detect a
+    // silently-dead socket (e.g. after a VPN/Wi-Fi change) and reconnect fast.
+    if (ws.meta && ws.meta.role === 'agent') { try { ws.send(JSON.stringify({ type: 'hb' })); } catch {} }
   }
 }, HEARTBEAT_MS);
 wss.on('close', () => clearInterval(heartbeat));
@@ -570,6 +574,10 @@ wss.on('connection', (ws, req) => {
     const { role, id, adminId } = ws.meta || {};
     if (role === 'agent') {
       const a = agents.get(id);
+      // Reconnect race: if the agent already re-registered on a NEW socket (e.g.
+      // after a VPN/Wi-Fi change), the entry now points at that live socket — this
+      // stale close must NOT tear it down or the device flaps offline while it's up.
+      if (a && a.ws !== ws) return;
       if (a && a.consoleId) { const c = consoles.get(a.consoleId); if (c) { c.agentId = null; send(c.ws, { type: 'agentGone' }); } }
       // If a suspend was signalled just before this drop, it's sleeping, not dead.
       const sleeping = a && a.suspendHint && (Date.now() - a.suspendHint) < 90000;

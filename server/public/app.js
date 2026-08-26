@@ -5,6 +5,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let ws = null, admin = null, attachedId = null;
 let frameW = 0, frameH = 0;
 let devicesCache = [];
+let deviceCards = new Map(); // id -> {el, sig} for in-place card reconciliation
 let statsCache = { downloads: 0, installs: 0, conversion: 0, byKey: [] };
 let filter = 'all';
 let search = '';
@@ -139,6 +140,7 @@ function showApp(a) {
   $('#set-user').textContent = a.email;
   $('#set-role').textContent = a.role || 'admin';
   $$('.owner-only').forEach((el) => (el.hidden = !owner));
+  deviceCards.clear(); $('#devices').innerHTML = ''; // fresh card set for this account
   if (owner) loadAccounts();
   loadKeys();
   loadStats();
@@ -198,6 +200,21 @@ function connectWS() {
 // Devices
 // ---------------------------------------------------------------------------
 const DEV_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>';
+// Inline SVG icon set (replaces emoji for a professional, theme-aware look).
+const PW_ICONS = {
+  lock: '<svg viewBox="0 0 24 24" class="ic"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>',
+  logoff: '<svg viewBox="0 0 24 24" class="ic"><path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h9"/></svg>',
+  sleep: '<svg viewBox="0 0 24 24" class="ic"><path d="M21 12.8A8 8 0 1111 3a6.5 6.5 0 0010 9.8z"/></svg>',
+  restart: '<svg viewBox="0 0 24 24" class="ic"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 4v5h-5"/></svg>',
+  shutdown: '<svg viewBox="0 0 24 24" class="ic"><path d="M12 3v9"/><path d="M7 6a8 8 0 1010 0"/></svg>',
+};
+const KA_ICON = '<svg viewBox="0 0 24 24" class="ic"><path d="M4 8h13v5a4 4 0 01-4 4H8a4 4 0 01-4-4z"/><path d="M17 9h2a2 2 0 010 4h-2"/><path d="M7 3v2M11 3v2M15 3v2"/></svg>';
+const ALERT_ICONS = {
+  install: '<svg viewBox="0 0 24 24" class="ic" style="color:var(--green)"><path d="M20 6L9 17l-5-5"/></svg>',
+  online: '<svg viewBox="0 0 24 24" class="ic" style="color:var(--green)"><path d="M5 12.5a10 10 0 0114 0"/><path d="M8.5 15.5a5 5 0 017 0"/><path d="M12 19h.01"/></svg>',
+  offline: '<svg viewBox="0 0 24 24" class="ic" style="color:var(--red)"><path d="M12 3v9"/><path d="M7 6a8 8 0 1010 0"/><path d="M3 3l18 18"/></svg>',
+  uninstall: '<svg viewBox="0 0 24 24" class="ic" style="color:var(--txt3)"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
+};
 
 function fmtIdle(s) {
   if (s == null) return '';
@@ -209,9 +226,9 @@ function fmtIdle(s) {
 function presenceInfo(d) {
   if (!d.online || !d.presence) return null;
   const p = d.presence;
-  if (p.state === 'locked') return { cls: 'locked', text: '🔒 Locked' };
-  if (p.state === 'idle') return { cls: 'idle', text: '💤 Idle ' + fmtIdle(p.idle) };
-  if (p.state === 'active') return { cls: 'active', text: '🟢 In use' };
+  if (p.state === 'locked') return { cls: 'locked', text: 'Locked' };
+  if (p.state === 'idle') return { cls: 'idle', text: 'Idle ' + fmtIdle(p.idle) };
+  if (p.state === 'active') return { cls: 'active', text: 'In use' };
   return null;
 }
 function statusOf(d) {
@@ -257,15 +274,50 @@ function renderDevices() {
   const box = $('#devices');
   $('#dev-empty').hidden = list.length !== 0;
   box.hidden = list.length === 0;
-  box.innerHTML = '';
 
+  // Reconcile in place: update existing cards, create/remove only as needed, so
+  // the list never flashes/rebuilds on a presence or stats push.
+  const seen = new Set();
   for (const d of shown) {
+    seen.add(d.id);
     const st = statusOf(d);
-    const m = d.meta || {};
-    const el = document.createElement('div');
-    el.className = 'device' + (d.online ? ' online' : '') + (st === 'uninstalled' ? ' uninstalled' : '') + (st === 'sleep' ? ' asleep' : '');
-    const pres = presenceInfo(d);
-    el.innerHTML = `
+    const sig = st + '|' + (d.online ? 1 : 0) + '|' + (d.busy ? 1 : 0); // structure-affecting state
+    let entry = deviceCards.get(d.id);
+    if (!entry || entry.sig !== sig) {
+      const el = createDeviceCard(d, st);
+      el.classList.add('enter');
+      if (entry) entry.el.replaceWith(el); else box.appendChild(el);
+      deviceCards.set(d.id, { el, sig });
+    } else {
+      updateDeviceCard(entry.el, d, st);
+    }
+  }
+  for (const [id, entry] of deviceCards) if (!seen.has(id)) { entry.el.remove(); deviceCards.delete(id); }
+  // keep DOM order matching `shown` (moving nodes doesn't restart animations)
+  for (const d of shown) { const e = deviceCards.get(d.id); if (e) box.appendChild(e.el); }
+}
+function updateDeviceCard(el, d, st) {
+  const m = d.meta || {};
+  el.querySelector('.dev-name').textContent = d.name;
+  el.querySelector('.dev-name').title = d.id;
+  const pres = presenceInfo(d);
+  const stEl = el.querySelector('.dev-status');
+  stEl.className = 'dev-status st-' + st;
+  stEl.innerHTML = `<span class="status-dot"></span>${statusLabel(st)}${pres ? ` <span class="presence ${pres.cls}">· ${pres.text}</span>` : ''}`;
+  el.querySelector('[data-f="os"]').textContent = m.os || 'Unknown';
+  el.querySelector('[data-f="host"]').textContent = m.host || '—';
+  el.querySelector('[data-f="user"]').textContent = m.user || '—';
+  el.querySelector('[data-f="res"]').textContent = d.res || m.screen || '—';
+  el.querySelector('[data-f="via"]').textContent = d.via || '—';
+  el.querySelector('[data-f="seen"]').textContent = d.online ? 'now' : (st === 'uninstalled' ? relTime(d.uninstalledAt) : relTime(d.lastSeen));
+  const ka = el.querySelector('.ka-toggle'); if (ka) ka.checked = !!m.keepAwake;
+}
+function createDeviceCard(d, st) {
+  const m = d.meta || {};
+  const el = document.createElement('div');
+  el.className = 'device' + (d.online ? ' online' : '') + (st === 'uninstalled' ? ' uninstalled' : '') + (st === 'sleep' ? ' asleep' : '');
+  const pres = presenceInfo(d);
+  el.innerHTML = `
       <div class="dev-top">
         <div class="dev-badge">${DEV_SVG}</div>
         <div class="dev-id">
@@ -277,13 +329,13 @@ function renderDevices() {
             <svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
           </button>
           <div class="card-menu power-menu" hidden>
-            <label class="pm-ka"><span>☕ Keep awake</span><span class="switch small"><input type="checkbox" class="ka-toggle" ${d.meta && d.meta.keepAwake ? 'checked' : ''}/><span class="track"></span></span></label>
+            <label class="pm-ka"><span>${KA_ICON} Keep awake</span><span class="switch small"><input type="checkbox" class="ka-toggle" ${d.meta && d.meta.keepAwake ? 'checked' : ''}/><span class="track"></span></span></label>
             <div class="pm-div"></div>
-            <button class="pw" data-power="lock">🔒 Lock</button>
-            <button class="pw" data-power="logoff">🚪 Sign out</button>
-            <button class="pw" data-power="sleep">🌙 Sleep</button>
-            <button class="pw warn" data-power="restart">🔄 Restart</button>
-            <button class="pw danger" data-power="shutdown">⏻ Shut down</button>
+            <button class="pw" data-power="lock">${PW_ICONS.lock} Lock</button>
+            <button class="pw" data-power="logoff">${PW_ICONS.logoff} Sign out</button>
+            <button class="pw" data-power="sleep">${PW_ICONS.sleep} Sleep</button>
+            <button class="pw warn" data-power="restart">${PW_ICONS.restart} Restart</button>
+            <button class="pw danger" data-power="shutdown">${PW_ICONS.shutdown} Shut down</button>
           </div>
         </div>` : ''}
       </div>
@@ -347,8 +399,7 @@ function renderDevices() {
         deviceOp(d.id, 'power', { action }, { onResult: (m) => { if (m.ok) toast(label + ' command sent', 'ok'); else toast(m.error || 'failed', 'err'); } });
       }));
     }
-    box.appendChild(el);
-  }
+  return el;
 }
 function attach(id) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'attach', agentId: id })); }
 
@@ -495,10 +546,10 @@ $('#installer-file').addEventListener('change', async (e) => {
 // Telegram alerts
 // ---------------------------------------------------------------------------
 const ALERT_META = [
-  { key: 'install', name: 'New install', badge: '✅', desc: 'a machine enrolls' },
-  { key: 'online', name: 'Back online', badge: '🟢', desc: 'a device recovers from offline' },
-  { key: 'offline', name: 'Went offline', badge: '🔴', desc: 'a device drops for over a minute' },
-  { key: 'uninstall', name: 'Uninstalled', badge: '🗑️', desc: 'the agent is removed' },
+  { key: 'install', name: 'New install', badge: ALERT_ICONS.install, desc: 'a machine enrolls' },
+  { key: 'online', name: 'Back online', badge: ALERT_ICONS.online, desc: 'a device recovers from offline' },
+  { key: 'offline', name: 'Went offline', badge: ALERT_ICONS.offline, desc: 'a device drops for over a minute' },
+  { key: 'uninstall', name: 'Uninstalled', badge: ALERT_ICONS.uninstall, desc: 'the agent is removed' },
 ];
 async function loadAlerts() {
   try {
@@ -803,6 +854,7 @@ const cpuHist = [], memHist = [];
 function openSystem(d) {
   sysAgentId = d.id;
   sysDeviceMeta = d.meta || {};
+  hwCache = null; // inventory is per-device
   $('#sys-name').textContent = d.name;
   $('#sys-view').hidden = false;
   cpuHist.length = 0; memHist.length = 0;
@@ -827,9 +879,50 @@ function sysTab(name) {
   $$('.sys-tab').forEach((p) => (p.hidden = p.dataset.tabpage !== name));
   if (name === 'processes') refreshProcs();
   if (name === 'clipboard') getClip();
+  if (name === 'inventory') loadHwInfo();
 }
 $$('.sys-tabs .seg-btn').forEach((b) => b.addEventListener('click', () => sysTab(b.dataset.tab)));
 $('#sys-back').addEventListener('click', closeSystem);
+
+// --- hardware / OS inventory ---
+let hwCache = null;
+const HW_E = (s) => (s == null || s === '') ? '—' : String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const HW_LINES = (arr) => (arr && arr.length) ? arr.map(HW_E).join('<br>') : '—';
+function loadHwInfo(force) {
+  if (hwCache && !force) return renderHwInfo(hwCache);
+  $('#hw-body').innerHTML = '<div class="hint" style="padding:22px">Gathering hardware details…</div>';
+  sysOp('hw-info', {}, { onResult: (m) => {
+    if (m.ok && m.data && m.data.hw) { hwCache = m.data.hw; renderHwInfo(hwCache); }
+    else $('#hw-body').innerHTML = '<div class="hint" style="padding:22px">Could not read inventory' + (m.error ? ' (' + HW_E(m.error) + ')' : '') + '.</div>';
+  } });
+}
+function renderHwInfo(hw) {
+  const rows = (arr) => arr.map(([k, v]) => `<div class="hw-row"><div class="hw-k">${k}</div><div class="hw-v">${v}</div></div>`).join('');
+  const sec = (t, inner) => `<div class="hw-sec"><div class="hw-sec-t">${t}</div>${inner}</div>`;
+  const cpu = hw.cpu || {}, os = hw.os || {}, bios = hw.bios || {}, board = hw.board || {};
+  const ram = (hw.ramSlots || []).map((r) => `${r.capGB}GB${r.speed ? ' @ ' + r.speed + 'MHz' : ''}${r.part ? ' (' + r.part + ')' : ''}`);
+  const disks = (hw.disks || []).map((d) => `${d.model || '?'} — ${d.sizeGB}GB${d.iface ? ' [' + d.iface + ']' : ''}${d.serial ? ' · SN ' + d.serial : ''}`);
+  const net = (hw.net || []).map((n) => `${n.name || '?'} — ${n.mac || ''}`);
+  $('#hw-body').innerHTML =
+      sec('System', rows([
+        ['Manufacturer', HW_E(hw.manufacturer)], ['Model', HW_E(hw.model)], ['Type', HW_E(hw.systemType)],
+        ['Serial number', HW_E(hw.serial)], ['Motherboard', HW_E([board.mfr, board.product].filter(Boolean).join(' '))],
+        ['BIOS', HW_E([bios.vendor, bios.version, bios.date].filter(Boolean).join(' · '))],
+      ]))
+    + sec('Processor', rows([
+        ['CPU', HW_E(cpu.name)], ['Cores / threads', HW_E((cpu.cores || '?') + ' / ' + (cpu.threads || '?'))], ['Max clock', cpu.mhz ? HW_E(cpu.mhz + ' MHz') : '—'],
+      ]))
+    + sec('Memory', rows([['Total', hw.ramTotalGB ? HW_E(hw.ramTotalGB + ' GB') : '—'], ['Modules', HW_LINES(ram)]]))
+    + sec('Graphics', rows([['GPU', HW_LINES(hw.gpu || [])]]))
+    + sec('Storage', rows([['Drives', HW_LINES(disks)]]))
+    + sec('Network', rows([['Adapters', HW_LINES(net)]]))
+    + sec('Operating system', rows([
+        ['OS', HW_E(os.caption)], ['Version', HW_E([os.version, os.build ? '(build ' + os.build + ')' : ''].filter(Boolean).join(' '))],
+        ['Architecture', HW_E(os.arch)], ['Installed', HW_E(os.installed)], ['Last boot', HW_E(os.lastBoot)],
+        ['Hostname', HW_E(hw.hostname)], ['Signed-in user', HW_E(hw.user)],
+      ]));
+}
+$('#hw-refresh').addEventListener('click', () => loadHwInfo(true));
 
 // --- monitor ---
 function startMonitor() {
@@ -1060,7 +1153,7 @@ let rtcIceServers = null; // provided by the relay on 'attached' (STUN + TURN)
 function setRtcMode(mode) {
   const el = $('#rtc-mode');
   el.classList.remove('hd', 'sd');
-  if (mode === 'hd') { el.classList.add('hd'); el.textContent = '⚡ HD · WebRTC'; }
+  if (mode === 'hd') { el.classList.add('hd'); el.textContent = 'HD · WebRTC'; }
   else if (mode === 'sd') { el.classList.add('sd'); el.textContent = 'SD · compatibility'; }
   else el.textContent = 'Connecting…';
 }

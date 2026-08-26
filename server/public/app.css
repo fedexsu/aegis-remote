@@ -192,10 +192,22 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
   background:linear-gradient(180deg,var(--panel2),var(--panel));
   border:1px solid var(--line);border-radius:var(--radius);padding:18px;
   transition:transform .16s,border-color .16s,box-shadow .16s;
-  animation:fadeUp .3s ease both;position:relative;overflow:hidden;
+  position:relative;overflow:hidden;
 }
+/* Cards update in place (see renderDevices reconcile) so they never flash on a
+   presence/stats push; only newly-added cards animate in. */
+.device.enter{animation:fadeUp .3s ease both}
 .device:hover{transform:translateY(-3px);border-color:var(--line2);box-shadow:var(--shadow)}
-.device.online::after{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--green),transparent);opacity:.7}
+.device.online::after{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--green),transparent);opacity:.55}
+/* hardware inventory */
+.inv-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.hw-body{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.hw-sec{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.hw-sec-t{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:10px;font-weight:700}
+.hw-row{display:grid;grid-template-columns:120px 1fr;gap:10px;padding:5px 0;border-top:1px solid var(--line);font-size:13px}
+.hw-row:first-of-type{border-top:none}
+.hw-k{color:var(--txt3)}
+.hw-v{color:var(--txt);word-break:break-word}
 .dev-top{display:flex;align-items:center;gap:12px;margin-bottom:14px}
 .card-settings{margin-left:auto;align-self:flex-start;position:relative}
 .icon-btn.top{flex:0 0 auto}
@@ -254,7 +266,9 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 
 /* ---------- empty states ---------- */
 .empty{text-align:center;padding:56px 20px;color:var(--txt2);animation:fadeUp .3s ease both}
-.empty-ic{font-size:44px;margin-bottom:10px}
+.empty-ic{margin-bottom:10px}
+.empty-ic svg{width:46px;height:46px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+.banner svg.ic,.ctl-warn svg.ic{width:16px;height:16px;vertical-align:-3px;margin-right:5px;flex:none}
 .empty h3{margin:0 0 6px;color:var(--txt);font-size:17px}
 .empty p{margin:0 auto 18px;max-width:360px;font-size:13px;line-height:1.5}
 

@@ -141,8 +141,25 @@ async function connect() {
     if (enabled) scheduleReconnect(); else setStatus(false, 'offline');
   };
   ws.onerror = () => { /* onclose handles reconnect */ };
-  ws.onmessage = (ev) => onMessage(JSON.parse(ev.data));
+  ws.onmessage = (ev) => { lastRx = Date.now(); onMessage(JSON.parse(ev.data)); };
 }
+
+// Reconnect resilience for network changes (VPN toggles, Wi-Fi switch). The OS
+// TCP stack can take minutes to notice a dead socket, during which the relay has
+// already dropped us and the device shows offline. So: reconnect instantly when
+// the browser reports the network is back, and run a watchdog that reconnects if
+// we've heard nothing from the relay (incl. its 25s heartbeat) for a while.
+let lastRx = Date.now();
+function forceReconnect() {
+  if (!enabled) return;
+  backoff = 2000; // a network change isn't a server failure — retry promptly
+  if (ws && ws.readyState <= 1) { try { ws.close(); } catch {} } // onclose → scheduleReconnect
+  else if (!reconnectTimer) connect();
+}
+window.addEventListener('online', () => { lastRx = Date.now(); forceReconnect(); });
+setInterval(() => {
+  if (enabled && ws && ws.readyState === ws.OPEN && Date.now() - lastRx > 40000) forceReconnect();
+}, 10000);
 
 // ---------------------------------------------------------------------------
 // Auto-start with Windows (login item)

@@ -331,6 +331,7 @@ ipcMain.on('op', (_e, msg) => {
     else if (op === 'lockinput') { inject('B ' + (payload.on ? '1' : '0')); opReply({ type: 'opResult', reqId, ok: true, data: { locked: !!payload.on } }); }
     else if (op === 'clip-get') opReply({ type: 'opResult', reqId, ok: true, data: { text: clipboard.readText() } });
     else if (op === 'clip-set') { clipboard.writeText(payload.text || ''); opReply({ type: 'opResult', reqId, ok: true }); }
+    else if (op === 'hw-info') hwInfo(reqId);
     else if (op === 'keepawake') setKeepAwake(reqId, !!payload.on);
     else if (op === 'power') powerAction(reqId, payload.action);
     else if (op === 'op-cancel') { termClose(reqId); fsCancel(reqId); sysMonClear(reqId); }
@@ -350,6 +351,30 @@ function cpuPercent() {
   const idle = cur.idle - lastCpu.idle, total = cur.total - lastCpu.total;
   lastCpu = cur;
   return total > 0 ? Math.max(0, Math.min(100, Math.round((1 - idle / total) * 100))) : 0;
+}
+// Detailed hardware/OS inventory via CIM/WMI (serial, model, full specs). One
+// PowerShell process returns a JSON blob the console renders as a spec sheet.
+function hwInfo(reqId) {
+  const ps = "$ErrorActionPreference='SilentlyContinue';"
+    + "$cs=Get-CimInstance Win32_ComputerSystem;$b=Get-CimInstance Win32_BIOS;$o=Get-CimInstance Win32_OperatingSystem;"
+    + "$bb=Get-CimInstance Win32_BaseBoard;$cpu=Get-CimInstance Win32_Processor|Select-Object -First 1;"
+    + "$gpu=@(Get-CimInstance Win32_VideoController|ForEach-Object{$_.Name});"
+    + "$ram=@(Get-CimInstance Win32_PhysicalMemory|ForEach-Object{[pscustomobject]@{capGB=[math]::Round($_.Capacity/1GB,0);speed=$_.Speed;mfr=($_.Manufacturer);part=([string]$_.PartNumber).Trim()}});"
+    + "$disks=@(Get-CimInstance Win32_DiskDrive|ForEach-Object{[pscustomobject]@{model=$_.Model;sizeGB=[math]::Round($_.Size/1GB,0);iface=$_.InterfaceType;serial=([string]$_.SerialNumber).Trim()}});"
+    + "$net=@(Get-CimInstance Win32_NetworkAdapter -Filter 'PhysicalAdapter=true'|Where-Object{$_.MACAddress}|ForEach-Object{[pscustomobject]@{name=$_.Name;mac=$_.MACAddress}});"
+    + "[pscustomobject]@{manufacturer=$cs.Manufacturer;model=$cs.Model;systemType=$cs.SystemType;serial=$b.SerialNumber;"
+    + "bios=[pscustomobject]@{vendor=$b.Manufacturer;version=[string]$b.SMBIOSBIOSVersion;date=('{0:yyyy-MM-dd}' -f $b.ReleaseDate)};"
+    + "board=[pscustomobject]@{mfr=$bb.Manufacturer;product=$bb.Product;serial=$bb.SerialNumber};"
+    + "cpu=[pscustomobject]@{name=$cpu.Name;cores=$cpu.NumberOfCores;threads=$cpu.NumberOfLogicalProcessors;mhz=$cpu.MaxClockSpeed};"
+    + "ramTotalGB=[math]::Round($cs.TotalPhysicalMemory/1GB,1);ramSlots=$ram;gpu=$gpu;disks=$disks;net=$net;"
+    + "os=[pscustomobject]@{caption=$o.Caption;version=$o.Version;build=$o.BuildNumber;arch=$o.OSArchitecture;installed=('{0:yyyy-MM-dd}' -f $o.InstallDate);lastBoot=('{0:yyyy-MM-dd HH:mm}' -f $o.LastBootUpTime)};"
+    + "hostname=$env:COMPUTERNAME;user=$env:USERNAME}|ConvertTo-Json -Depth 5 -Compress";
+  const proc = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', ps], { windowsHide: true });
+  let out = '';
+  proc.stdout.on('data', (d) => (out += d));
+  proc.stderr.on('data', () => {});
+  proc.on('close', () => { try { opReply({ type: 'opResult', reqId, ok: true, data: { hw: JSON.parse(out || '{}') } }); } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: 'parse: ' + e.message }); } });
+  proc.on('error', (e) => opReply({ type: 'opResult', reqId, ok: false, error: e.message }));
 }
 function diskInfo() {
   const out = [];

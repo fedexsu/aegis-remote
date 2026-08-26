@@ -999,6 +999,7 @@ $('#lock-btn').addEventListener('click', () => {
 
 function onAttached(msg) {
   attachedId = msg.agentId;
+  loadBlankImage(); // make sure we have the owner's current blank image for this session
   rtcIceServers = msg.iceServers || null;
   $('#session-name').textContent = msg.name;
   $('#ctl-warn').hidden = true;

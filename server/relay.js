@@ -387,7 +387,25 @@ const server = http.createServer((req, res) => {
 // ---------------------------------------------------------------------------
 const wss = new WebSocketServer({ server });
 
+// WebSocket keepalive. Without this, a silently-dropped TCP connection (Wi-Fi
+// blip, NAT rebind, proxy idle-timeout, or a throttled hidden agent window) is
+// never detected and the device flaps offline/online. Pinging every 25s also
+// keeps traffic flowing so intermediaries don't idle-close the socket — and the
+// browser answers pings at the network layer even when the renderer's JS is
+// throttled, so the connection survives agent-side throttling too.
+const HEARTBEAT_MS = 25000;
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) { try { ws.terminate(); } catch {} continue; } // missed the last cycle → dead
+    ws.isAlive = false;
+    try { ws.ping(); } catch {}
+  }
+}, HEARTBEAT_MS);
+wss.on('close', () => clearInterval(heartbeat));
+
 wss.on('connection', (ws, req) => {
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
   ws.meta = { role: null, id: null, adminId: null };
   // The browser sends the session cookie on the WS handshake (same origin),
   // so a logged-in dashboard authenticates its console connection automatically.

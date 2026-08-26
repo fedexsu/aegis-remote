@@ -1365,7 +1365,7 @@ function onAttached(msg) {
 }
 function backToDashboard() {
   attachedId = null;
-  zoom = 0; annotOn = false; annotCanvas.hidden = true; $('#annot-btn').classList.remove('on'); // reset view tools
+  zoom = 0; annotOn = false; annotCanvas.hidden = true; $('#annot-btn').classList.remove('on'); stopShareClip(); // reset view tools
   try { if (document.fullscreenElement) document.exitFullscreen(); } catch {} // leave fullscreen when the session ends
   if (mediaRec) stopRecording(); // auto-save any in-progress recording
   blankOn = false; updateBlankBtn();
@@ -1631,8 +1631,76 @@ $('#clipkeys-btn').addEventListener('click', async () => {
 function syncSuspend() { $('#suspend-tile').classList.toggle('on', !$('#control').checked); }
 $('#suspend-tile').addEventListener('click', () => { $('#control').checked = $('#suspend-tile').classList.contains('on'); syncSuspend(); toast($('#control').checked ? 'Control resumed' : 'Your input is suspended (view-only)', 'ok'); });
 $('#control').addEventListener('change', syncSuspend);
-// "Coming soon" tiles keep the panel visually complete (like ScreenConnect).
-$$('.sc-tile.soon').forEach((t) => t.addEventListener('click', () => toast((t.dataset.soon || 'This feature') + ' — coming soon', 'ok')));
+// Share Clipboard — live two-way sync while the session is open.
+let shareClipT = null, clipLast = null;
+$('#shareclip-tile').addEventListener('click', () => {
+  const on = !$('#shareclip-tile').classList.contains('on');
+  $('#shareclip-tile').classList.toggle('on', on);
+  if (on) {
+    clipLast = null;
+    shareClipT = setInterval(clipTick, 1500);
+    toast('Clipboard sharing on', 'ok');
+  } else { if (shareClipT) clearInterval(shareClipT); shareClipT = null; toast('Clipboard sharing off', 'ok'); }
+});
+async function clipTick() {
+  if (!attachedId) return;
+  // local → remote (only when the tab is focused, so reads are permitted)
+  try {
+    if (document.hasFocus()) {
+      const local = await navigator.clipboard.readText();
+      if (local && local !== clipLast) { clipLast = local; deviceOp(attachedId, 'clip-set', { text: local }); return; }
+    }
+  } catch {}
+  // remote → local
+  deviceOp(attachedId, 'clip-get', {}, { onResult: (m) => {
+    if (!m.ok || m.data.kind !== 'text') return;
+    const remote = m.data.text || '';
+    if (remote && remote !== clipLast) { clipLast = remote; navigator.clipboard.writeText(remote).catch(() => {}); }
+  } });
+}
+function stopShareClip() { if (shareClipT) { clearInterval(shareClipT); shareClipT = null; } $('#shareclip-tile').classList.remove('on'); }
+// Manage Credentials — vault + "Send to screen" (types into the focused field).
+$('#cred-add-btn').addEventListener('click', () => openCredModal());
+$('#cred-send-btn').addEventListener('click', () => openCredModal());
+$('#cred-close').addEventListener('click', () => ($('#cred-modal').hidden = true));
+$('#cred-modal').addEventListener('click', (e) => { if (e.target.id === 'cred-modal') $('#cred-modal').hidden = true; });
+function openCredModal() { $('#cred-modal').hidden = false; loadCreds(); }
+async function loadCreds() {
+  const box = $('#cred-list'); box.innerHTML = '<div class="hint">Loading…</div>';
+  try {
+    const { credentials } = await api('/api/credentials');
+    box.innerHTML = '';
+    if (!credentials.length) { box.innerHTML = '<div class="hint">No saved credentials yet — add one below.</div>'; return; }
+    for (const c of credentials) {
+      const row = document.createElement('div'); row.className = 'cred-row';
+      row.innerHTML = '<div class="cn"><b></b><span></span></div><button class="btn primary xs send">Send to screen</button><button class="btn ghost icon-btn del" title="Delete"><svg viewBox="0 0 24 24" class="ic"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button>';
+      row.querySelector('b').textContent = c.label;
+      row.querySelector('.cn span').textContent = c.username || '(no username)';
+      row.querySelector('.send').addEventListener('click', () => { typeCredential(c); $('#cred-modal').hidden = true; });
+      row.querySelector('.del').addEventListener('click', async () => { try { await api('/api/credentials', 'DELETE', { id: c.id }); loadCreds(); } catch (e) { toast(e.message, 'err'); } });
+      box.appendChild(row);
+    }
+  } catch { box.innerHTML = '<div class="hint">Failed to load.</div>'; }
+}
+$('#cred-save').addEventListener('click', async () => {
+  const label = $('#cred-label').value.trim(), username = $('#cred-user').value, password = $('#cred-pass').value;
+  if (!label && !username) { toast('Add a label or username', 'err'); return; }
+  try {
+    await api('/api/credentials', 'POST', { label, username, password });
+    $('#cred-label').value = ''; $('#cred-user').value = ''; $('#cred-pass').value = '';
+    toast('Credential saved', 'ok'); loadCreds();
+  } catch (e) { toast(e.message, 'err'); }
+});
+function typeCredential(c) {
+  if (!attachedId) { toast('Not connected to a device', 'err'); return; }
+  sendInput({ kind: 'text', ch: c.username || '' });
+  sendInput({ kind: 'key', code: 'Tab', down: true }); sendInput({ kind: 'key', code: 'Tab', down: false });
+  sendInput({ kind: 'text', ch: c.password || '' });
+  toast('Typed "' + c.label + '" into the focused field', 'ok');
+}
+// Share Printers is the only remaining placeholder — real redirection needs a
+// signed virtual print driver on the remote, which a user-mode agent can't install.
+$$('.sc-tile.soon').forEach((t) => t.addEventListener('click', () => toast('Printer redirection needs a signed print driver on the remote — not possible from a user-mode agent.', 'err')));
 document.addEventListener('fullscreenchange', () => setTimeout(fit, 60)); // re-fit after entering/leaving fullscreen
 
 function renderMonitors(msg) {

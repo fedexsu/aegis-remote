@@ -295,6 +295,19 @@ async function handleApi(req, res, urlPath) {
       return json(res, 200, { ok: true });
     }
 
+    // Credential vault (per admin) — used by "Manage Credentials" to type saved
+    // logins into a focused field on the remote.
+    if (urlPath === '/api/credentials' && m === 'GET') return json(res, 200, { credentials: db.getCredentials(admin.id) });
+    if (urlPath === '/api/credentials' && m === 'POST') {
+      const b = await readBody(req);
+      if (!b.label && !b.username) return json(res, 400, { error: 'label or username required' });
+      return json(res, 200, { credential: db.addCredential(admin.id, b) });
+    }
+    if (urlPath === '/api/credentials' && m === 'DELETE') {
+      const b = await readBody(req);
+      return json(res, 200, { ok: db.removeCredential(admin.id, b.id) });
+    }
+
     // Create a share link so someone can watch a live session in a browser with
     // no install/login. Bound to one device the admin owns; expires in 30 min.
     if (urlPath === '/api/guest-link' && m === 'POST') {

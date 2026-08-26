@@ -304,8 +304,8 @@
                 <button class="sc-tile" id="reboot-safe"><span class="sc-tile-ic"><svg viewBox="0 0 24 24"><path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7z"/></svg></span><span class="sc-tile-l">To Safe Mode</span></button>
               </div></div>
               <div class="sc-col"><div class="sc-col-t">Manage Credentials</div><div class="sc-tiles">
-                <button class="sc-tile soon" data-soon="Credential vault"><span class="sc-tile-ic"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg></span><span class="sc-tile-l">Prompt For Storage</span></button>
-                <button class="sc-tile soon" data-soon="Credential vault"><span class="sc-tile-ic"><svg viewBox="0 0 24 24"><path d="M15 7a4 4 0 10-8 0M2 12h20M5 12v7h14v-7"/></svg></span><span class="sc-tile-l">Send To Screen</span></button>
+                <button class="sc-tile" id="cred-add-btn"><span class="sc-tile-ic"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/><path d="M12 14v2"/></svg></span><span class="sc-tile-l">Save Credential</span></button>
+                <button class="sc-tile" id="cred-send-btn"><span class="sc-tile-ic"><svg viewBox="0 0 24 24"><path d="M14 5l7 7-7 7M21 12H8M3 5v14"/></svg></span><span class="sc-tile-l">Send To Screen</span></button>
               </div></div>
               <div class="sc-col"><div class="sc-col-t">Share Printers</div><div class="sc-tiles">
                 <button class="sc-tile soon" data-soon="Printer redirection"><span class="sc-tile-ic"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4v-5a2 2 0 012-2h12a2 2 0 012 2v5h-2M8 15h8v6H8z"/></svg></span><span class="sc-tile-l">No Printer</span></button>
@@ -313,7 +313,7 @@
                 <button class="sc-tile soon" data-soon="Printer redirection"><span class="sc-tile-ic"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4v-5a2 2 0 012-2h12a2 2 0 012 2v5h-2M8 15h8v6H8z"/></svg></span><span class="sc-tile-l">All Printers</span></button>
               </div></div>
               <div class="sc-col"><div class="sc-col-t">Clipboard</div><div class="sc-tiles">
-                <button class="sc-tile toggle soon" data-soon="Live clipboard sync"><span class="sc-tile-sw"></span><span class="sc-tile-l">Share Clipboard</span></button>
+                <button class="sc-tile toggle" id="shareclip-tile"><span class="sc-tile-sw"></span><span class="sc-tile-l">Share Clipboard</span></button>
               </div></div>
             </div>
             <div class="sc-panel" data-panelfor="transfer" hidden>
@@ -513,6 +513,21 @@
           <button id="build-cancel" class="btn ghost">Close</button>
           <button id="build-create" class="btn primary">Create installer</button>
         </div>
+      </div>
+    </div>
+    <!-- Credential vault -->
+    <div id="cred-modal" class="modal-back" hidden>
+      <div class="modal build-modal">
+        <h3>Credential vault</h3>
+        <p class="build-help">Saved logins for this account. <b>Send to screen</b> types the username, Tab, then password into whatever field is focused on the remote. (UAC prompts can't be auto-filled from a user-mode agent — that needs the service upgrade.)</p>
+        <div id="cred-list" class="cred-list"></div>
+        <div class="cred-add">
+          <input id="cred-label" placeholder="Label (e.g. Admin login)" />
+          <input id="cred-user" placeholder="Username" />
+          <input id="cred-pass" type="password" placeholder="Password" />
+          <button id="cred-save" class="btn primary small">Save</button>
+        </div>
+        <div class="modal-actions"><button id="cred-close" class="btn ghost">Close</button></div>
       </div>
     </div>
     <div id="toasts" class="toasts"></div>

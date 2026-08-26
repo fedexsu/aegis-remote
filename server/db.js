@@ -245,6 +245,20 @@ function renameDevice(adminId, id, name) {
   return !!d;
 }
 
+// ---- credential vault (per admin) ----
+function getCredentials(adminId) { const a = findAdminById(adminId); return (a && a.credentials) || []; }
+function addCredential(adminId, cred) {
+  const a = findAdminById(adminId); if (!a) return null;
+  a.credentials = a.credentials || [];
+  const c = { id: genId(), label: (cred.label || 'Credential').slice(0, 60), username: (cred.username || '').slice(0, 256), password: (cred.password || '').slice(0, 256) };
+  a.credentials.push(c); save(); return c;
+}
+function removeCredential(adminId, id) {
+  const a = findAdminById(adminId); if (!a || !a.credentials) return false;
+  const n = a.credentials.length; a.credentials = a.credentials.filter((c) => c.id !== id); save();
+  return a.credentials.length < n;
+}
+
 module.exports = {
   DATA_DIR,
   createAdmin, findAdminByEmail, findAdminById, publicAdmin, verifyPassword,
@@ -253,4 +267,5 @@ module.exports = {
   createKey, keysForAdmin, findValidKey, revokeKey, unrevokeKey, incKeyDownload, statsForAdmin,
   getAlerts, setAlerts,
   upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, markUninstalled, setAsleep,
+  getCredentials, addCredential, removeCredential,
 };

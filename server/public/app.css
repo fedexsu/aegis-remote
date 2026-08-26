@@ -273,6 +273,16 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .sc-hint{font-size:11.5px;color:var(--txt3)}
 .sc-hint.sc-wide{margin-top:8px;max-width:220px;display:block}
 .mini-select{background:var(--panel2);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:7px 10px;font-size:13px}
+/* credential vault */
+.cred-list{display:flex;flex-direction:column;gap:8px;margin:8px 0 14px;max-height:260px;overflow:auto}
+.cred-row{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px 12px}
+.cred-row .cn{flex:1;min-width:0}
+.cred-row .cn b{font-size:13px}
+.cred-row .cn span{display:block;font-size:11.5px;color:var(--txt3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cred-add{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px}
+.cred-add input{background:var(--panel3);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:8px 10px;font-size:13px}
+.cred-add input:focus{outline:none;border-color:var(--accent)}
+@media(max-width:600px){.cred-add{grid-template-columns:1fr 1fr}}
 .device{
   background:linear-gradient(180deg,var(--panel2),var(--panel));
   border:1px solid var(--line);border-radius:var(--radius);padding:18px;

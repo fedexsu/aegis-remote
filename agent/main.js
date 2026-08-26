@@ -327,7 +327,22 @@ ipcMain.on('op', (_e, msg) => {
     else if (op === 'sys-mon-stop') sysMonStop(reqId);
     else if (op === 'proc-list') procList(reqId);
     else if (op === 'proc-kill') procKill(reqId, payload.pid);
-    else if (op === 'blank') { setBlank(!!payload.on, blankImageFromPayload(payload)); opReply({ type: 'opResult', reqId, ok: true, data: { blank: !!payload.on } }); }
+    else if (op === 'blank') {
+      let coverPath = null;
+      if (payload.on) {
+        if (payload.coverPath && fs.existsSync(payload.coverPath)) {
+          coverPath = payload.coverPath;
+          if (payload.coverVersion) { try { fs.writeFileSync(coverPath + '.ver', String(payload.coverVersion)); } catch {} } // mark cached version
+        } else { coverPath = blankImageFromPayload(payload); } // legacy small-image base64
+      }
+      setBlank(!!payload.on, coverPath);
+      opReply({ type: 'opResult', reqId, ok: true, data: { blank: !!payload.on } });
+    }
+    else if (op === 'cover-check') { // does the remote already have this cover version cached?
+      let has = false;
+      try { has = fs.existsSync(payload.path) && fs.readFileSync(payload.path + '.ver', 'utf8') === String(payload.version); } catch {}
+      opReply({ type: 'opResult', reqId, ok: true, data: { has } });
+    }
     else if (op === 'lockinput') { inject('B ' + (payload.on ? '1' : '0')); opReply({ type: 'opResult', reqId, ok: true, data: { locked: !!payload.on } }); }
     else if (op === 'clip-get') {
       try {
@@ -496,7 +511,7 @@ function compileBlanker() {
   if (!csc || !fs.existsSync(src)) return false;
   try {
     require('child_process').execFileSync(csc, ['/nologo', '/optimize+', '/target:winexe',
-      '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/out:' + out, src],
+      '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:Microsoft.CSharp.dll', '/out:' + out, src],
       { stdio: 'ignore', windowsHide: true });
     return fs.existsSync(out);
   } catch { return false; }
@@ -522,7 +537,7 @@ function setBlank(on, imagePath) {
     try { p.stdin.end(); } catch {}
     const t = setTimeout(() => { try { p.kill(); } catch {} }, 2000);
     p.on('exit', () => clearTimeout(t));
-    if (blankImgPath) { try { fs.unlinkSync(blankImgPath); } catch {} blankImgPath = null; }
+    blankImgPath = null; // keep the cover file cached on the remote so it isn't re-uploaded next time
   }
 }
 const destroyBlank = () => setBlank(false);

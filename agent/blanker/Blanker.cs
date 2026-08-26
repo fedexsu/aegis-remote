@@ -39,6 +39,57 @@ class Blanker {
   [DllImport("user32.dll")] static extern IntPtr CopyIcon(IntPtr h);
   [DllImport("user32.dll")] static extern bool SystemParametersInfo(uint action, uint uParam, IntPtr vParam, uint winIni);
   [DllImport("kernel32.dll", CharSet = CharSet.Auto)] static extern IntPtr GetModuleHandle(string n);
+  delegate bool EnumWndProc(IntPtr h, IntPtr lp);
+  [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumWndProc cb, IntPtr lp);
+
+  // Hosts the Windows Media Player ActiveX control by CLSID, late-bound (no
+  // interop DLL needed). Used to play a looping video cover.
+  [System.ComponentModel.DesignerCategory("")]
+  class WmpHost : AxHost { public WmpHost() : base("6BF52A52-394A-11d3-B153-00C04F79FAA6") { } }
+
+  // Make the video's child windows follow the same rules as the black form:
+  // excluded from capture, and click-through so injected input still reaches the
+  // desktop underneath.
+  static void ApplyChildren(IntPtr parent) {
+    try {
+      EnumChildWindows(parent, delegate (IntPtr h, IntPtr lp) {
+        try {
+          SetWindowDisplayAffinity(h, WDA_EXCLUDEFROMCAPTURE);
+          SetWindowLong(h, GWL_EXSTYLE, GetWindowLong(h, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
+        } catch { }
+        return true;
+      }, IntPtr.Zero);
+    } catch { }
+  }
+  static void SetupVideo(Form f, string pathVideo) {
+    try {
+      WmpHost host = new WmpHost();
+      host.Dock = DockStyle.Fill;
+      f.Controls.Add(host);            // realizes the OCX
+      dynamic ocx = host.GetOcx();
+      ocx.uiMode = "none";
+      ocx.stretchToFit = true;
+      ocx.enableContextMenu = false;
+      ocx.settings.autoStart = true;
+      ocx.settings.setMode("loop", true);   // seamless-ish loop, no controls
+      try { ocx.settings.volume = 0; } catch { }
+      ocx.URL = pathVideo;
+    } catch { f.BackColor = Color.Black; }
+  }
+  static void SetupGif(Form f, Image gif) {
+    f.BackColor = Color.Black;
+    bool anim = false; try { anim = ImageAnimator.CanAnimate(gif); } catch { }
+    f.Paint += delegate (object s, PaintEventArgs e) {
+      try {
+        if (anim) ImageAnimator.UpdateFrames(gif);
+        Rectangle cr = f.ClientRectangle;
+        double k = Math.Min((double)cr.Width / gif.Width, (double)cr.Height / gif.Height);
+        int w = (int)(gif.Width * k), h = (int)(gif.Height * k);
+        e.Graphics.DrawImage(gif, (cr.Width - w) / 2, (cr.Height - h) / 2, w, h);
+      } catch { }
+    };
+    if (anim) ImageAnimator.Animate(gif, delegate (object s, EventArgs e) { try { f.Invalidate(); } catch { } });
+  }
 
   const int GWL_EXSTYLE = -20;
   const int WS_EX_LAYERED = 0x00080000, WS_EX_TRANSPARENT = 0x00000020, WS_EX_TOOLWINDOW = 0x00000080, WS_EX_NOACTIVATE = 0x08000000;
@@ -103,12 +154,16 @@ class Blanker {
     }
     try { SetProcessDPIAware(); } catch { }
 
-    // Optional cover image: first non-flag arg is a file to show fullscreen
-    // instead of plain black (loaded via a copy so the file isn't left locked).
-    Image cover = null;
-    if (args.Length > 0 && args[0] != "--restore") {
-      try { if (File.Exists(args[0])) cover = Image.FromStream(new MemoryStream(File.ReadAllBytes(args[0]))); } catch { cover = null; }
-    }
+    // Optional cover: first non-flag arg is a file shown fullscreen instead of
+    // plain black. Image → all monitors (static). GIF → primary (seamless loop).
+    // Video → primary (Windows Media Player, looping). Others stay black.
+    string coverPath = (args.Length > 0 && args[0] != "--restore" && File.Exists(args[0])) ? args[0] : null;
+    string ext = coverPath != null ? Path.GetExtension(coverPath).ToLowerInvariant() : "";
+    bool isVideo = ext == ".mp4" || ext == ".webm" || ext == ".mov" || ext == ".avi" || ext == ".mkv" || ext == ".wmv" || ext == ".m4v";
+    bool isGif = ext == ".gif";
+    Image imgCover = null;
+    if (coverPath != null && !isVideo) { try { imgCover = Image.FromStream(new MemoryStream(File.ReadAllBytes(coverPath))); } catch { imgCover = null; } }
+    Form videoForm = null;
 
     foreach (Screen sc in Screen.AllScreens) {
       BlackForm f = new BlackForm();
@@ -117,7 +172,9 @@ class Blanker {
       Rectangle b = sc.Bounds; b.Inflate(2, 2);   // slight overscan so no seams between monitors
       f.Bounds = b;
       f.BackColor = Color.Black;
-      if (cover != null) { f.BackgroundImage = cover; f.BackgroundImageLayout = ImageLayout.Zoom; } // fit, black bars, no distortion
+      if (sc.Primary && isVideo) videoForm = f;                                  // set up after Show()
+      else if (sc.Primary && isGif && imgCover != null) SetupGif(f, imgCover);    // animated loop
+      else if (imgCover != null && !isVideo) { f.BackgroundImage = imgCover; f.BackgroundImageLayout = ImageLayout.Zoom; } // static image, all monitors
       f.ShowInTaskbar = false;
       f.TopMost = true;
       f.ControlBox = false;
@@ -127,14 +184,17 @@ class Blanker {
     }
     foreach (Form f in forms) f.Show();
     foreach (Form f in forms) Apply(f.Handle);
+    if (videoForm != null) { SetupVideo(videoForm, coverPath); ApplyChildren(videoForm.Handle); }
     HideCursors();
 
     // Re-assert topmost aggressively so nothing (taskbar, Start, a toast
     // notification, a fullscreen app) can sit above the black screen.
     System.Windows.Forms.Timer t = new System.Windows.Forms.Timer();
     t.Interval = 150;
+    Form vf = videoForm;
     t.Tick += delegate (object s, EventArgs e) {
       foreach (Form f in forms) { try { SetWindowPos(f.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); } catch { } }
+      if (vf != null) { try { ApplyChildren(vf.Handle); } catch { } } // WMP can create its render window late
     };
     t.Start();
 

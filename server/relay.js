@@ -277,6 +277,17 @@ async function handleApi(req, res, urlPath) {
       res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
       return fs.createReadStream(f).pipe(res);
     }
+    // Lightweight metadata (type + version) so the console can decide whether the
+    // remote already has this cover cached, without downloading the whole file.
+    if (urlPath === '/api/blank-image/meta' && m === 'GET') {
+      const f = path.join(db.DATA_DIR, 'blank-image.bin');
+      if (!fs.existsSync(f)) return json(res, 200, { ready: false });
+      let type = 'image/png';
+      try { type = fs.readFileSync(path.join(db.DATA_DIR, 'blank-image.type'), 'utf8').trim() || type; } catch {}
+      const st = fs.statSync(f);
+      const kind = /^video\//.test(type) ? 'video' : (type === 'image/gif' ? 'gif' : 'image');
+      return json(res, 200, { ready: true, type, kind, version: Math.round(st.mtimeMs), size: st.size });
+    }
     if (urlPath === '/api/blank-image' && m === 'DELETE') {
       if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
       try { fs.unlinkSync(path.join(db.DATA_DIR, 'blank-image.bin')); } catch {}

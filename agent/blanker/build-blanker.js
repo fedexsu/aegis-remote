@@ -30,7 +30,7 @@ try {
   // /target:winexe so no console window flashes; reference WinForms + Drawing.
   execFileSync(csc, [
     '/nologo', '/optimize+', '/target:winexe',
-    '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll',
+    '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:Microsoft.CSharp.dll',
     '/out:' + OUT, SRC,
   ], { stdio: 'inherit' });
   console.log('Built ' + OUT);

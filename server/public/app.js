@@ -1123,42 +1123,78 @@ $('#screen-wrap').addEventListener('mousemove', (e) => {
   lastPointer = { x: e.clientX, y: e.clientY };
   if (blankOn) positionSynthCursor();
 });
-$('#blank-btn').addEventListener('click', () => {
+$('#blank-btn').addEventListener('click', async () => {
   if (!attachedId) return;
   blankOn = !blankOn;
   updateBlankBtn();
-  deviceOp(attachedId, 'blank', { on: blankOn, image: blankOn ? blankImage : null }, { onResult: (m) => { if (!m.ok) { blankOn = false; updateBlankBtn(); toast(m.error || 'blank failed', 'err'); } else toast(blankOn ? (blankImage ? 'Remote screen blanked (image)' : 'Remote screen blanked') : 'Remote screen restored', 'ok'); } });
+  const done = (m) => { if (!m.ok) { blankOn = false; updateBlankBtn(); toast(m.error || 'blank failed', 'err'); } else toast(blankOn ? 'Remote screen blanked' : 'Remote screen restored', 'ok'); };
+  if (!blankOn) return deviceOp(attachedId, 'blank', { on: false }, { onResult: done });
+  // Turning ON — with a cover if the owner set one, else plain black.
+  if (!blankCover.ready) return deviceOp(attachedId, 'blank', { on: true }, { onResult: done });
+  try {
+    if (!remoteTemp) { fetchRemotePaths(); throw new Error('preparing'); }
+    const coverPath = joinPath(remoteTemp, 'aegis-blank-cover' + blankCover.ext);
+    filesAgentId = attachedId;
+    const cached = await opCoverCheck(coverPath, blankCover.version);
+    if (!cached) {
+      toast('Sending ' + blankCover.kind + ' cover to the remote…', 'ok');
+      const blob = await (await fetch('/api/blank-image', { cache: 'no-store' })).blob();
+      const file = new File([blob], 'cover' + blankCover.ext, { type: blankCover.mime });
+      await new Promise((res, rej) => { uploadFileTo(file, coverPath, { silent: true, onDone: res }); setTimeout(() => rej(new Error('timeout')), 5 * 60 * 1000); });
+    }
+    deviceOp(attachedId, 'blank', { on: true, coverPath, coverVersion: blankCover.version }, { onResult: done });
+  } catch (e) {
+    // Fall back to black if the cover couldn't be prepared.
+    deviceOp(attachedId, 'blank', { on: true }, { onResult: done });
+    if (e.message !== 'preparing') toast('Cover unavailable — blanked black', 'err');
+  }
 });
-// Global blank cover image (uploaded by the owner). Every console fetches it and
-// sends it with the blank op; the agent shows it instead of plain black.
-let blankImage = null;
+function opCoverCheck(coverPath, version) {
+  return new Promise((resolve) => {
+    if (!ws || ws.readyState !== ws.OPEN) return resolve(false);
+    const reqId = newReqId();
+    fsOps.set(reqId, { onResult: (m) => resolve(!!(m.ok && m.data && m.data.has)) });
+    ws.send(JSON.stringify({ type: 'op', agentId: attachedId, op: 'cover-check', reqId, payload: { path: coverPath, version } }));
+    setTimeout(() => resolve(false), 8000);
+  });
+}
+// Global blank cover (owner-uploaded image / GIF / video). Console learns its
+// type+version via meta; the agent pulls/caches the actual file per session.
+let blankCover = { ready: false };
+function coverExt(mime, kind) {
+  const map = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif', 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov', 'video/x-msvideo': '.avi', 'video/x-matroska': '.mkv' };
+  return map[mime] || (kind === 'video' ? '.mp4' : kind === 'gif' ? '.gif' : '.png');
+}
 async function loadBlankImage() {
   try {
-    const r = await fetch('/api/blank-image', { cache: 'no-store' });
-    if (r.ok) {
-      const blob = await r.blob();
-      blankImage = await new Promise((res) => { const rd = new FileReader(); rd.onload = () => res(rd.result); rd.onerror = () => res(null); rd.readAsDataURL(blob); });
-    } else { blankImage = null; }
-  } catch { blankImage = null; }
+    const d = await (await fetch('/api/blank-image/meta', { cache: 'no-store' })).json();
+    blankCover = d.ready ? { ready: true, kind: d.kind, version: d.version, mime: d.type, ext: coverExt(d.type, d.kind) } : { ready: false };
+  } catch { blankCover = { ready: false }; }
   renderBlankImageStatus();
 }
 function renderBlankImageStatus() {
   const row = $('#blank-image-row'); if (!row) return;
-  const isOwner = admin && admin.role === 'owner';
-  row.hidden = !isOwner;
-  const prev = $('#blank-image-preview'), st = $('#blank-image-status'), rm = $('#blank-image-remove');
-  if (blankImage) { prev.src = blankImage; prev.style.display = ''; st.textContent = 'Shown on every blanked screen instead of black.'; rm.hidden = false; }
-  else { prev.style.display = 'none'; st.textContent = 'No blank image — screens go plain black. Upload one to brand the blank.'; rm.hidden = true; }
+  row.hidden = !(admin && admin.role === 'owner');
+  const img = $('#blank-image-preview'), vid = $('#blank-image-preview-vid'), st = $('#blank-image-status'), rm = $('#blank-image-remove');
+  img.style.display = 'none'; if (vid) { try { vid.pause(); } catch {} vid.style.display = 'none'; }
+  if (blankCover.ready) {
+    if (blankCover.kind === 'video' && vid) { vid.src = '/api/blank-image?' + blankCover.version; vid.style.display = ''; st.textContent = 'Looping video shown on every blanked screen.'; }
+    else { img.src = '/api/blank-image?' + blankCover.version; img.style.display = ''; st.textContent = (blankCover.kind === 'gif' ? 'Looping GIF' : 'Image') + ' shown on every blanked screen.'; }
+    rm.hidden = false;
+  } else { st.textContent = 'No blank cover — screens go plain black. Upload an image, GIF, or video to brand the blank.'; rm.hidden = true; }
 }
 $('#blank-image-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0]; e.target.value = '';
   if (!f) return;
-  if (f.size > 6 * 1024 * 1024) { toast('Image too large (max 6 MB)', 'err'); return; }
+  const isVideo = /^video\//.test(f.type);
+  const cap = isVideo ? 60 * 1024 * 1024 : 8 * 1024 * 1024;
+  if (f.size > cap) { toast((isVideo ? 'Video' : 'Image') + ' too large (max ' + (cap / 1048576) + ' MB)', 'err'); return; }
   try {
-    const r = await fetch('/api/blank-image', { method: 'POST', body: f, headers: { 'Content-Type': f.type || 'image/png' } });
+    toast('Uploading cover…', 'ok');
+    const r = await fetch('/api/blank-image', { method: 'POST', body: f, headers: { 'Content-Type': f.type || 'application/octet-stream' } });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || 'upload failed');
-    toast('Blank image uploaded', 'ok');
+    toast('Blank cover uploaded', 'ok');
     await loadBlankImage();
   } catch (err) { toast(err.message, 'err'); }
 });
@@ -1166,7 +1202,7 @@ $('#blank-image-remove').addEventListener('click', async () => {
   try {
     const r = await fetch('/api/blank-image', { method: 'DELETE' });
     if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'failed'); }
-    toast('Blank image removed — screens go black', 'ok');
+    toast('Blank cover removed — screens go black', 'ok');
     await loadBlankImage();
   } catch (err) { toast(err.message, 'err'); }
 });
@@ -1197,11 +1233,11 @@ $('#share-btn').addEventListener('click', async () => {
 });
 
 // Drag-and-drop files onto the live screen → send them to the remote Desktop.
-let remoteDesktop = null;
+let remoteDesktop = null, remoteTemp = null;
 function fetchRemotePaths() {
   if (!attachedId || !ws || ws.readyState !== ws.OPEN) return;
   const reqId = newReqId();
-  fsOps.set(reqId, { onResult: (m) => { if (m.ok && m.data) remoteDesktop = m.data.desktop || null; } });
+  fsOps.set(reqId, { onResult: (m) => { if (m.ok && m.data) { remoteDesktop = m.data.desktop || null; remoteTemp = m.data.temp || null; } } });
   ws.send(JSON.stringify({ type: 'op', agentId: attachedId, op: 'paths', reqId, payload: {} }));
 }
 async function handleScreenDrop(files) {
@@ -1268,7 +1304,7 @@ $('#rec-btn').addEventListener('click', () => { if (mediaRec) stopRecording(); e
 function onAttached(msg) {
   attachedId = msg.agentId;
   loadBlankImage(); // make sure we have the owner's current blank image for this session
-  remoteDesktop = null; fetchRemotePaths(); // for drag-and-drop file sends
+  remoteDesktop = null; remoteTemp = null; fetchRemotePaths(); // for drag-drop + blank cover
   rtcIceServers = msg.iceServers || null;
   $('#session-name').textContent = msg.name;
   $('#ctl-warn').hidden = true;

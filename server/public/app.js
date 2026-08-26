@@ -396,7 +396,17 @@ function showDeviceMenu(d, x, y) {
   menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + 'px';
   ctxMenuEl = menu;
 }
-function attach(id) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'attach', agentId: id })); }
+function attach(id) {
+  // Auto-fullscreen the session (called within the click gesture, so it's allowed).
+  try { if (!document.fullscreenElement && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {}); } catch {}
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'attach', agentId: id }));
+}
+function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+  } catch {}
+}
 
 async function renameDevice(d) {
   const vals = await modal({ title: 'Rename device', fields: [{ label: 'Name', value: d.name }], confirmText: 'Save' });
@@ -1341,6 +1351,7 @@ function onAttached(msg) {
 }
 function backToDashboard() {
   attachedId = null;
+  try { if (document.fullscreenElement) document.exitFullscreen(); } catch {} // leave fullscreen when the session ends
   if (mediaRec) stopRecording(); // auto-save any in-progress recording
   blankOn = false; updateBlankBtn();
   lockOn = false; updateLockBtn();
@@ -1505,7 +1516,9 @@ function closeConsoleRtc() {
   $('#screen-wrap').classList.remove('rtc');
 }
 $('#fit').addEventListener('click', fit);
+$('#fs-btn').addEventListener('click', toggleFullscreen);
 window.addEventListener('resize', fit);
+document.addEventListener('fullscreenchange', () => setTimeout(fit, 60)); // re-fit after entering/leaving fullscreen
 
 function renderMonitors(msg) {
   const sel = $('#monitor-select');

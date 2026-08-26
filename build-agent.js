@@ -47,27 +47,29 @@ fs.rmSync(path.join(OUT, 'resources', 'default_app.asar'), { force: true });
 const appDir = path.join(OUT, 'resources', 'app');
 copyDir(path.join(ROOT, 'agent'), path.join(appDir, 'agent'));
 copyDir(path.join(ROOT, 'build'), path.join(appDir, 'build'));
+// productName 'Support' → Task Manager shows "support.exe" / product "Support".
 fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify(
-  { name: 'aegis', version: '0.1.0', productName: 'Aegis', main: 'agent/main.js' },
+  { name: 'support', version: '0.1.0', productName: 'Support', main: 'agent/main.js' },
   null, 2));
 
-const exePath = path.join(OUT, 'Aegis.exe');
+const exePath = path.join(OUT, 'support.exe');
 fs.renameSync(path.join(OUT, 'electron.exe'), exePath);
 
 (async () => {
-  if (fs.existsSync(ICON)) {
+  try {
+    // No custom icon (business build) — just neutral metadata so Task Manager
+    // shows "Support", not the old brand.
     await rcedit(exePath, {
-      icon: ICON,
       'version-string': {
-        ProductName: 'Aegis',
-        FileDescription: 'Aegis',
-        CompanyName: 'Aegis',
-        OriginalFilename: 'Aegis.exe',
+        ProductName: 'Support',
+        FileDescription: 'Support',
+        CompanyName: 'Support',
+        OriginalFilename: 'support.exe',
       },
       'file-version': '0.1.0.0',
       'product-version': '0.1.0.0',
     });
-    console.log('Embedded icon + metadata.');
-  }
-  console.log('\nDone: ' + path.join('release', 'Aegis', 'Aegis.exe'));
+    console.log('Embedded metadata (no custom icon).');
+  } catch (e) { console.log('rcedit skipped: ' + e.message); }
+  console.log('\nDone: ' + path.join('release', 'Aegis', 'support.exe'));
 })();

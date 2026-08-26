@@ -231,7 +231,7 @@ async function handleApi(req, res, urlPath) {
     // enrollment links, so customers must not be able to replace it.
     if (urlPath === '/api/installer' && m === 'POST') {
       if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
-      const dest = path.join(db.DATA_DIR, 'AegisSetup.exe');
+      const dest = path.join(db.DATA_DIR, 'support.exe');
       try { fs.mkdirSync(db.DATA_DIR, { recursive: true }); } catch {}
       const tmp = dest + '.upload';
       const out = fs.createWriteStream(tmp);
@@ -409,8 +409,11 @@ function publicBase(req) {
 
 // The admin can upload the installer to the persistent data dir; prefer that.
 function installerFile() {
-  const uploaded = path.join(db.DATA_DIR, 'AegisSetup.exe');
-  return fs.existsSync(uploaded) ? uploaded : INSTALLER_PATH;
+  const support = path.join(db.DATA_DIR, 'support.exe');
+  if (fs.existsSync(support)) return support;
+  const legacy = path.join(db.DATA_DIR, 'AegisSetup.exe'); // installs uploaded before the rename
+  if (fs.existsSync(legacy)) return legacy;
+  return INSTALLER_PATH;
 }
 
 // Serve the installer with the key in its filename (installer self-configures).
@@ -435,7 +438,7 @@ function handleDownload(req, res, urlPath) {
     res.writeHead(200, {
       'Content-Type': 'application/octet-stream',
       'Content-Length': st.size + trailer.length,
-      'Content-Disposition': `attachment; filename="AegisSetup-${key}.exe"`,
+      'Content-Disposition': `attachment; filename="support-${key}.exe"`,
     });
     const rs = fs.createReadStream(file);
     rs.on('error', () => { try { res.destroy(); } catch {} });

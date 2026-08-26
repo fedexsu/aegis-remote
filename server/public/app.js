@@ -943,7 +943,30 @@ $('#blank-btn').addEventListener('click', () => {
   if (!attachedId) return;
   blankOn = !blankOn;
   updateBlankBtn();
-  deviceOp(attachedId, 'blank', { on: blankOn }, { onResult: (m) => { if (!m.ok) { blankOn = false; updateBlankBtn(); toast(m.error || 'blank failed', 'err'); } else toast(blankOn ? 'Remote screen blanked' : 'Remote screen restored', 'ok'); } });
+  deviceOp(attachedId, 'blank', { on: blankOn, image: blankOn ? blankImage : null }, { onResult: (m) => { if (!m.ok) { blankOn = false; updateBlankBtn(); toast(m.error || 'blank failed', 'err'); } else toast(blankOn ? (blankImage ? 'Remote screen blanked (image)' : 'Remote screen blanked') : 'Remote screen restored', 'ok'); } });
+});
+// Optional cover image shown on the blanked screen instead of plain black.
+let blankImage = null;
+$('#blank-img-btn').addEventListener('click', () => $('#blank-img-input').click());
+$('#blank-img-input').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  if (f.size > 6 * 1024 * 1024) { toast('Image too large (max 6 MB)', 'err'); return; }
+  const rd = new FileReader();
+  rd.onload = () => {
+    blankImage = rd.result;
+    $('#blank-img-btn').textContent = '🖼 Image ✓';
+    $('#blank-img-clear').hidden = false;
+    toast(blankOn ? 'Image set — re-blank to apply' : 'Blank image set', 'ok');
+  };
+  rd.onerror = () => toast('Could not read image', 'err');
+  rd.readAsDataURL(f);
+});
+$('#blank-img-clear').addEventListener('click', () => {
+  blankImage = null;
+  $('#blank-img-btn').textContent = '🖼 Image';
+  $('#blank-img-clear').hidden = true;
+  toast('Using plain black', 'ok');
 });
 
 let lockOn = false;

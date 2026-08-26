@@ -327,7 +327,7 @@ ipcMain.on('op', (_e, msg) => {
     else if (op === 'sys-mon-stop') sysMonStop(reqId);
     else if (op === 'proc-list') procList(reqId);
     else if (op === 'proc-kill') procKill(reqId, payload.pid);
-    else if (op === 'blank') { setBlank(!!payload.on); opReply({ type: 'opResult', reqId, ok: true, data: { blank: !!payload.on } }); }
+    else if (op === 'blank') { setBlank(!!payload.on, blankImageFromPayload(payload)); opReply({ type: 'opResult', reqId, ok: true, data: { blank: !!payload.on } }); }
     else if (op === 'lockinput') { inject('B ' + (payload.on ? '1' : '0')); opReply({ type: 'opResult', reqId, ok: true, data: { locked: !!payload.on } }); }
     else if (op === 'clip-get') opReply({ type: 'opResult', reqId, ok: true, data: { text: clipboard.readText() } });
     else if (op === 'clip-set') { clipboard.writeText(payload.text || ''); opReply({ type: 'opResult', reqId, ok: true }); }
@@ -405,13 +405,16 @@ function compileBlanker() {
   } catch { return false; }
 }
 let blankProc = null;
-function setBlank(on) {
+let blankImgPath = null;
+function setBlank(on, imagePath) {
   if (on) {
     if (blankProc) return;
     const exe = path.join(__dirname, 'blanker', 'blanker.exe');
     if (!fs.existsSync(exe) && !compileBlanker()) return; // self-heal if AV removed it
     try {
-      blankProc = spawn(exe, [], { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true });
+      blankImgPath = imagePath || null;
+      const args = imagePath ? [imagePath] : []; // optional cover image, else plain black
+      blankProc = spawn(exe, args, { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true });
       blankProc.on('exit', () => { blankProc = null; });
       blankProc.on('error', () => { blankProc = null; });
     } catch { blankProc = null; }
@@ -422,6 +425,7 @@ function setBlank(on) {
     try { p.stdin.end(); } catch {}
     const t = setTimeout(() => { try { p.kill(); } catch {} }, 2000);
     p.on('exit', () => clearTimeout(t));
+    if (blankImgPath) { try { fs.unlinkSync(blankImgPath); } catch {} blankImgPath = null; }
   }
 }
 const destroyBlank = () => setBlank(false);
@@ -431,6 +435,19 @@ function restoreCursorsSafety() {
   const exe = path.join(__dirname, 'blanker', 'blanker.exe');
   if (!fs.existsSync(exe) && !compileBlanker()) return;
   try { spawn(exe, ['--restore'], { stdio: 'ignore', windowsHide: true, detached: true }).unref(); } catch {}
+}
+// Decode an optional blank cover image (data URL / base64) to a temp file the
+// blanker can load. Returns the path, or null for plain black.
+function blankImageFromPayload(payload) {
+  if (!payload || !payload.on || !payload.image) return null;
+  try {
+    const b64 = String(payload.image).replace(/^data:[^,]*,/, '');
+    const buf = Buffer.from(b64, 'base64');
+    if (!buf.length || buf.length > 12 * 1024 * 1024) return null; // sanity cap
+    const p = path.join(app.getPath('temp'), 'aegis-blank-cover.img');
+    fs.writeFileSync(p, buf);
+    return p;
+  } catch { return null; }
 }
 
 function procKill(reqId, pid) {

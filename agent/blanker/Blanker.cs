@@ -18,6 +18,7 @@
 // Lifetime: runs until its parent (the agent) kills the process or closes stdin.
 // Compiled by build-blanker.js with the .NET Framework csc.exe shipped in Windows.
 using System;
+using System.IO;
 using System.Drawing;
 using System.Windows.Forms;
 using System.Runtime.InteropServices;
@@ -101,6 +102,14 @@ class Blanker {
       return;
     }
     try { SetProcessDPIAware(); } catch { }
+
+    // Optional cover image: first non-flag arg is a file to show fullscreen
+    // instead of plain black (loaded via a copy so the file isn't left locked).
+    Image cover = null;
+    if (args.Length > 0 && args[0] != "--restore") {
+      try { if (File.Exists(args[0])) cover = Image.FromStream(new MemoryStream(File.ReadAllBytes(args[0]))); } catch { cover = null; }
+    }
+
     foreach (Screen sc in Screen.AllScreens) {
       BlackForm f = new BlackForm();
       f.FormBorderStyle = FormBorderStyle.None;
@@ -108,6 +117,7 @@ class Blanker {
       Rectangle b = sc.Bounds; b.Inflate(2, 2);   // slight overscan so no seams between monitors
       f.Bounds = b;
       f.BackColor = Color.Black;
+      if (cover != null) { f.BackgroundImage = cover; f.BackgroundImageLayout = ImageLayout.Zoom; } // fit, black bars, no distortion
       f.ShowInTaskbar = false;
       f.TopMost = true;
       f.ControlBox = false;

@@ -21,7 +21,7 @@ const ctx = canvas.getContext('2d');
 const CFG = {};
 const FPS = 15;
 const MAX_W = 1920;   // capture ceiling; adaptive logic scales down from here
-const JPEG_Q = 0.72;  // max quality; adaptive logic lowers it on slow links
+const JPEG_Q = 0.82;  // max quality; adaptive logic lowers it on slow links
 // Adaptive streaming: on a fast link we send full-res high-quality frames; when
 // the uplink can't keep up (frames get dropped by backpressure) we shrink the
 // resolution/quality so the picture stays responsive instead of lagging.
@@ -230,7 +230,10 @@ async function startRtc() {
   if (!stream) return;
   try {
     pc = new RTCPeerConnection({ iceServers: rtcIceServers || ICE });
-    for (const t of stream.getVideoTracks()) pc.addTrack(t, stream);
+    for (const t of stream.getVideoTracks()) {
+      try { t.contentHint = 'detail'; } catch {} // screen text: prioritise sharpness over motion smoothness
+      pc.addTrack(t, stream);
+    }
     pc.onicecandidate = (e) => { if (e.candidate && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rtc-ice', candidate: e.candidate })); };
     pc.onconnectionstatechange = () => {
       if (!pc) return;
@@ -239,6 +242,20 @@ async function startRtc() {
     };
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
+    // Crank the encoder for a sharp 1080p+ picture: full native resolution, a
+    // high bitrate ceiling, and drop FPS (not resolution) if the link tightens.
+    for (const s of pc.getSenders()) {
+      if (!s.track || s.track.kind !== 'video') continue;
+      try {
+        const p = s.getParameters();
+        if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+        p.encodings[0].maxBitrate = 12000000;      // ~12 Mbps ceiling
+        p.encodings[0].scaleResolutionDownBy = 1;  // never downscale the desktop
+        p.encodings[0].maxFramerate = 30;
+        p.degradationPreference = 'maintain-resolution';
+        await s.setParameters(p);
+      } catch {}
+    }
     if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rtc-offer', sdp: pc.localDescription }));
   } catch (e) { log('rtc error: ' + e.message); closeRtc(); }
 }

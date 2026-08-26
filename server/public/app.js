@@ -1305,6 +1305,7 @@ function onAttached(msg) {
   attachedId = msg.agentId;
   loadBlankImage(); // make sure we have the owner's current blank image for this session
   remoteDesktop = null; remoteTemp = null; fetchRemotePaths(); // for drag-drop + blank cover
+  $('#control').checked = false; // start in view-only; technician flips Control on to take over
   rtcIceServers = msg.iceServers || null;
   $('#session-name').textContent = msg.name;
   $('#ctl-warn').hidden = true;

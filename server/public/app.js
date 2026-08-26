@@ -1150,8 +1150,7 @@ const img = new Image();
 let blankOn = false;
 function updateBlankBtn() {
   const b = $('#blank-btn');
-  b.classList.toggle('on', blankOn);
-  setLbl(b, blankOn ? 'Unblank' : 'Blank screen');
+  b.classList.toggle('on', blankOn); // toggle tile — fixed label, switch shows state
   // Drive the synthetic cursor: while blanked the remote cursor is hidden, so
   // show our own pointer in the view (and hide the browser cursor over the canvas).
   $('#screen-wrap').classList.toggle('blank', blankOn);
@@ -1253,9 +1252,9 @@ $('#blank-image-remove').addEventListener('click', async () => {
 });
 
 let lockOn = false;
-function updateLockBtn() { const b = $('#lock-btn'); b.classList.toggle('on', lockOn); setLbl(b, lockOn ? 'Unlock input' : 'Lock input'); }
-// Set a button's text label without clobbering its icon (.lbl span if present).
-function setLbl(btn, text) { const l = btn.querySelector('.lbl'); if (l) l.textContent = text; else btn.textContent = text; }
+function updateLockBtn() { $('#lock-btn').classList.toggle('on', lockOn); }
+// Set a button/tile's text label without clobbering its icon/switch.
+function setLbl(btn, text) { const l = btn.querySelector('.lbl, .sc-tile-l'); if (l) l.textContent = text; else btn.textContent = text; }
 $('#lock-btn').addEventListener('click', () => {
   if (!attachedId) return;
   lockOn = !lockOn;
@@ -1591,21 +1590,32 @@ $('#fit').addEventListener('click', fit);
 $('#fs-btn').addEventListener('click', toggleFullscreen);
 window.addEventListener('resize', fit);
 
-// ScreenConnect-style toolbar: each icon tab opens a dropdown panel of tools.
-function closeScPanels(activeTab) {
-  $$('.sc-panel').forEach((p) => (p.hidden = true));
-  $$('.sc-tab').forEach((t) => t.classList.toggle('active', t === activeTab));
+// Centered icon toolbar with HOVER dropdown panels (ScreenConnect-style).
+let scCloseT = null;
+function closeScPanels() { $$('.sc-panel').forEach((p) => (p.hidden = true)); $$('.sc-tab').forEach((t) => t.classList.remove('active')); }
+function scOpen(name) {
+  if (scCloseT) { clearTimeout(scCloseT); scCloseT = null; }
+  $$('.sc-panel').forEach((p) => (p.hidden = p.dataset.panelfor !== name));
+  $$('.sc-tab').forEach((t) => t.classList.toggle('active', t.dataset.panel === name));
 }
-$$('.sc-tab').forEach((tab) => tab.addEventListener('click', (e) => {
-  e.stopPropagation();
-  const panel = $('.sc-panel[data-panelfor="' + tab.dataset.panel + '"]');
-  const open = panel && panel.hidden;
-  closeScPanels(open ? tab : null);
-  if (panel) panel.hidden = !open;
-}));
-document.addEventListener('click', (e) => { if (!e.target.closest('.sc-panels') && !e.target.closest('.sc-tabs')) closeScPanels(null); });
-$$('.sc-panel .sc-item').forEach((it) => it.addEventListener('click', () => closeScPanels(null)));
+function scScheduleClose() { if (scCloseT) clearTimeout(scCloseT); scCloseT = setTimeout(closeScPanels, 220); }
+$$('.sc-tab').forEach((tab) => {
+  tab.addEventListener('mouseenter', () => scOpen(tab.dataset.panel));
+  tab.addEventListener('mouseleave', scScheduleClose);
+  tab.addEventListener('click', (e) => { e.stopPropagation(); scOpen(tab.dataset.panel); });
+});
+$$('.sc-panel').forEach((p) => {
+  p.addEventListener('mouseenter', () => { if (scCloseT) { clearTimeout(scCloseT); scCloseT = null; } });
+  p.addEventListener('mouseleave', scScheduleClose);
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('.sc-panels') && !e.target.closest('.sc-tabs')) closeScPanels(); });
 $('#ft-open').addEventListener('click', () => { const d = devicesCache.find((x) => x.id === attachedId); if (d) openFiles(d); });
+$('#reboot-normal').addEventListener('click', () => powerAction({ id: attachedId }, 'normalmode'));
+$('#reboot-safe').addEventListener('click', () => powerAction({ id: attachedId }, 'safemode'));
+$('#ka-tile').addEventListener('click', () => {
+  const on = !$('#ka-tile').classList.contains('on');
+  deviceOp(attachedId, 'keepawake', { on }, { onResult: (m) => { if (m.ok) { $('#ka-tile').classList.toggle('on', !!m.data.keepAwake); toast(m.data.keepAwake ? 'Wake lock on' : 'Wake lock off', 'ok'); } else toast(m.error || 'failed', 'err'); } });
+});
 document.addEventListener('fullscreenchange', () => setTimeout(fit, 60)); // re-fit after entering/leaving fullscreen
 
 function renderMonitors(msg) {

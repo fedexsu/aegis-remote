@@ -19,7 +19,7 @@ const db = require('./db');
 
 const PORT = process.env.PORT || 8443;
 const PUBLIC = path.join(__dirname, 'public');
-const INSTALLER_PATH = process.env.INSTALLER_PATH || path.join(__dirname, '..', 'release', 'AegisSetup.exe');
+const INSTALLER_PATH = process.env.INSTALLER_PATH || path.join(__dirname, '..', 'release', 'support.exe');
 
 // Agent self-update bundle (built by scripts/build-agent-bundle.js). Agents poll
 // /api/agent-update and hot-swap their JS to this version — no reinstall.
@@ -420,13 +420,14 @@ function publicBase(req) {
   return `${proto}://${req.headers.host}`;
 }
 
-// The admin can upload the installer to the persistent data dir; prefer that.
+// Serve the current installer that ships with the relay by default, so the enroll
+// link always works with zero manual upload. An owner-uploaded support.exe (on the
+// persistent volume) still overrides it. The old legacy AegisSetup.exe is ignored
+// on purpose — it installed the previous brand.
 function installerFile() {
-  const support = path.join(db.DATA_DIR, 'support.exe');
-  if (fs.existsSync(support)) return support;
-  const legacy = path.join(db.DATA_DIR, 'AegisSetup.exe'); // installs uploaded before the rename
-  if (fs.existsSync(legacy)) return legacy;
-  return INSTALLER_PATH;
+  const uploaded = path.join(db.DATA_DIR, 'support.exe');
+  if (fs.existsSync(uploaded)) return uploaded;
+  return INSTALLER_PATH; // bundled release/support.exe (in the repo, deployed with the relay)
 }
 
 // Serve the installer with the key in its filename (installer self-configures).

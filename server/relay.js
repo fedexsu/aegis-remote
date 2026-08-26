@@ -532,7 +532,15 @@ wss.on('connection', (ws, req) => {
     if (msg.type === 'register') {
       if (msg.role === 'agent') {
         const k = db.findValidKey(msg.key);
-        if (!k) { send(ws, { type: 'denied', reason: 'invalid key' }); return ws.close(); }
+        if (!k) {
+          // Surface enrollment failures instead of failing silently. Distinguish an
+          // empty key (stale installer that couldn't read its key) from a revoked one.
+          const attempted = (msg.key || '').slice(0, 8);
+          const revoked = msg.key && db.keysForAdmin && db.listAdmins && db.listAdmins().some((a) => (db.keysForAdmin(a.id) || []).some((kk) => kk.key === msg.key && kk.revoked));
+          const reason = !msg.key ? 'no key (installer could not read its enrollment key — rebuild/re-upload it)' : (revoked ? 'revoked link' : 'unknown key');
+          console.log('[ENROLL DENIED] device=%s name=%s key=%s… reason=%s', msg.id || '?', msg.name || '?', attempted, reason);
+          send(ws, { type: 'denied', reason }); return ws.close();
+        }
         const id = msg.id || 'dev-' + seq++;
         const name = msg.name || id;
         const meta = (msg.meta && typeof msg.meta === 'object') ? msg.meta : {};

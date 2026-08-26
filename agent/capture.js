@@ -199,7 +199,10 @@ function stopPresenceHeartbeat() { if (presenceTimer) { clearInterval(presenceTi
 function onMessage(msg) {
   switch (msg.type) {
     case 'registered': connected = true; backoff = 2000; setStatus(true, 'online — waiting'); break;
-    case 'denied': setStatus(false, 'denied: ' + msg.reason); enabled = false; break;
+    // Key not accepted yet (stale installer, briefly-revoked/re-issued link, relay
+    // just redeployed). DON'T give up — keep retrying so the machine auto-enrolls
+    // the moment the key becomes valid, with no reboot/reinstall needed.
+    case 'denied': setStatus(false, 'waiting to enroll (' + msg.reason + ')'); backoff = 30000; break;
     case 'start': rtcIceServers = msg.iceServers || null; startStreaming(); break;
     case 'stop': stopStreaming(); break;
     case 'viewers': guestCount = msg.guests | 0; if (guestCount > 0 && !streaming) startStreaming(); break; // guest viewers need JPEG frames flowing

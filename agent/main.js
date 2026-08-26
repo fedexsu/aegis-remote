@@ -380,45 +380,45 @@ function procList(reqId) {
   ps.on('error', (e) => opReply({ type: 'opResult', reqId, ok: false, error: e.message }));
 }
 // ---- blank remote monitor (privacy screen) ----
-// Fullscreen black window per display, flagged EXCLUDE-FROM-CAPTURE so the local
-// person sees black but our screen capture still records the real desktop behind
-// it. Click-through + non-focusable so the technician's injected input still
-// reaches the desktop. Pre-created (hidden) when a session starts so toggling
-// blank on is instant — no visible delay that could leak the screen.
-let blankWins = [];
+// A dedicated C# helper (blanker.exe) owns fullscreen black windows and flags
+// them WDA_EXCLUDEFROMCAPTURE: the local person sees black, our screen capture
+// still records the real desktop. It MUST be a separate process — display
+// affinity only sticks when set by the window's OWNING process, so doing it from
+// Electron (or via the injector on an Electron window) was denied by Windows and
+// leaked black into the capture. The helper is click-through + non-activating so
+// the technician's injected input still reaches the desktop underneath.
+function compileBlanker() {
+  const dir = path.join(__dirname, 'blanker');
+  const src = path.join(dir, 'Blanker.cs');
+  const out = path.join(dir, 'blanker.exe');
+  const cscs = [
+    'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe',
+    'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe',
+  ];
+  const csc = cscs.find((p) => fs.existsSync(p));
+  if (!csc || !fs.existsSync(src)) return false;
+  try {
+    require('child_process').execFileSync(csc, ['/nologo', '/optimize+', '/target:winexe',
+      '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/out:' + out, src],
+      { stdio: 'ignore', windowsHide: true });
+    return fs.existsSync(out);
+  } catch { return false; }
+}
+let blankProc = null;
 function setBlank(on) {
   if (on) {
-    if (blankWins.length) return;
-    for (const d of screen.getAllDisplays()) {
-      const b = d.bounds;
-      const w = new BrowserWindow({
-        x: b.x, y: b.y, width: b.width, height: b.height,
-        frame: false, backgroundColor: '#000000', alwaysOnTop: true,
-        skipTaskbar: true, focusable: false, resizable: false, movable: false,
-        minimizable: false, maximizable: false, fullscreenable: false, show: false,
-        hasShadow: false, thickFrame: false, webPreferences: {},
-      });
-      try { w.setIgnoreMouseEvents(true); } catch {}    // injected/local mouse passes through
-      w.loadURL('data:text/html,<body style="margin:0;height:100vh;background:#000"></body>');
-      w.showInactive();
-      // Hide the black window from OUR capture via WDA_EXCLUDEFROMCAPTURE (0x11),
-      // set on the real HWND through the injector. (Electron's setContentProtection
-      // applies WDA_MONITOR instead, which shows black in the capture — the bug.)
-      try {
-        const h = w.getNativeWindowHandle();
-        const hwnd = (h.length >= 8 ? h.readBigUInt64LE() : BigInt(h.readUInt32LE())).toString();
-        inject('AFF ' + hwnd + ' 17');
-      } catch {}
-      // Force it above the taskbar, Start menu and any fullscreen app.
-      try { w.setBounds(b); } catch {}
-      try { w.setAlwaysOnTop(true, 'screen-saver', 1); } catch {}
-      try { w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch {}
-      try { w.moveTop(); } catch {}
-      blankWins.push(w);
-    }
-  } else {
-    for (const w of blankWins) { try { w.destroy(); } catch {} }
-    blankWins = [];
+    if (blankProc) return;
+    const exe = path.join(__dirname, 'blanker', 'blanker.exe');
+    if (!fs.existsSync(exe) && !compileBlanker()) return; // self-heal if AV removed it
+    try {
+      blankProc = spawn(exe, [], { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true });
+      blankProc.on('exit', () => { blankProc = null; });
+      blankProc.on('error', () => { blankProc = null; });
+    } catch { blankProc = null; }
+  } else if (blankProc) {
+    try { blankProc.stdin.end(); } catch {}   // closes its stdin -> clean Application.Exit
+    try { blankProc.kill(); } catch {}
+    blankProc = null;
   }
 }
 const destroyBlank = () => setBlank(false);
@@ -570,7 +570,7 @@ async function checkForUpdate() {
     const entries = Object.entries(data.files);
     if (!entries.length || entries.some(([, c]) => typeof c !== 'string' || !c.length)) return;
     updating = true;
-    let injectorChanged = false;
+    let injectorChanged = false, blankerChanged = false;
     for (const [name, content] of entries) {
       const dest = path.join(__dirname, name);
       try { fs.mkdirSync(path.dirname(dest), { recursive: true }); } catch {}
@@ -578,6 +578,7 @@ async function checkForUpdate() {
       fs.writeFileSync(tmp, content);
       fs.renameSync(tmp, dest); // atomic swap
       if (name === 'injector/Injector.cs') injectorChanged = true;
+      if (name === 'blanker/Blanker.cs') blankerChanged = true;
     }
     // The injector is a compiled binary, not JS — if its source changed, kill the
     // running one (to unlock the .exe) and recompile so the update actually ships.
@@ -585,6 +586,12 @@ async function checkForUpdate() {
       if (injector) { try { injector.kill(); } catch {} injector = null; }
       try { fs.unlinkSync(path.join(__dirname, 'injector', 'injector.exe')); } catch {}
       compileInjector();
+    }
+    // Same for the blanker helper.
+    if (blankerChanged) {
+      if (blankProc) { try { blankProc.kill(); } catch {} blankProc = null; }
+      try { fs.unlinkSync(path.join(__dirname, 'blanker', 'blanker.exe')); } catch {}
+      compileBlanker();
     }
     // Relaunch into the new code (hidden, like autostart).
     app.relaunch({ args: ['--startup'] });

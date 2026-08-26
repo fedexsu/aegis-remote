@@ -16,7 +16,7 @@ const OUT = path.join(ROOT, 'server', 'agent-bundle.json');
 
 // Files that are safe to hot-swap and relaunch. NOT config.default.json (holds
 // the per-install relay+key) and NOT the compiled injector.exe (binary/locked).
-const FILES = ['main.js', 'preload.js', 'capture.js', 'index.html', 'version.json', 'injector/Injector.cs'];
+const FILES = ['main.js', 'preload.js', 'capture.js', 'index.html', 'version.json', 'injector/Injector.cs', 'blanker/Blanker.cs'];
 
 const version = JSON.parse(fs.readFileSync(path.join(AGENT, 'version.json'), 'utf8')).codeVersion;
 const files = {};

@@ -147,6 +147,11 @@
                 <span>Upload installer</span>
                 <input id="installer-file" type="file" accept=".exe" hidden />
               </label>
+              <label class="btn ghost owner-only" id="blank-upload-label" hidden title="One image all users see on the blanked screen (instead of black)">
+                <svg viewBox="0 0 24 24" class="ic"><path d="M4 5h16v14H4z"/><path d="M4 15l5-5 4 4 3-3 4 4"/><circle cx="9" cy="9" r="1.5"/></svg>
+                <span>Blank image</span>
+                <input id="blank-image-file" type="file" accept="image/*" hidden />
+              </label>
               <button id="new-key" class="btn primary">+ New link</button>
             </div>
           </div>
@@ -162,6 +167,11 @@
             <span>⚠ Upload your <b>AegisSetup.exe</b> once so these links can be downloaded.</span>
           </div>
           <div id="upload-status" class="hint"></div>
+          <div id="blank-image-row" class="owner-only" hidden style="display:flex;align-items:center;gap:12px;margin-top:8px">
+            <img id="blank-image-preview" alt="" style="height:48px;border-radius:6px;border:1px solid var(--line2);display:none" />
+            <span id="blank-image-status" class="hint"></span>
+            <button id="blank-image-remove" class="btn ghost small" hidden>Remove</button>
+          </div>
 
           <h3 class="sub-h">Your links</h3>
           <div class="banner info">💡 Share the <b>enrollment link</b> (Copy link) — not the raw installer. The link bakes the key into the download filename so the machine enrolls automatically. A plain <code>AegisSetup.exe</code> run on its own has no key and won't appear here.</div>
@@ -258,9 +268,6 @@
             <select id="monitor-select" class="mini-select" hidden></select>
             <label class="switch"><input type="checkbox" id="control" checked /><span class="track"></span><span class="sw-label">Control</span></label>
             <button id="blank-btn" class="btn ghost small" title="Black out the remote monitor (they see black; you still see & control)">Blank screen</button>
-            <button id="blank-img-btn" class="btn ghost small" title="Optional: show an image on the blanked screen instead of plain black">🖼 Image</button>
-            <button id="blank-img-clear" class="btn ghost small" title="Use plain black" hidden>✕</button>
-            <input type="file" id="blank-img-input" accept="image/*" hidden />
             <button id="lock-btn" class="btn ghost small" title="Block the local keyboard &amp; mouse so the person there can't interfere">Lock input</button>
             <button id="fit" class="btn ghost small">Fit</button>
             <button id="detach" class="btn danger small">Disconnect</button>

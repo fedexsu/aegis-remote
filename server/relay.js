@@ -230,6 +230,42 @@ async function handleApi(req, res, urlPath) {
       return json(res, 200, { ready: fs.existsSync(installerFile()) });
     }
 
+    // Global blank-screen cover image. Owner uploads ONE image (raw binary body,
+    // like the installer); every admin's console fetches it and shows it on the
+    // blanked remote instead of plain black. (Per-account custom images can layer
+    // on top of this later as a paid feature.)
+    if (urlPath === '/api/blank-image' && m === 'POST') {
+      if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
+      try { fs.mkdirSync(db.DATA_DIR, { recursive: true }); } catch {}
+      const dest = path.join(db.DATA_DIR, 'blank-image.bin');
+      const tmp = dest + '.upload';
+      const out = fs.createWriteStream(tmp);
+      req.pipe(out);
+      out.on('finish', () => {
+        try {
+          fs.renameSync(tmp, dest);
+          fs.writeFileSync(path.join(db.DATA_DIR, 'blank-image.type'), (req.headers['content-type'] || 'image/png').split(';')[0]);
+        } catch (e) { return json(res, 500, { error: e.message }); }
+        json(res, 200, { ok: true, size: fs.statSync(dest).size });
+      });
+      out.on('error', (e) => json(res, 500, { error: e.message }));
+      return;
+    }
+    if (urlPath === '/api/blank-image' && m === 'GET') {
+      const f = path.join(db.DATA_DIR, 'blank-image.bin');
+      if (!fs.existsSync(f)) return json(res, 404, { error: 'none' });
+      let type = 'image/png';
+      try { type = fs.readFileSync(path.join(db.DATA_DIR, 'blank-image.type'), 'utf8').trim() || type; } catch {}
+      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+      return fs.createReadStream(f).pipe(res);
+    }
+    if (urlPath === '/api/blank-image' && m === 'DELETE') {
+      if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
+      try { fs.unlinkSync(path.join(db.DATA_DIR, 'blank-image.bin')); } catch {}
+      try { fs.unlinkSync(path.join(db.DATA_DIR, 'blank-image.type')); } catch {}
+      return json(res, 200, { ok: true });
+    }
+
     // Change own password.
     if (urlPath === '/api/password' && m === 'POST') {
       const b = await readBody(req);

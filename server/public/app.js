@@ -144,6 +144,7 @@ function showApp(a) {
   loadStats();
   loadAlerts();
   checkInstaller();
+  loadBlankImage();
   connectWS();
   if (a.mustChangePassword) setTimeout(() => { toast('Please set your own password', ''); changePassword(); }, 500);
 }
@@ -945,28 +946,46 @@ $('#blank-btn').addEventListener('click', () => {
   updateBlankBtn();
   deviceOp(attachedId, 'blank', { on: blankOn, image: blankOn ? blankImage : null }, { onResult: (m) => { if (!m.ok) { blankOn = false; updateBlankBtn(); toast(m.error || 'blank failed', 'err'); } else toast(blankOn ? (blankImage ? 'Remote screen blanked (image)' : 'Remote screen blanked') : 'Remote screen restored', 'ok'); } });
 });
-// Optional cover image shown on the blanked screen instead of plain black.
+// Global blank cover image (uploaded by the owner). Every console fetches it and
+// sends it with the blank op; the agent shows it instead of plain black.
 let blankImage = null;
-$('#blank-img-btn').addEventListener('click', () => $('#blank-img-input').click());
-$('#blank-img-input').addEventListener('change', (e) => {
+async function loadBlankImage() {
+  try {
+    const r = await fetch('/api/blank-image', { cache: 'no-store' });
+    if (r.ok) {
+      const blob = await r.blob();
+      blankImage = await new Promise((res) => { const rd = new FileReader(); rd.onload = () => res(rd.result); rd.onerror = () => res(null); rd.readAsDataURL(blob); });
+    } else { blankImage = null; }
+  } catch { blankImage = null; }
+  renderBlankImageStatus();
+}
+function renderBlankImageStatus() {
+  const row = $('#blank-image-row'); if (!row) return;
+  const isOwner = admin && admin.role === 'owner';
+  row.hidden = !isOwner;
+  const prev = $('#blank-image-preview'), st = $('#blank-image-status'), rm = $('#blank-image-remove');
+  if (blankImage) { prev.src = blankImage; prev.style.display = ''; st.textContent = 'Shown on every blanked screen instead of black.'; rm.hidden = false; }
+  else { prev.style.display = 'none'; st.textContent = 'No blank image — screens go plain black. Upload one to brand the blank.'; rm.hidden = true; }
+}
+$('#blank-image-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0]; e.target.value = '';
   if (!f) return;
   if (f.size > 6 * 1024 * 1024) { toast('Image too large (max 6 MB)', 'err'); return; }
-  const rd = new FileReader();
-  rd.onload = () => {
-    blankImage = rd.result;
-    $('#blank-img-btn').textContent = '🖼 Image ✓';
-    $('#blank-img-clear').hidden = false;
-    toast(blankOn ? 'Image set — re-blank to apply' : 'Blank image set', 'ok');
-  };
-  rd.onerror = () => toast('Could not read image', 'err');
-  rd.readAsDataURL(f);
+  try {
+    const r = await fetch('/api/blank-image', { method: 'POST', body: f, headers: { 'Content-Type': f.type || 'image/png' } });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'upload failed');
+    toast('Blank image uploaded', 'ok');
+    await loadBlankImage();
+  } catch (err) { toast(err.message, 'err'); }
 });
-$('#blank-img-clear').addEventListener('click', () => {
-  blankImage = null;
-  $('#blank-img-btn').textContent = '🖼 Image';
-  $('#blank-img-clear').hidden = true;
-  toast('Using plain black', 'ok');
+$('#blank-image-remove').addEventListener('click', async () => {
+  try {
+    const r = await fetch('/api/blank-image', { method: 'DELETE' });
+    if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'failed'); }
+    toast('Blank image removed — screens go black', 'ok');
+    await loadBlankImage();
+  } catch (err) { toast(err.message, 'err'); }
 });
 
 let lockOn = false;

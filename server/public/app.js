@@ -296,110 +296,105 @@ function renderDevices() {
   // keep DOM order matching `shown` (moving nodes doesn't restart animations)
   for (const d of shown) { const e = deviceCards.get(d.id); if (e) box.appendChild(e.el); }
 }
+// ScreenConnect-style compact row. OS icon · status dot · name/user@host ·
+// presence · last seen · Join + kebab. All actions live in the right-click menu.
+const WIN_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.4l7.2-1v7.1H3zM11 4.3L21 3v9.1H11zM3 12.5h7.2v7.1l-7.2-1zM11 12.5h10V21l-10-1.4z"/></svg>';
+const APPLE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 3c.1 1.1-.3 2.1-1 2.9-.7.8-1.7 1.4-2.7 1.3-.1-1 .4-2.1 1-2.8.7-.8 1.9-1.4 2.7-1.4zM19 17c-.5 1.2-.8 1.7-1.5 2.7-1 1.4-2.3 3.1-4 3.1-1.5 0-1.9-1-3.9-1s-2.5 1-3.9 1c-1.7 0-3-1.6-3.9-2.9-2.6-3.7-2.9-8.1-1.3-10.4 1.1-1.7 2.9-2.7 4.6-2.7 1.7 0 2.8 1 4.2 1 1.4 0 2.2-1 4.2-1 1.5 0 3.1.8 4.2 2.2-3.7 2-3.1 7.3.2 8.7z"/></svg>';
+const KEBAB_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>';
+const CM = {
+  join: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 9-14 9z"/></svg>',
+  term: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>',
+  files: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"/></svg>',
+  sys: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5 7 4-14 2.5 7h5"/></svg>',
+  deploy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 21h16"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>',
+  del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
+};
+function osIcon(m) {
+  const os = (m.os || '').toLowerCase();
+  if (os.includes('mac') || os.includes('darwin')) return APPLE_ICON;
+  return WIN_ICON; // all current agents are Windows
+}
 function updateDeviceCard(el, d, st) {
   const m = d.meta || {};
-  el.querySelector('.dev-name').textContent = d.name;
-  el.querySelector('.dev-name').title = d.id;
+  const nameEl = el.querySelector('.dr-name');
+  nameEl.textContent = d.name; nameEl.title = d.id;
+  el.querySelector('.dr-status').className = 'dr-status st-' + st;
+  el.querySelector('.dr-status').title = statusLabel(st);
+  el.querySelector('.dr-sub').textContent = [(m.user || ''), (m.host || '')].filter(Boolean).join(' · ') + (m.os ? '  ·  ' + m.os : '');
   const pres = presenceInfo(d);
-  const stEl = el.querySelector('.dev-status');
-  stEl.className = 'dev-status st-' + st;
-  stEl.innerHTML = `<span class="status-dot"></span>${statusLabel(st)}${pres ? ` <span class="presence ${pres.cls}">· ${pres.text}</span>` : ''}`;
-  el.querySelector('[data-f="os"]').textContent = m.os || 'Unknown';
-  el.querySelector('[data-f="host"]').textContent = m.host || '—';
-  el.querySelector('[data-f="user"]').textContent = m.user || '—';
-  el.querySelector('[data-f="res"]').textContent = d.res || m.screen || '—';
-  el.querySelector('[data-f="via"]').textContent = d.via || '—';
-  el.querySelector('[data-f="seen"]').textContent = d.online ? 'now' : (st === 'uninstalled' ? relTime(d.uninstalledAt) : relTime(d.lastSeen));
-  const ka = el.querySelector('.ka-toggle'); if (ka) ka.checked = !!m.keepAwake;
+  const pe = el.querySelector('.dr-presence');
+  pe.className = 'dr-presence' + (pres ? ' presence ' + pres.cls : '');
+  pe.textContent = pres ? pres.text : '';
+  el.querySelector('.dr-seen').textContent = d.online ? statusLabel(st) : (st === 'uninstalled' ? relTime(d.uninstalledAt) : relTime(d.lastSeen));
 }
 function createDeviceCard(d, st) {
   const m = d.meta || {};
   const el = document.createElement('div');
-  el.className = 'device' + (d.online ? ' online' : '') + (st === 'uninstalled' ? ' uninstalled' : '') + (st === 'sleep' ? ' asleep' : '');
-  const pres = presenceInfo(d);
+  el.className = 'device-row' + (d.online ? ' online' : '') + (d.busy ? ' busy' : '') + (st === 'uninstalled' ? ' uninstalled' : '') + (st === 'sleep' ? ' asleep' : '');
+  el.dataset.id = d.id;
   el.innerHTML = `
-      <div class="dev-top">
-        <div class="dev-badge">${DEV_SVG}</div>
-        <div class="dev-id">
-          <div class="dev-name" title=""></div>
-          <span class="dev-status st-${st}"><span class="status-dot"></span>${statusLabel(st)}${pres ? ` <span class="presence ${pres.cls}">· ${pres.text}</span>` : ''}</span>
-        </div>
-        ${d.online ? `<div class="card-settings">
-          <button class="btn ghost icon-btn gear top" title="Power & keep-awake">
-            <svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-          </button>
-          <div class="card-menu power-menu" hidden>
-            <label class="pm-ka"><span>${KA_ICON} Keep awake</span><span class="switch small"><input type="checkbox" class="ka-toggle" ${d.meta && d.meta.keepAwake ? 'checked' : ''}/><span class="track"></span></span></label>
-            <div class="pm-div"></div>
-            <button class="pw" data-power="lock">${PW_ICONS.lock} Lock</button>
-            <button class="pw" data-power="logoff">${PW_ICONS.logoff} Sign out</button>
-            <button class="pw" data-power="sleep">${PW_ICONS.sleep} Sleep</button>
-            <button class="pw warn" data-power="restart">${PW_ICONS.restart} Restart</button>
-            <button class="pw danger" data-power="shutdown">${PW_ICONS.shutdown} Shut down</button>
-          </div>
-        </div>` : ''}
-      </div>
-      <div class="dev-meta">
-        <div class="dm"><div class="dm-k">System</div><div class="dm-v" data-f="os">—</div></div>
-        <div class="dm"><div class="dm-k">Host</div><div class="dm-v" data-f="host">—</div></div>
-        <div class="dm"><div class="dm-k">User</div><div class="dm-v" data-f="user">—</div></div>
-        <div class="dm"><div class="dm-k">Screen</div><div class="dm-v" data-f="res">—</div></div>
-        <div class="dm"><div class="dm-k">Enrolled via</div><div class="dm-v" data-f="via">—</div></div>
-        <div class="dm"><div class="dm-k">Last seen</div><div class="dm-v" data-f="seen">—</div></div>
-      </div>
-      <div class="dev-actions">
-        <button class="btn primary connect" ${d.online && !d.busy ? '' : 'disabled style="opacity:.5;cursor:not-allowed"'}>${d.busy ? 'In use' : (st === 'sleep' ? 'Asleep' : 'Connect')}</button>
-        ${d.online ? `<button class="btn ghost icon-btn term" title="Terminal"><svg viewBox="0 0 24 24" class="ic"><path d="M4 5h16v14H4z"/><path d="M8 9.5l2.5 2.5L8 14.5M13 15h3.5"/></svg></button>` : ''}
-        ${d.online ? `<button class="btn ghost icon-btn files" title="Files"><svg viewBox="0 0 24 24" class="ic"><path d="M3 7h6l2 2h10v10H3z"/></svg></button>` : ''}
-        ${d.online ? `<button class="btn ghost icon-btn sys" title="System monitor — CPU, processes, clipboard"><svg viewBox="0 0 24 24" class="ic"><path d="M3 12h4l2.5 7 4-14 2.5 7h5"/></svg></button>` : ''}
-        <button class="btn ghost icon-btn rename" title="Rename">
-          <svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
-        </button>
-        <button class="btn danger icon-btn del" title="Remove">
-          <svg viewBox="0 0 24 24" class="ic"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
-        </button>
+      <span class="dr-os">${osIcon(m)}</span>
+      <span class="dr-status st-${st}"><span class="status-dot"></span></span>
+      <div class="dr-main"><span class="dr-name"></span><span class="dr-sub"></span></div>
+      <span class="dr-presence"></span>
+      <span class="dr-seen"></span>
+      <div class="dr-actions">
+        ${d.online && !d.busy ? '<button class="btn primary xs dr-join">Join</button>' : (d.busy ? '<span class="dr-busy">In use</span>' : '')}
+        <button class="btn ghost icon-btn dr-more" title="Actions">${KEBAB_ICON}</button>
       </div>`;
-    el.querySelector('.dev-name').textContent = d.name;
-    el.querySelector('.dev-name').title = d.id;
-    el.querySelector('[data-f="os"]').textContent = m.os || 'Unknown';
-    el.querySelector('[data-f="host"]').textContent = m.host || '—';
-    el.querySelector('[data-f="user"]').textContent = m.user || '—';
-    el.querySelector('[data-f="res"]').textContent = d.res || m.screen || '—';
-    el.querySelector('[data-f="via"]').textContent = d.via || '—';
-    el.querySelector('[data-f="seen"]').textContent = d.online ? 'now' : (st === 'uninstalled' ? relTime(d.uninstalledAt) : relTime(d.lastSeen));
-
-    const conn = el.querySelector('.connect');
-    if (conn && d.online && !d.busy) conn.addEventListener('click', () => attach(d.id));
-    const termBtn = el.querySelector('.term');
-    if (termBtn) termBtn.addEventListener('click', () => openTerminal(d));
-    const filesBtn = el.querySelector('.files');
-    if (filesBtn) filesBtn.addEventListener('click', () => openFiles(d));
-    const sysBtn = el.querySelector('.sys');
-    if (sysBtn) sysBtn.addEventListener('click', () => openSystem(d));
-    el.querySelector('.rename').addEventListener('click', () => renameDevice(d));
-    el.querySelector('.del').addEventListener('click', () => removeDevice(d));
-    // Settings cog → quick Power + Keep-Awake popout (online only)
-    const gear = el.querySelector('.gear');
-    if (gear) {
-      const menu = el.querySelector('.power-menu');
-      gear.addEventListener('click', (e) => { e.stopPropagation(); closeCardMenus(menu); menu.hidden = !menu.hidden; });
-      menu.addEventListener('click', (e) => e.stopPropagation());
-      const ka = el.querySelector('.ka-toggle');
-      ka.addEventListener('change', () => {
-        const on = ka.checked;
-        deviceOp(d.id, 'keepawake', { on }, { onResult: (m) => {
-          if (m.ok) { d.meta = d.meta || {}; d.meta.keepAwake = m.data.keepAwake; toast(m.data.keepAwake ? 'Keep-awake ON' : 'Keep-awake OFF', 'ok'); }
-          else { ka.checked = !on; toast(m.error || 'failed', 'err'); }
-        } });
-      });
-      el.querySelectorAll('.pw').forEach((b) => b.addEventListener('click', async () => {
-        menu.hidden = true;
-        const action = b.dataset.power, label = POWER_LABEL[action] || action;
-        if (POWER_CONFIRM[action]) { const ok = await modal({ title: label + '?', message: POWER_CONFIRM[action], confirmText: label, danger: action !== 'sleep' }); if (!ok) return; }
-        deviceOp(d.id, 'power', { action }, { onResult: (m) => { if (m.ok) toast(label + ' command sent', 'ok'); else toast(m.error || 'failed', 'err'); } });
-      }));
-    }
+  updateDeviceCard(el, d, st);
+  const join = el.querySelector('.dr-join');
+  if (join) join.addEventListener('click', (e) => { e.stopPropagation(); attach(d.id); });
+  el.querySelector('.dr-more').addEventListener('click', (e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); showDeviceMenu(d, r.right - 4, r.bottom + 4); });
+  el.addEventListener('contextmenu', (e) => { e.preventDefault(); showDeviceMenu(d, e.clientX, e.clientY); });
+  el.addEventListener('dblclick', () => { if (d.online && !d.busy) attach(d.id); });
   return el;
+}
+// Right-click / kebab context menu — the ScreenConnect-style action list.
+let ctxMenuEl = null;
+function closeDeviceMenu() { if (ctxMenuEl) { ctxMenuEl.remove(); ctxMenuEl = null; } }
+document.addEventListener('click', closeDeviceMenu);
+window.addEventListener('resize', closeDeviceMenu);
+async function powerAction(d, action) {
+  const label = POWER_LABEL[action] || action;
+  if (POWER_CONFIRM[action]) { const ok = await modal({ title: label + '?', message: POWER_CONFIRM[action], confirmText: label, danger: action !== 'sleep' }); if (!ok) return; }
+  deviceOp(d.id, 'power', { action }, { onResult: (m) => toast(m.ok ? label + ' sent' : (m.error || 'failed'), m.ok ? 'ok' : 'err') });
+}
+function showDeviceMenu(d, x, y) {
+  closeDeviceMenu();
+  const items = [];
+  if (d.online && !d.busy) items.push({ label: 'Join', icon: CM.join, act: () => attach(d.id), primary: true });
+  if (d.online) {
+    items.push({ label: 'Terminal', icon: CM.term, act: () => openTerminal(d) });
+    items.push({ label: 'File transfer', icon: CM.files, act: () => openFiles(d) });
+    items.push({ label: 'System monitor', icon: CM.sys, act: () => openSystem(d) });
+    items.push({ label: 'Deploy software', icon: CM.deploy, act: () => { openSystem(d); setTimeout(() => sysTab('deploy'), 0); } });
+    items.push({ sep: true });
+    items.push({ label: 'Lock local input', act: () => deviceOp(d.id, 'lockinput', { on: true }, { onResult: (m) => toast(m.ok ? 'Local input locked' : (m.error || 'failed'), m.ok ? 'ok' : 'err') }) });
+    items.push({ label: 'Sign out user', act: () => powerAction(d, 'logoff') });
+    items.push({ label: 'Sleep', act: () => powerAction(d, 'sleep') });
+    items.push({ label: 'Restart', act: () => powerAction(d, 'restart') });
+    items.push({ label: 'Shut down', act: () => powerAction(d, 'shutdown'), danger: true });
+    items.push({ sep: true });
+  }
+  items.push({ label: 'Rename', icon: CM.edit, act: () => renameDevice(d) });
+  items.push({ label: 'Remove', icon: CM.del, act: () => removeDevice(d), danger: true });
+  const menu = document.createElement('div'); menu.className = 'ctx-menu';
+  menu.addEventListener('click', (e) => e.stopPropagation());
+  menu.addEventListener('contextmenu', (e) => e.preventDefault());
+  for (const it of items) {
+    if (it.sep) { const s = document.createElement('div'); s.className = 'ctx-sep'; menu.appendChild(s); continue; }
+    const b = document.createElement('button');
+    b.className = 'ctx-item' + (it.danger ? ' danger' : '') + (it.primary ? ' primary' : '');
+    b.innerHTML = (it.icon || '<span style="width:16px"></span>') + '<span>' + it.label + '</span>';
+    b.addEventListener('click', () => { closeDeviceMenu(); it.act(); });
+    menu.appendChild(b);
+  }
+  document.body.appendChild(menu);
+  menu.style.left = Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+  menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + 'px';
+  ctxMenuEl = menu;
 }
 function attach(id) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'attach', agentId: id })); }
 

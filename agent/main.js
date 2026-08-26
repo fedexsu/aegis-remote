@@ -344,6 +344,7 @@ ipcMain.on('op', (_e, msg) => {
       opReply({ type: 'opResult', reqId, ok: true, data: { has } });
     }
     else if (op === 'lockinput') { inject('B ' + (payload.on ? '1' : '0')); opReply({ type: 'opResult', reqId, ok: true, data: { locked: !!payload.on } }); }
+    else if (op === 'cad') { inject('SAS'); opReply({ type: 'opResult', reqId, ok: true }); }   // Ctrl+Alt+Del (needs elevated/service to actually fire)
     else if (op === 'clip-get') {
       try {
         const im = clipboard.readImage();
@@ -587,6 +588,14 @@ function setKeepAwake(reqId, on) {
 
 // ---- power controls ----
 function powerAction(reqId, action) {
+  // Reboot into (or out of) Safe Mode. bcdedit needs admin → elevate via RunAs
+  // (UAC prompt on the remote unless the agent is already elevated), then reboot.
+  if (action === 'safemode' || action === 'normalmode') {
+    const bcd = action === 'safemode' ? 'bcdedit /set {current} safeboot minimal' : 'bcdedit /deletevalue {current} safeboot';
+    opReply({ type: 'opResult', reqId, ok: true, data: { action } });
+    setTimeout(() => { try { spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', "Start-Process cmd -Verb RunAs -ArgumentList '/c " + bcd + " & shutdown /r /t 3 /f'"], { windowsHide: true, detached: true }); } catch {} }, 600);
+    return;
+  }
   const sys = process.env.SystemRoot ? path.join(process.env.SystemRoot, 'System32') : '';
   const shutdown = path.join(sys, 'shutdown.exe');
   const rundll = path.join(sys, 'rundll32.exe');

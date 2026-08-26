@@ -22,6 +22,27 @@ const CFG = {};
 const FPS = 15;
 const MAX_W = 1920;   // capture ceiling; adaptive logic scales down from here
 const JPEG_Q = 0.82;  // max quality; adaptive logic lowers it on slow links
+// Quality selector (console L/M/H). Caps WebRTC bitrate/resolution + JPEG scale.
+let qualityLevel = 'H';
+let qMaxScale = 1;
+const Q_PROFILES = { L: { br: 1500000, scale: 0.5, fps: 20 }, M: { br: 5000000, scale: 0.75, fps: 30 }, H: { br: 12000000, scale: 1, fps: 30 } };
+function applyQuality() {
+  const q = Q_PROFILES[qualityLevel] || Q_PROFILES.H;
+  qMaxScale = q.scale;
+  if (dynScale > qMaxScale) dynScale = qMaxScale;
+  if (typeof pc !== 'undefined' && pc) for (const s of pc.getSenders()) {
+    if (!s.track || s.track.kind !== 'video') continue;
+    try {
+      const p = s.getParameters();
+      if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+      p.encodings[0].maxBitrate = q.br;
+      p.encodings[0].scaleResolutionDownBy = 1 / q.scale;
+      p.encodings[0].maxFramerate = q.fps;
+      p.degradationPreference = 'maintain-resolution';
+      s.setParameters(p);
+    } catch {}
+  }
+}
 // Adaptive streaming: on a fast link we send full-res high-quality frames; when
 // the uplink can't keep up (frames get dropped by backpressure) we shrink the
 // resolution/quality so the picture stays responsive instead of lagging.
@@ -206,6 +227,7 @@ function onMessage(msg) {
     case 'start': rtcIceServers = msg.iceServers || null; startStreaming(); break;
     case 'stop': stopStreaming(); break;
     case 'viewers': guestCount = msg.guests | 0; if (guestCount > 0 && !streaming) startStreaming(); break; // guest viewers need JPEG frames flowing
+    case 'quality': qualityLevel = ({ L: 'L', M: 'M', H: 'H' }[msg.level] || 'H'); applyQuality(); break;
     case 'monitor': switchMonitor(msg.id); break;
     case 'input': handleInput(msg.event); break;
     case 'chat': log('💬 ' + msg.text); break;
@@ -247,18 +269,7 @@ async function startRtc() {
     await pc.setLocalDescription(offer);
     // Crank the encoder for a sharp 1080p+ picture: full native resolution, a
     // high bitrate ceiling, and drop FPS (not resolution) if the link tightens.
-    for (const s of pc.getSenders()) {
-      if (!s.track || s.track.kind !== 'video') continue;
-      try {
-        const p = s.getParameters();
-        if (!p.encodings || !p.encodings.length) p.encodings = [{}];
-        p.encodings[0].maxBitrate = 12000000;      // ~12 Mbps ceiling
-        p.encodings[0].scaleResolutionDownBy = 1;  // never downscale the desktop
-        p.encodings[0].maxFramerate = 30;
-        p.degradationPreference = 'maintain-resolution';
-        await s.setParameters(p);
-      } catch {}
-    }
+    applyQuality();
     if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rtc-offer', sdp: pc.localDescription }));
   } catch (e) { log('rtc error: ' + e.message); closeRtc(); }
 }
@@ -393,9 +404,10 @@ function adaptTune() {
       else dynQ = Math.max(0.45, dynQ - 0.06);
     } else if (skipRatio < 0.1) {        // headroom → climb back toward full quality
       if (dynQ < JPEG_Q) dynQ = Math.min(JPEG_Q, dynQ + 0.06);
-      else if (dynScale < 1) dynScale = Math.min(1, dynScale + 0.12);
+      else if (dynScale < qMaxScale) dynScale = Math.min(qMaxScale, dynScale + 0.12);
     }
   }
+  if (dynScale > qMaxScale) dynScale = qMaxScale; // respect the quality selector ceiling
   fpSent = 0; fpSkip = 0;
 }
 

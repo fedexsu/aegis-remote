@@ -375,6 +375,8 @@ function showDeviceMenu(d, x, y) {
     items.push({ label: 'Sign out user', act: () => powerAction(d, 'logoff') });
     items.push({ label: 'Sleep', act: () => powerAction(d, 'sleep') });
     items.push({ label: 'Restart', act: () => powerAction(d, 'restart') });
+    items.push({ label: 'Reboot to Safe Mode', act: () => powerAction(d, 'safemode') });
+    items.push({ label: 'Reboot to Normal Mode', act: () => powerAction(d, 'normalmode') });
     items.push({ label: 'Shut down', act: () => powerAction(d, 'shutdown'), danger: true });
     items.push({ sep: true });
   }
@@ -1121,11 +1123,13 @@ $('#clip-set').addEventListener('click', () => {
 });
 
 // Power labels/confirmations — used by the card's Power popout (see renderDevices).
-const POWER_LABEL = { lock: 'Lock', logoff: 'Sign out', sleep: 'Sleep', restart: 'Restart', shutdown: 'Shut down' };
+const POWER_LABEL = { lock: 'Lock', logoff: 'Sign out', sleep: 'Sleep', restart: 'Restart', shutdown: 'Shut down', safemode: 'Reboot to Safe Mode', normalmode: 'Reboot to Normal Mode' };
 const POWER_CONFIRM = {
   restart: 'Restart the remote PC now? It will reconnect automatically at login.',
   shutdown: 'Shut down the remote PC now? You will NOT be able to power it back on remotely.',
   sleep: 'Put the remote PC to sleep now? It will disconnect.',
+  safemode: 'Reboot into Safe Mode? Needs admin on the remote (a UAC prompt may appear). The PC restarts into Safe Mode; use "Reboot to Normal Mode" to return.',
+  normalmode: 'Reboot back to Normal Mode? Needs admin on the remote (a UAC prompt may appear).',
 };
 
 // ---------------------------------------------------------------------------
@@ -1351,6 +1355,7 @@ function onAttached(msg) {
 }
 function backToDashboard() {
   attachedId = null;
+  zoom = 0; annotOn = false; annotCanvas.hidden = true; $('#annot-btn').classList.remove('on'); // reset view tools
   try { if (document.fullscreenElement) document.exitFullscreen(); } catch {} // leave fullscreen when the session ends
   if (mediaRec) stopRecording(); // auto-save any in-progress recording
   blankOn = false; updateBlankBtn();
@@ -1386,11 +1391,68 @@ function drawBinaryFrame(buf) {
 }
 function fit() {
   if (!frameW || !frameH) return;
+  if (zoom) return applyZoom(); // manual zoom overrides fit
   const wrap = $('#screen-wrap');
   const scale = Math.min(wrap.clientWidth / frameW, wrap.clientHeight / frameH);
   const w = Math.floor(frameW * scale) + 'px', h = Math.floor(frameH * scale) + 'px';
   canvas.style.width = w; canvas.style.height = h;
+  syncAnnotSize();
 }
+// ---- Quality / Ctrl+Alt+Del / Screenshot / Zoom / Annotate ----
+$$('.q-btn').forEach((b) => b.addEventListener('click', () => {
+  $$('.q-btn').forEach((x) => x.classList.toggle('active', x === b));
+  if (ws && ws.readyState === ws.OPEN && attachedId) ws.send(JSON.stringify({ type: 'quality', level: b.dataset.q }));
+  toast('Quality: ' + ({ L: 'Low', M: 'Medium', H: 'High' }[b.dataset.q]), 'ok');
+}));
+$('#cad-btn').addEventListener('click', () => {
+  if (!attachedId) return;
+  deviceOp(attachedId, 'cad', {}, { onResult: (m) => toast(m.ok ? 'Ctrl+Alt+Del sent' : (m.error || 'failed'), m.ok ? 'ok' : 'err') });
+});
+$('#shot-btn').addEventListener('click', () => {
+  try {
+    const tmp = document.createElement('canvas'); tmp.width = canvas.width; tmp.height = canvas.height;
+    const tc = tmp.getContext('2d'); tc.drawImage(canvas, 0, 0);
+    if (annotOn && annotCanvas.width) tc.drawImage(annotCanvas, 0, 0); // include annotations
+    const a = document.createElement('a');
+    a.href = tmp.toDataURL('image/png');
+    a.download = 'aegis-' + (($('#session-name').textContent || 'screen').replace(/[^\w.-]+/g, '_')) + '-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.png';
+    document.body.appendChild(a); a.click(); a.remove();
+    toast('Screenshot saved', 'ok');
+  } catch { toast('Screenshot failed', 'err'); }
+});
+// Zoom (client-side). zoom=0 → fit.
+let zoom = 0;
+function applyZoom() {
+  if (!frameW) return;
+  if (!zoom) { $('#zoom-lbl').textContent = 'Fit'; fit(); return; }
+  const w = Math.round(frameW * zoom), h = Math.round(frameH * zoom);
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+  $('#zoom-lbl').textContent = Math.round(zoom * 100) + '%';
+  syncAnnotSize();
+}
+function curScale() { return zoom || Math.min($('#screen-wrap').clientWidth / (frameW || 1), $('#screen-wrap').clientHeight / (frameH || 1)); }
+$('#zoom-in').addEventListener('click', () => { zoom = Math.min(4, curScale() * 1.25); applyZoom(); });
+$('#zoom-out').addEventListener('click', () => { zoom = Math.max(0.25, curScale() / 1.25); applyZoom(); });
+$('#zoom-lbl').addEventListener('click', () => { zoom = 0; applyZoom(); });
+// Annotate — draw on the current view (local; great for screenshots/recording).
+const annotCanvas = $('#annot-canvas');
+let annotOn = false, annotDrawing = false, annotCtx = null;
+function syncAnnotSize() {
+  if (annotCanvas.width !== canvas.width) { annotCanvas.width = canvas.width; annotCanvas.height = canvas.height; }
+  annotCanvas.style.width = canvas.style.width; annotCanvas.style.height = canvas.style.height;
+  if (annotOn) { annotCtx = annotCanvas.getContext('2d'); annotCtx.strokeStyle = '#ff3b3b'; annotCtx.lineWidth = 3; annotCtx.lineCap = 'round'; annotCtx.lineJoin = 'round'; }
+}
+$('#annot-btn').addEventListener('click', () => {
+  annotOn = !annotOn;
+  $('#annot-btn').classList.toggle('on', annotOn);
+  annotCanvas.hidden = !annotOn;
+  if (annotOn) { syncAnnotSize(); toast('Annotate on — draw on the screen (double-click to clear)', 'ok'); }
+});
+function annotPos(e) { const r = annotCanvas.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * annotCanvas.width, y: (e.clientY - r.top) / r.height * annotCanvas.height }; }
+annotCanvas.addEventListener('mousedown', (e) => { if (!annotOn) return; annotDrawing = true; const p = annotPos(e); annotCtx.beginPath(); annotCtx.moveTo(p.x, p.y); });
+annotCanvas.addEventListener('mousemove', (e) => { if (!annotDrawing) return; const p = annotPos(e); annotCtx.lineTo(p.x, p.y); annotCtx.stroke(); });
+window.addEventListener('mouseup', () => { annotDrawing = false; });
+annotCanvas.addEventListener('dblclick', () => { if (annotCtx) annotCtx.clearRect(0, 0, annotCanvas.width, annotCanvas.height); });
 
 // ---------------------------------------------------------------------------
 // WebRTC receiver — sharp, sub-second video. The canvas stays on top as a

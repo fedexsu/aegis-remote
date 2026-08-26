@@ -233,6 +233,13 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .build-link-row{display:flex;gap:8px}
 .build-link-row input{flex:1;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:8px 11px;font-size:12px;font-family:ui-monospace,monospace}
 #build-download{text-align:center;text-decoration:none}
+/* session-bar extras */
+.quality-seg{display:inline-flex}
+.quality-seg .q-btn{min-width:26px;padding:4px 8px;font-size:12px}
+.zoom-ctl{display:inline-flex;align-items:center;gap:2px}
+#zoom-lbl{font-size:11px;color:var(--txt2);min-width:34px;text-align:center}
+#annot-btn.on{color:var(--accent);border-color:var(--accent)}
+#annot-canvas{grid-area:1/1;z-index:4;border-radius:8px;max-width:100%;max-height:100%;cursor:crosshair}
 .device{
   background:linear-gradient(180deg,var(--panel2),var(--panel));
   border:1px solid var(--line);border-radius:var(--radius);padding:18px;

@@ -59,6 +59,12 @@ class Injector {
   // the technician's injected input keeps flowing while the local user is frozen.
   [DllImport("user32.dll")]
   static extern bool BlockInput(bool fBlockIt);
+  // Ctrl+Alt+Del (Secure Attention Sequence). Only works if this process may
+  // generate it — i.e. running as SYSTEM (service) or with the
+  // SoftwareSASGeneration policy allowing apps. From a normal user agent it's a
+  // no-op; best-effort so the button exists for elevated/service deployments.
+  [DllImport("sas.dll", SetLastError = true)]
+  static extern void SendSAS(bool asUser);
 
   // ---- low-level input hooks (used to lock the local physical input) ----
   const int WH_KEYBOARD_LL = 13, WH_MOUSE_LL = 14, HC_ACTION = 0;
@@ -163,6 +169,7 @@ class Injector {
             break;
           }
           case "AFF": SetWindowDisplayAffinity((IntPtr)long.Parse(p[1], ci), uint.Parse(p[2], ci)); break;
+          case "SAS": try { SendSAS(true); } catch { } break;   // Ctrl+Alt+Del (best-effort)
           case "K": SendKey((ushort)int.Parse(p[1], ci), 0, p[2] == "1" ? 0 : KEYEVENTF_KEYUP); break;
           case "T": {
             ushort u = (ushort)int.Parse(p[1], ci);

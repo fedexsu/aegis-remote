@@ -506,11 +506,39 @@ function applyStats(s) {
     setNum(row.querySelector('.c-in'), k.installs || 0);
   });
 }
-$('#new-key').addEventListener('click', async () => {
-  const vals = await modal({ title: 'New enrollment link', fields: [{ label: 'Name this link (e.g. a client or team)', value: 'New link' }], confirmText: 'Create' });
-  if (!vals) return;
-  await api('/api/keys', 'POST', { label: vals[0] || 'Link' });
-  toast('Link created', 'ok'); loadKeys();
+// Build Installer dialog (ScreenConnect-style): label the machines, pick a type,
+// then copy the link or download the installer.
+function openBuild() {
+  ['#b-company', '#b-site', '#b-dept', '#b-devtype'].forEach((s) => ($(s).value = ''));
+  $('#build-result').hidden = true;
+  $('#build-create').disabled = false;
+  $('#build-modal').hidden = false;
+}
+function closeBuild() { $('#build-modal').hidden = true; }
+$('#new-key').addEventListener('click', openBuild);
+$('#build-cancel').addEventListener('click', () => { closeBuild(); loadKeys(); });
+$('#build-modal').addEventListener('click', (e) => { if (e.target.id === 'build-modal') { closeBuild(); loadKeys(); } });
+$('#build-create').addEventListener('click', async () => {
+  const meta = {
+    company: $('#b-company').value.trim(),
+    site: $('#b-site').value.trim(),
+    department: $('#b-dept').value.trim(),
+    deviceType: $('#b-devtype').value.trim(),
+  };
+  const label = meta.company || meta.deviceType || 'Installer';
+  try {
+    $('#build-create').disabled = true;
+    const r = await api('/api/keys', 'POST', { label, meta });
+    const url = r.downloadUrl;
+    $('#build-link').value = url;
+    $('#build-download').href = url;
+    $('#build-result').hidden = false;
+    toast('Installer built', 'ok');
+  } catch (e) { $('#build-create').disabled = false; toast(e.message || 'failed', 'err'); }
+});
+$('#build-copy').addEventListener('click', () => {
+  const url = $('#build-link').value;
+  navigator.clipboard.writeText(url).then(() => toast('Link copied', 'ok')).catch(() => toast('Copy failed', 'err'));
 });
 
 async function checkInstaller() {

@@ -143,8 +143,8 @@ function deleteSession(token) {
 }
 
 // ---- enrollment keys ----
-function createKey(adminId, label) {
-  const key = { key: genKey(), adminId, label: label || 'Key', createdAt: Date.now(), revoked: false, downloads: 0 };
+function createKey(adminId, label, meta) {
+  const key = { key: genKey(), adminId, label: label || 'Key', meta: meta || {}, createdAt: Date.now(), revoked: false, downloads: 0 };
   db.keys.push(key);
   save();
   return key;

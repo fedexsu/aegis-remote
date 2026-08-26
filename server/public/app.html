@@ -152,7 +152,7 @@
                 <span>Blank cover</span>
                 <input id="blank-image-file" type="file" accept="image/*,video/*" hidden />
               </label>
-              <button id="new-key" class="btn primary">+ New link</button>
+              <button id="new-key" class="btn primary">Build +</button>
             </div>
           </div>
 
@@ -426,6 +426,29 @@
     </div>
 
     <!-- toast host -->
+    <!-- Build Installer dialog -->
+    <div id="build-modal" class="modal-back" hidden>
+      <div class="modal build-modal">
+        <h3>Build installer</h3>
+        <p class="build-help">Build an installer to deploy to remote machines. Label the machines with these fields and pick your installer type, then share the link or download it.</p>
+        <div class="build-grid">
+          <label>Name</label><select id="b-name"><option value="machine">Use Machine Name</option></select>
+          <label>Company</label><input id="b-company" placeholder="e.g. Acme Corporation" />
+          <label>Site</label><input id="b-site" placeholder="Optional" />
+          <label>Department</label><input id="b-dept" placeholder="Optional" />
+          <label>Device Type</label><input id="b-devtype" placeholder="e.g. Workstation" />
+          <label>Type</label><select id="b-type"><option value="exe">Windows (.exe)</option><option value="msi" disabled>Windows (.msi) — soon</option></select>
+        </div>
+        <div id="build-result" class="build-result" hidden>
+          <div class="build-link-row"><input id="build-link" readonly /><button id="build-copy" class="btn ghost small">Copy URL</button></div>
+          <a id="build-download" class="btn primary small" href="#">Download installer</a>
+        </div>
+        <div class="modal-actions">
+          <button id="build-cancel" class="btn ghost">Close</button>
+          <button id="build-create" class="btn primary">Create installer</button>
+        </div>
+      </div>
+    </div>
     <div id="toasts" class="toasts"></div>
 
     <!-- hidden svg defs for the sidebar shield gradient -->

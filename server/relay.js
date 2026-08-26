@@ -362,15 +362,16 @@ async function handleApi(req, res, urlPath) {
     if (urlPath === '/api/keys' && m === 'GET') {
       const base = publicBase(req);
       const keys = db.keysForAdmin(admin.id).map((k) => ({
-        key: k.key, label: k.label, revoked: k.revoked, createdAt: k.createdAt,
+        key: k.key, label: k.label, meta: k.meta || {}, revoked: k.revoked, createdAt: k.createdAt,
         downloadUrl: `${base}/dl/${k.key}`,
       }));
       return json(res, 200, { keys });
     }
     if (urlPath === '/api/keys' && m === 'POST') {
       const b = await readBody(req);
-      const k = db.createKey(admin.id, b.label);
-      return json(res, 200, { key: k.key });
+      const meta = (b.meta && typeof b.meta === 'object') ? b.meta : {};
+      const k = db.createKey(admin.id, b.label, meta);
+      return json(res, 200, { key: k.key, downloadUrl: `${publicBase(req)}/dl/${k.key}` });
     }
     if (urlPath === '/api/keys/revoke' && m === 'POST') {
       const b = await readBody(req);
@@ -533,6 +534,8 @@ wss.on('connection', (ws, req) => {
         const name = msg.name || id;
         const meta = (msg.meta && typeof msg.meta === 'object') ? msg.meta : {};
         if (msg.screen) meta.screen = `${msg.screen.w}×${msg.screen.h}`;
+        // Inherit the enrollment key's labels (Company / Site / Department / Type).
+        if (k.meta) for (const fld of ['company', 'site', 'department', 'deviceType']) { if (k.meta[fld]) meta[fld] = k.meta[fld]; }
         const known = !!dbDevice(k.adminId, id);
         db.upsertDevice(id, k.adminId, name, k.key, meta);
         ws.meta = { role: 'agent', id, adminId: k.adminId };

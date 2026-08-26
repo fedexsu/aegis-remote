@@ -28,7 +28,9 @@ SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
-SetupIconFile=build\icon.ico
+; No custom installer icon (business build) — Inno uses its neutral default,
+; so the installer .exe carries no branded/identifiable icon (like ScreenConnect).
+; SetupIconFile=build\icon.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
 

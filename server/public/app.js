@@ -814,7 +814,7 @@ async function uploadFile(file) { return uploadFileTo(file, joinPath(filesPath, 
 async function uploadFileTo(file, dest, opts) {
   opts = opts || {};
   const reqId = newReqId();
-  fsOps.set(reqId, { onEnd: (m) => { hideFp(); if (m.ok) { toast('Sent ' + file.name, 'ok'); if (opts.onDone) opts.onDone(); } else toast(m.error || 'transfer failed', 'err'); } });
+  fsOps.set(reqId, { onEnd: (m) => { hideFp(); if (m.ok) { if (!opts.silent) toast('Sent ' + file.name, 'ok'); if (opts.onDone) opts.onDone(); } else toast(m.error || 'transfer failed', 'err'); } });
   opRaw('fs-put-begin', reqId, { path: dest });
   const buf = new Uint8Array(await file.arrayBuffer());
   const CH = 192 * 1024;
@@ -964,6 +964,36 @@ function renderHwInfo(hw) {
       ]));
 }
 $('#hw-refresh').addEventListener('click', () => loadHwInfo(true));
+
+// --- software deployment ---
+let depFile = null;
+$('#dep-file').addEventListener('change', (e) => {
+  depFile = (e.target.files && e.target.files[0]) || null;
+  $('#dep-fname').textContent = depFile ? (depFile.name + ' · ' + fmtSize(depFile.size)) : 'No file chosen (.exe or .msi)';
+});
+$('#dep-run').addEventListener('click', () => {
+  if (!depFile) { toast('Choose an installer first', 'err'); return; }
+  if (depFile.size > 500 * 1024 * 1024) { toast('Installer too large (500MB max)', 'err'); return; }
+  const args = $('#dep-args').value.trim();
+  const elevated = $('#dep-elevated').checked;
+  const msi = /\.msi$/i.test(depFile.name);
+  const out = $('#dep-out');
+  out.textContent = 'Uploading ' + depFile.name + '…';
+  sysOp('paths', {}, { onResult: (m) => {
+    if (!m.ok || !m.data.temp) { out.textContent = 'Could not resolve the remote temp folder.'; return; }
+    const dest = joinPath(m.data.temp, depFile.name);
+    filesAgentId = sysAgentId; // route file ops to this device
+    uploadFileTo(depFile, dest, { silent: true, onDone: () => {
+      out.textContent = 'Running ' + depFile.name + (elevated ? ' (elevated — check the remote screen for a UAC prompt)…' : '…');
+      sysOp('deploy-run', { path: dest, args, msi, elevated }, { onResult: (r) => {
+        if (!r.ok) { out.textContent = 'Failed: ' + (r.error || 'error'); toast('Deploy failed', 'err'); return; }
+        const success = r.data.exitCode === 0;
+        out.textContent = (success ? '✓ Success — ' : '') + 'exit code ' + r.data.exitCode + '\n\n' + (r.data.output || '');
+        toast(success ? 'Deployed successfully' : 'Finished (exit ' + r.data.exitCode + ')', success ? 'ok' : 'err');
+      } });
+    } });
+  } });
+});
 
 // --- monitor ---
 function startMonitor() {
@@ -1191,6 +1221,50 @@ async function handleScreenDrop(files) {
   sw.addEventListener('drop', (e) => { e.preventDefault(); hint().hidden = true; const files = [...((e.dataTransfer && e.dataTransfer.files) || [])]; if (files.length) handleScreenDrop(files); });
 })();
 
+// Session recording — capture the live canvas (works for both WebRTC-painted and
+// JPEG frames) to a .webm saved on the technician's computer. No server load.
+let mediaRec = null, recChunks = [], recTimer = null, recStart = 0;
+function recMime() {
+  for (const t of ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']) {
+    try { if (window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t; } catch {}
+  }
+  return '';
+}
+function startRecording() {
+  if (mediaRec) return;
+  if (!window.MediaRecorder || !canvas.captureStream) { toast('Recording isn’t supported in this browser', 'err'); return; }
+  let stream; try { stream = canvas.captureStream(15); } catch { toast('Could not capture the screen', 'err'); return; }
+  const mime = recMime();
+  try { mediaRec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 4000000 } : undefined); }
+  catch { toast('Recorder failed to start', 'err'); return; }
+  recChunks = [];
+  mediaRec.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+  mediaRec.onstop = saveRecording;
+  mediaRec.start(1000);
+  recStart = Date.now();
+  const btn = $('#rec-btn'); btn.classList.add('recording'); btn.textContent = 'Stop 00:00';
+  recTimer = setInterval(() => { const s = Math.floor((Date.now() - recStart) / 1000); btn.textContent = 'Stop ' + String((s / 60) | 0).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }, 500);
+  toast('Recording started', 'ok');
+}
+function stopRecording() {
+  if (!mediaRec) return;
+  try { mediaRec.stop(); } catch {}
+  mediaRec = null;
+  if (recTimer) { clearInterval(recTimer); recTimer = null; }
+  const btn = $('#rec-btn'); btn.classList.remove('recording'); btn.textContent = 'Record';
+}
+function saveRecording() {
+  if (!recChunks.length) return;
+  const blob = new Blob(recChunks, { type: 'video/webm' }); recChunks = [];
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const name = 'aegis-' + (($('#session-name').textContent || 'session').replace(/[^\w.-]+/g, '_')) + '-' + stamp + '.webm';
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  toast('Recording saved: ' + name, 'ok');
+}
+$('#rec-btn').addEventListener('click', () => { if (mediaRec) stopRecording(); else startRecording(); });
+
 function onAttached(msg) {
   attachedId = msg.agentId;
   loadBlankImage(); // make sure we have the owner's current blank image for this session
@@ -1207,6 +1281,7 @@ function onAttached(msg) {
 }
 function backToDashboard() {
   attachedId = null;
+  if (mediaRec) stopRecording(); // auto-save any in-progress recording
   blankOn = false; updateBlankBtn();
   lockOn = false; updateLockBtn();
   closeConsoleRtc();

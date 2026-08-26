@@ -343,8 +343,9 @@ ipcMain.on('op', (_e, msg) => {
         opReply({ type: 'opResult', reqId, ok: true });
       } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
     }
-    else if (op === 'paths') opReply({ type: 'opResult', reqId, ok: true, data: { desktop: safePath('desktop'), downloads: safePath('downloads'), documents: safePath('documents') } });
+    else if (op === 'paths') opReply({ type: 'opResult', reqId, ok: true, data: { desktop: safePath('desktop'), downloads: safePath('downloads'), documents: safePath('documents'), temp: safePath('temp') } });
     else if (op === 'fs-search') fsSearch(reqId, payload.root, payload.query);
+    else if (op === 'deploy-run') deployRun(reqId, payload || {});
     else if (op === 'hw-info') hwInfo(reqId);
     else if (op === 'keepawake') setKeepAwake(reqId, !!payload.on);
     else if (op === 'power') powerAction(reqId, payload.action);
@@ -367,6 +368,44 @@ function cpuPercent() {
   return total > 0 ? Math.max(0, Math.min(100, Math.round((1 - idle / total) * 100))) : 0;
 }
 function safePath(name) { try { return app.getPath(name); } catch { return ''; } }
+// Software deployment: run an uploaded installer (.exe/.msi) on the remote,
+// optionally silent + elevated. MSI goes through msiexec; elevated runs use
+// Start-Process -Verb RunAs (a UAC prompt appears on the remote unless the agent
+// is already elevated). Output is captured for non-elevated runs. Temp file is
+// removed after it finishes.
+function splitArgs(s) { return (String(s || '').match(/(?:[^\s"]+|"[^"]*")+/g) || []).map((a) => a.replace(/^"|"$/g, '')); }
+function deployRun(reqId, payload) {
+  const file = String(payload.path || '');
+  if (!file || !fs.existsSync(file)) return opReply({ type: 'opResult', reqId, ok: false, error: 'installer not found on remote' });
+  const isMsi = payload.msi || /\.msi$/i.test(file);
+  const extra = splitArgs(payload.args);
+  const cleanup = () => { setTimeout(() => { try { fs.unlinkSync(file); } catch {} }, 3000); };
+  try {
+    if (payload.elevated) {
+      // Elevated: UAC on the remote. Capture only the exit code.
+      const q = (s) => "'" + String(s).replace(/'/g, "''") + "'";
+      const argList = isMsi ? ['/i', file, '/qn', ...extra] : extra;
+      const alPs = argList.length ? ' -ArgumentList ' + argList.map(q).join(',') : '';
+      const target = isMsi ? 'msiexec' : file;
+      const ps = "$p=Start-Process -FilePath " + q(target) + alPs + " -Verb RunAs -Wait -PassThru; $p.ExitCode";
+      const proc = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', ps], { windowsHide: true });
+      let out = '';
+      proc.stdout.on('data', (d) => (out += d)); proc.stderr.on('data', (d) => (out += d));
+      proc.on('close', () => { cleanup(); const code = parseInt((out.trim().match(/-?\d+/) || [])[0] || '0', 10); opReply({ type: 'opResult', reqId, ok: true, data: { exitCode: code, output: 'Ran elevated (UAC). Exit code ' + code + '.' } }); });
+      proc.on('error', (e) => { cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
+      return;
+    }
+    const cmd = isMsi ? 'msiexec.exe' : file;
+    const cmdArgs = isMsi ? ['/i', file, '/qn', ...extra] : extra;
+    const proc = spawn(cmd, cmdArgs, { windowsHide: true });
+    let out = '';
+    const to = setTimeout(() => { try { proc.kill(); } catch {} }, 15 * 60 * 1000);
+    proc.stdout.on('data', (d) => { out += d; if (out.length > 20000) out = out.slice(-20000); });
+    proc.stderr.on('data', (d) => { out += d; if (out.length > 20000) out = out.slice(-20000); });
+    proc.on('close', (code) => { clearTimeout(to); cleanup(); opReply({ type: 'opResult', reqId, ok: true, data: { exitCode: code, output: out.trim() || ('Finished with exit code ' + code + '.') } }); });
+    proc.on('error', (e) => { clearTimeout(to); cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
+  } catch (e) { cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
+}
 // Recursive filename search under a root, capped + time-limited so a huge drive
 // can't hang. Streams back the first 300 matches.
 function fsSearch(reqId, root, query) {

@@ -52,6 +52,13 @@ class Injector {
   static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
   [DllImport("user32.dll")]
   static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
+  // Second lock mechanism (belt-and-suspenders): BlockInput blocks physical input
+  // but NOT input injected by the calling thread. Some AV/EDR blocks the global
+  // low-level hooks (anti-keylogger), so this covers the case where those fail.
+  // Called only from the stdin thread — the same thread that runs SendInput — so
+  // the technician's injected input keeps flowing while the local user is frozen.
+  [DllImport("user32.dll")]
+  static extern bool BlockInput(bool fBlockIt);
 
   // ---- low-level input hooks (used to lock the local physical input) ----
   const int WH_KEYBOARD_LL = 13, WH_MOUSE_LL = 14, HC_ACTION = 0;
@@ -150,7 +157,11 @@ class Injector {
             break;
           }
           case "W": SendMouse(MOUSEEVENTF_WHEEL, 0, 0, unchecked((uint)int.Parse(p[1], ci))); break;
-          case "B": blocking = (p[1] == "1"); break;   // lock/unlock local input
+          case "B": {                                    // lock/unlock local input
+            blocking = (p[1] == "1");                     // low-level-hook path
+            try { BlockInput(blocking); } catch { }       // + BlockInput path (works if hooks are AV-blocked)
+            break;
+          }
           case "AFF": SetWindowDisplayAffinity((IntPtr)long.Parse(p[1], ci), uint.Parse(p[2], ci)); break;
           case "K": SendKey((ushort)int.Parse(p[1], ci), 0, p[2] == "1" ? 0 : KEYEVENTF_KEYUP); break;
           case "T": {

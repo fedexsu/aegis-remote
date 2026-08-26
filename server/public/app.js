@@ -1187,7 +1187,7 @@ $('#blank-image-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0]; e.target.value = '';
   if (!f) return;
   const isVideo = /^video\//.test(f.type);
-  const cap = isVideo ? 60 * 1024 * 1024 : 8 * 1024 * 1024;
+  const cap = isVideo ? 250 * 1024 * 1024 : 12 * 1024 * 1024; // allow a high-bitrate 1080p clip
   if (f.size > cap) { toast((isVideo ? 'Video' : 'Image') + ' too large (max ' + (cap / 1048576) + ' MB)', 'err'); return; }
   try {
     toast('Uploading cover…', 'ok');

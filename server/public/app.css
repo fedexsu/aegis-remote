@@ -240,6 +240,25 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 #zoom-lbl{font-size:11px;color:var(--txt2);min-width:34px;text-align:center}
 #annot-btn.on{color:var(--accent);border-color:var(--accent)}
 #annot-canvas{grid-area:1/1;z-index:4;border-radius:8px;max-width:100%;max-height:100%;cursor:crosshair}
+/* ScreenConnect-style session toolbar + dropdown panels */
+.sc-bar{display:flex;align-items:center;gap:10px;padding:7px 12px;background:var(--panel);border-bottom:1px solid var(--line);position:relative;z-index:67}
+.sc-tabs{display:flex;gap:2px;margin-left:8px}
+.sc-tab{width:38px;height:34px;display:grid;place-items:center;border:none;background:none;color:var(--txt2);border-radius:8px;cursor:pointer;transition:background .12s,color .12s}
+.sc-tab svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.sc-tab:hover{background:var(--panel2);color:var(--txt)}
+.sc-tab.active{background:rgba(79,140,255,.16);color:var(--accent)}
+.sc-panels{position:absolute;top:52px;left:14px;z-index:66}
+.sc-panel{display:flex;flex-wrap:wrap;gap:16px;background:var(--panel3);border:1px solid var(--line2);border-radius:12px;box-shadow:var(--shadow);padding:14px 16px;max-width:min(720px,92vw);animation:pop .12s ease both}
+.sc-group{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.sc-group-t{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);font-weight:700}
+.sc-item{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;color:var(--txt);font-size:13px;font-weight:600;cursor:pointer;min-width:180px;text-align:left}
+.sc-item:hover{border-color:var(--line2);background:var(--panel)}
+.sc-item svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;color:var(--txt2);flex:none}
+.sc-item.on{color:var(--accent);border-color:var(--accent)}
+.sc-item.on svg{color:var(--accent)}
+.sc-item.recording{color:var(--red);border-color:rgba(255,93,108,.5)}
+.sc-hint{font-size:11.5px;color:var(--txt3);align-self:center}
+.sc-hint.sc-wide{flex-basis:100%;align-self:auto}
 .device{
   background:linear-gradient(180deg,var(--panel2),var(--panel));
   border:1px solid var(--line);border-radius:var(--radius);padding:18px;

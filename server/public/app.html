@@ -257,33 +257,55 @@
 
         <!-- ===== CONTROL OVERLAY ===== -->
         <div id="control-view" class="control-view" hidden>
-          <div id="session-bar" class="session-bar">
-            <button id="back-dash" class="btn ghost small">
-              <svg viewBox="0 0 24 24" class="ic"><path d="M15 6l-6 6 6 6"/></svg> Devices
+          <div id="session-bar" class="sc-bar">
+            <button id="back-dash" class="btn ghost small" title="Back to devices">
+              <svg viewBox="0 0 24 24" class="ic"><path d="M15 6l-6 6 6 6"/></svg>
             </button>
             <span class="sess-dot"></span>
             <span id="session-name" class="sess-name"></span>
             <span id="rtc-mode" class="rtc-mode" title="Streaming mode">Connecting…</span>
-            <span id="ctl-warn" class="ctl-warn" hidden><svg viewBox="0 0 24 24" class="ic"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.4 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>Control blocked on this PC — its antivirus likely removed the input helper. Add an exclusion for Aegis, or code-sign the app.</span>
-            <span class="spacer"></span>
-            <select id="monitor-select" class="mini-select" hidden></select>
-            <label class="switch"><input type="checkbox" id="control" /><span class="track"></span><span class="sw-label">Control</span></label>
-            <div class="seg quality-seg" title="Stream quality">
-              <button class="seg-btn q-btn" data-q="L">L</button>
-              <button class="seg-btn q-btn" data-q="M">M</button>
-              <button class="seg-btn q-btn active" data-q="H">H</button>
+            <span id="ctl-warn" class="ctl-warn" hidden><svg viewBox="0 0 24 24" class="ic"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.4 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>Control blocked — its antivirus likely removed the input helper.</span>
+            <div class="sc-tabs">
+              <button class="sc-tab" data-panel="view" title="View — monitor, quality, zoom"><svg viewBox="0 0 24 24" class="ic"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+              <button class="sc-tab" data-panel="essentials" title="Essentials — Ctrl+Alt+Del, blank, lock"><svg viewBox="0 0 24 24" class="ic"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></button>
+              <button class="sc-tab" data-panel="transfer" title="File transfer"><svg viewBox="0 0 24 24" class="ic"><path d="M7 8l-4 4 4 4M3 12h12"/><path d="M17 16l4-4-4-4"/></svg></button>
+              <button class="sc-tab" data-panel="capture" title="Screen capture — screenshot, record"><svg viewBox="0 0 24 24" class="ic"><path d="M4 7h3l2-2h6l2 2h3v12H4z"/><circle cx="12" cy="13" r="3.2"/></svg></button>
+              <button class="sc-tab" data-panel="share" title="Participants / share view"><svg viewBox="0 0 24 24" class="ic"><path d="M17 20v-2a4 4 0 00-4-4H7a4 4 0 00-4 4v2"/><circle cx="10" cy="8" r="4"/><path d="M21 20v-2a4 4 0 00-3-3.87"/></svg></button>
+              <button class="sc-tab" id="annot-tab" data-panel="annotate" title="Annotate"><svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg></button>
             </div>
-            <button id="cad-btn" class="btn ghost small" title="Send Ctrl+Alt+Del">Ctrl+Alt+Del</button>
-            <button id="shot-btn" class="btn ghost small icon-btn" title="Screenshot (saves a PNG)"><svg viewBox="0 0 24 24" class="ic"><path d="M4 7h3l2-2h6l2 2h3v12H4z"/><circle cx="12" cy="13" r="3.2"/></svg></button>
-            <button id="annot-btn" class="btn ghost small icon-btn" title="Annotate — draw on the view"><svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg></button>
-            <div class="zoom-ctl"><button id="zoom-out" class="btn ghost small icon-btn" title="Zoom out">−</button><span id="zoom-lbl">Fit</span><button id="zoom-in" class="btn ghost small icon-btn" title="Zoom in">+</button></div>
-            <button id="blank-btn" class="btn ghost small" title="Black out the remote monitor (they see black; you still see & control)">Blank screen</button>
-            <button id="lock-btn" class="btn ghost small" title="Block the local keyboard &amp; mouse so the person there can't interfere">Lock input</button>
-            <button id="rec-btn" class="btn ghost small" title="Record this session to a video file on your computer">Record</button>
-            <button id="share-btn" class="btn ghost small" title="Create a view-only link to let someone watch this session in a browser">Share view</button>
-            <button id="fit" class="btn ghost small">Fit</button>
-            <button id="fs-btn" class="btn ghost small" title="Toggle full screen (Esc exits)"><svg viewBox="0 0 24 24" class="ic"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+            <span class="spacer"></span>
+            <label class="switch" title="Take control (off = view-only)"><input type="checkbox" id="control" /><span class="track"></span><span class="sw-label">Control</span></label>
             <button id="detach" class="btn danger small">Disconnect</button>
+          </div>
+          <!-- ScreenConnect-style dropdown panels -->
+          <div class="sc-panels">
+            <div class="sc-panel" data-panelfor="view" hidden>
+              <div class="sc-group"><div class="sc-group-t">Monitor</div><select id="monitor-select" class="mini-select"></select><span class="sc-hint" id="mon-hint">Single display</span></div>
+              <div class="sc-group"><div class="sc-group-t">Quality</div><div class="seg quality-seg"><button class="seg-btn q-btn" data-q="L">Low</button><button class="seg-btn q-btn" data-q="M">Medium</button><button class="seg-btn q-btn active" data-q="H">High</button></div></div>
+              <div class="sc-group"><div class="sc-group-t">Zoom</div><div class="zoom-ctl"><button id="zoom-out" class="btn ghost small icon-btn">−</button><span id="zoom-lbl">Fit</span><button id="zoom-in" class="btn ghost small icon-btn">+</button></div></div>
+              <div class="sc-group"><div class="sc-group-t">Screen</div><button id="fit" class="btn ghost small">Fit</button><button id="fs-btn" class="btn ghost small"><svg viewBox="0 0 24 24" class="ic"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg> Full screen</button></div>
+            </div>
+            <div class="sc-panel" data-panelfor="essentials" hidden>
+              <button class="sc-item" id="cad-btn"><svg viewBox="0 0 24 24" class="ic"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg><span class="lbl">Send Ctrl+Alt+Del</span></button>
+              <button class="sc-item" id="blank-btn"><svg viewBox="0 0 24 24" class="ic"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/></svg><span class="lbl">Blank screen</span></button>
+              <button class="sc-item" id="lock-btn"><svg viewBox="0 0 24 24" class="ic"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg><span class="lbl">Lock input</span></button>
+            </div>
+            <div class="sc-panel" data-panelfor="transfer" hidden>
+              <button class="sc-item" id="ft-open"><svg viewBox="0 0 24 24" class="ic"><path d="M3 7h6l2 2h10v10H3z"/></svg><span class="lbl">Open file transfer</span></button>
+              <div class="sc-hint sc-wide">Or drag files onto the screen to send them to the remote Desktop.</div>
+            </div>
+            <div class="sc-panel" data-panelfor="capture" hidden>
+              <button class="sc-item" id="shot-btn"><svg viewBox="0 0 24 24" class="ic"><path d="M4 7h3l2-2h6l2 2h3v12H4z"/><circle cx="12" cy="13" r="3.2"/></svg><span class="lbl">Screenshot</span></button>
+              <button class="sc-item" id="rec-btn"><svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="6"/></svg><span class="lbl">Record video</span></button>
+            </div>
+            <div class="sc-panel" data-panelfor="share" hidden>
+              <button class="sc-item" id="share-btn"><svg viewBox="0 0 24 24" class="ic"><path d="M10 13a5 5 0 007 0l2-2a5 5 0 00-7-7l-1 1"/><path d="M14 11a5 5 0 00-7 0l-2 2a5 5 0 007 7l1-1"/></svg><span class="lbl">Share view (guest link)</span></button>
+              <div class="sc-hint sc-wide">Creates a 30-minute, view-only link anyone can open in a browser.</div>
+            </div>
+            <div class="sc-panel" data-panelfor="annotate" hidden>
+              <button class="sc-item" id="annot-btn"><svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg><span class="lbl">Toggle annotation</span></button>
+              <div class="sc-hint sc-wide">Draw on the view; double-click the screen to clear.</div>
+            </div>
           </div>
           <div id="screen-wrap" class="screen-wrap">
             <video id="rtc-video" autoplay playsinline muted></video>

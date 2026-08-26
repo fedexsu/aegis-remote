@@ -1151,7 +1151,7 @@ let blankOn = false;
 function updateBlankBtn() {
   const b = $('#blank-btn');
   b.classList.toggle('on', blankOn);
-  b.textContent = blankOn ? 'Unblank' : 'Blank screen';
+  setLbl(b, blankOn ? 'Unblank' : 'Blank screen');
   // Drive the synthetic cursor: while blanked the remote cursor is hidden, so
   // show our own pointer in the view (and hide the browser cursor over the canvas).
   $('#screen-wrap').classList.toggle('blank', blankOn);
@@ -1253,7 +1253,9 @@ $('#blank-image-remove').addEventListener('click', async () => {
 });
 
 let lockOn = false;
-function updateLockBtn() { const b = $('#lock-btn'); b.classList.toggle('on', lockOn); b.textContent = lockOn ? 'Unlock input' : 'Lock input'; }
+function updateLockBtn() { const b = $('#lock-btn'); b.classList.toggle('on', lockOn); setLbl(b, lockOn ? 'Unlock input' : 'Lock input'); }
+// Set a button's text label without clobbering its icon (.lbl span if present).
+function setLbl(btn, text) { const l = btn.querySelector('.lbl'); if (l) l.textContent = text; else btn.textContent = text; }
 $('#lock-btn').addEventListener('click', () => {
   if (!attachedId) return;
   lockOn = !lockOn;
@@ -1323,8 +1325,8 @@ function startRecording() {
   mediaRec.onstop = saveRecording;
   mediaRec.start(1000);
   recStart = Date.now();
-  const btn = $('#rec-btn'); btn.classList.add('recording'); btn.textContent = 'Stop 00:00';
-  recTimer = setInterval(() => { const s = Math.floor((Date.now() - recStart) / 1000); btn.textContent = 'Stop ' + String((s / 60) | 0).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }, 500);
+  const btn = $('#rec-btn'); btn.classList.add('recording'); setLbl(btn, 'Stop 00:00');
+  recTimer = setInterval(() => { const s = Math.floor((Date.now() - recStart) / 1000); setLbl(btn, 'Stop ' + String((s / 60) | 0).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0')); }, 500);
   toast('Recording started', 'ok');
 }
 function stopRecording() {
@@ -1332,7 +1334,7 @@ function stopRecording() {
   try { mediaRec.stop(); } catch {}
   mediaRec = null;
   if (recTimer) { clearInterval(recTimer); recTimer = null; }
-  const btn = $('#rec-btn'); btn.classList.remove('recording'); btn.textContent = 'Record';
+  const btn = $('#rec-btn'); btn.classList.remove('recording'); setLbl(btn, 'Record video');
 }
 function saveRecording() {
   if (!recChunks.length) return;
@@ -1588,6 +1590,22 @@ function closeConsoleRtc() {
 $('#fit').addEventListener('click', fit);
 $('#fs-btn').addEventListener('click', toggleFullscreen);
 window.addEventListener('resize', fit);
+
+// ScreenConnect-style toolbar: each icon tab opens a dropdown panel of tools.
+function closeScPanels(activeTab) {
+  $$('.sc-panel').forEach((p) => (p.hidden = true));
+  $$('.sc-tab').forEach((t) => t.classList.toggle('active', t === activeTab));
+}
+$$('.sc-tab').forEach((tab) => tab.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const panel = $('.sc-panel[data-panelfor="' + tab.dataset.panel + '"]');
+  const open = panel && panel.hidden;
+  closeScPanels(open ? tab : null);
+  if (panel) panel.hidden = !open;
+}));
+document.addEventListener('click', (e) => { if (!e.target.closest('.sc-panels') && !e.target.closest('.sc-tabs')) closeScPanels(null); });
+$$('.sc-panel .sc-item').forEach((it) => it.addEventListener('click', () => closeScPanels(null)));
+$('#ft-open').addEventListener('click', () => { const d = devicesCache.find((x) => x.id === attachedId); if (d) openFiles(d); });
 document.addEventListener('fullscreenchange', () => setTimeout(fit, 60)); // re-fit after entering/leaving fullscreen
 
 function renderMonitors(msg) {

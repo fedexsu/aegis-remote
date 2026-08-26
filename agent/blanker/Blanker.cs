@@ -31,6 +31,13 @@ class Blanker {
   [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
   [DllImport("user32.dll")] static extern bool SetLayeredWindowAttributes(IntPtr h, uint key, byte alpha, uint flags);
   [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+  // Hide the local cursor while blanked (the hardware cursor renders above every
+  // window, so a black window alone can't cover it).
+  [DllImport("user32.dll")] static extern IntPtr CreateCursor(IntPtr hInst, int xHot, int yHot, int w, int h, byte[] andPlane, byte[] xorPlane);
+  [DllImport("user32.dll")] static extern bool SetSystemCursor(IntPtr hcur, uint id);
+  [DllImport("user32.dll")] static extern IntPtr CopyIcon(IntPtr h);
+  [DllImport("user32.dll")] static extern bool SystemParametersInfo(uint action, uint uParam, IntPtr vParam, uint winIni);
+  [DllImport("kernel32.dll", CharSet = CharSet.Auto)] static extern IntPtr GetModuleHandle(string n);
 
   const int GWL_EXSTYLE = -20;
   const int WS_EX_LAYERED = 0x00080000, WS_EX_TRANSPARENT = 0x00000020, WS_EX_TOOLWINDOW = 0x00000080, WS_EX_NOACTIVATE = 0x08000000;
@@ -38,8 +45,30 @@ class Blanker {
   const uint SWP_NOMOVE = 0x2, SWP_NOSIZE = 0x1, SWP_NOACTIVATE = 0x10, SWP_SHOWWINDOW = 0x40;
   const uint WDA_EXCLUDEFROMCAPTURE = 0x11;
   const uint LWA_ALPHA = 0x2;
+  const uint SPI_SETCURSORS = 0x0057;
+  // Every standard system cursor id (OCR_*), so no shape leaks the pointer.
+  static readonly uint[] OCR_IDS = { 32512, 32513, 32514, 32515, 32516, 32642, 32643, 32644, 32645, 32646, 32648, 32649, 32650, 32651 };
 
   static List<Form> forms = new List<Form>();
+  static bool cursorsHidden = false;
+
+  // Replace every system cursor with a fully transparent one.
+  static void HideCursors() {
+    try {
+      int w = 32, h = 32, bytes = w * h / 8;
+      byte[] and = new byte[bytes]; for (int i = 0; i < bytes; i++) and[i] = 0xFF; // AND=1, XOR=0 -> transparent
+      byte[] xor = new byte[bytes];
+      IntPtr blank = CreateCursor(GetModuleHandle(null), 0, 0, w, h, and, xor);
+      if (blank == IntPtr.Zero) return;
+      foreach (uint id in OCR_IDS) { IntPtr c = CopyIcon(blank); if (c != IntPtr.Zero) SetSystemCursor(c, id); } // SetSystemCursor destroys the handle it's given
+      cursorsHidden = true;
+    } catch { }
+  }
+  static void RestoreCursors() {
+    if (!cursorsHidden) return;
+    try { SystemParametersInfo(SPI_SETCURSORS, 0, IntPtr.Zero, 0); } catch { } // reload the real cursors
+    cursorsHidden = false;
+  }
 
   // A black window that never steals focus and is invisible to screen capture.
   class BlackForm : Form {
@@ -64,7 +93,13 @@ class Blanker {
   }
 
   [STAThread]
-  static void Main() {
+  static void Main(string[] args) {
+    // Safety mode: the agent runs `blanker.exe --restore` on startup so a prior
+    // hard-kill (that skipped our cleanup) can never leave cursors hidden.
+    if (args.Length > 0 && args[0] == "--restore") {
+      try { SystemParametersInfo(SPI_SETCURSORS, 0, IntPtr.Zero, 0); } catch { }
+      return;
+    }
     try { SetProcessDPIAware(); } catch { }
     foreach (Screen sc in Screen.AllScreens) {
       BlackForm f = new BlackForm();
@@ -82,16 +117,22 @@ class Blanker {
     }
     foreach (Form f in forms) f.Show();
     foreach (Form f in forms) Apply(f.Handle);
+    HideCursors();
 
-    // Re-assert topmost so nothing (taskbar, Start, a fullscreen app) covers it.
+    // Re-assert topmost aggressively so nothing (taskbar, Start, a toast
+    // notification, a fullscreen app) can sit above the black screen.
     System.Windows.Forms.Timer t = new System.Windows.Forms.Timer();
-    t.Interval = 700;
+    t.Interval = 150;
     t.Tick += delegate (object s, EventArgs e) {
       foreach (Form f in forms) { try { SetWindowPos(f.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); } catch { } }
     };
     t.Start();
 
-    // Exit when the parent closes our stdin (or is killed).
+    // Always restore the cursors, however we exit.
+    Application.ApplicationExit += delegate (object s, EventArgs e) { RestoreCursors(); };
+
+    // Exit cleanly when the parent closes our stdin (or the agent is killed —
+    // our stdin then hits EOF, so the cursors are restored even in that case).
     Thread th = new Thread(delegate () {
       try { while (Console.ReadLine() != null) { } } catch { }
       try { Application.Exit(); } catch { }
@@ -99,5 +140,6 @@ class Blanker {
     th.IsBackground = true; th.Start();
 
     Application.Run();
+    RestoreCursors();
   }
 }

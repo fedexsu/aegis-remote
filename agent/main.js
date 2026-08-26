@@ -416,12 +416,22 @@ function setBlank(on) {
       blankProc.on('error', () => { blankProc = null; });
     } catch { blankProc = null; }
   } else if (blankProc) {
-    try { blankProc.stdin.end(); } catch {}   // closes its stdin -> clean Application.Exit
-    try { blankProc.kill(); } catch {}
-    blankProc = null;
+    // Stop GRACEFULLY: closing stdin makes it exit cleanly and restore the
+    // hidden cursors. Hard-kill only as a fallback if it doesn't quit in time.
+    const p = blankProc; blankProc = null;
+    try { p.stdin.end(); } catch {}
+    const t = setTimeout(() => { try { p.kill(); } catch {} }, 2000);
+    p.on('exit', () => clearTimeout(t));
   }
 }
 const destroyBlank = () => setBlank(false);
+// On startup, defensively reload the system cursors in case a previous run was
+// hard-killed while the privacy blank had them hidden.
+function restoreCursorsSafety() {
+  const exe = path.join(__dirname, 'blanker', 'blanker.exe');
+  if (!fs.existsSync(exe) && !compileBlanker()) return;
+  try { spawn(exe, ['--restore'], { stdio: 'ignore', windowsHide: true, detached: true }).unref(); } catch {}
+}
 
 function procKill(reqId, pid) {
   const exe = process.env.SystemRoot ? path.join(process.env.SystemRoot, 'System32', 'taskkill.exe') : 'taskkill';
@@ -641,6 +651,7 @@ app.whenReady().then(() => {
   }, { useSystemPicker: false });
 
   startInjector();
+  restoreCursorsSafety();
   createWindow();
   createTray();
   try { if (loadConfig().keepAwake) applyKeepAwake(true); } catch {}

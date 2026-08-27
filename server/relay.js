@@ -481,18 +481,17 @@ function publicBase(req) {
 }
 
 // Serve the current installer that ships with the relay by default, so the enroll
-// link always works with zero manual upload. An owner-uploaded support.exe (on the
-// persistent volume) still overrides it. The old legacy AegisSetup.exe is ignored
-// on purpose — it installed the previous brand.
+// The freshly-built installer is baked into every deploy, so the BUNDLED file is the
+// source of truth — always the latest build. A previously-uploaded copy on the
+// persistent volume is only used as a fallback if the bundled file is missing (it
+// no longer shadows a newer deploy, which had been serving stale "previous" software).
 function installerFile(type) {
   if (type === 'service') {
-    const up = path.join(db.DATA_DIR, 'support-service.exe');
-    if (fs.existsSync(up)) return up;
-    return SERVICE_INSTALLER_PATH; // bundled release/support-service.exe
+    if (fs.existsSync(SERVICE_INSTALLER_PATH)) return SERVICE_INSTALLER_PATH; // bundled, latest
+    return path.join(db.DATA_DIR, 'support-service.exe');                     // legacy upload fallback
   }
-  const uploaded = path.join(db.DATA_DIR, 'support.exe');
-  if (fs.existsSync(uploaded)) return uploaded;
-  return INSTALLER_PATH; // bundled release/support.exe (in the repo, deployed with the relay)
+  if (fs.existsSync(INSTALLER_PATH)) return INSTALLER_PATH; // bundled release/support.exe, latest
+  return path.join(db.DATA_DIR, 'support.exe');            // legacy upload fallback
 }
 
 // Serve the installer with the key in its filename (installer self-configures).

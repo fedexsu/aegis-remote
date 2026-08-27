@@ -50,7 +50,7 @@ function decSecret(stored) {
   } catch { return ''; }
 }
 
-let db = { admins: [], keys: [], devices: [], sessions: [] };
+let db = { admins: [], keys: [], devices: [], sessions: [], invoices: [], processedTx: [] };
 
 function load() {
   let existed = false;
@@ -60,7 +60,7 @@ function load() {
   } catch {
     db = { admins: [], keys: [], devices: [], sessions: [] };
   }
-  for (const k of ['admins', 'keys', 'devices', 'sessions']) if (!Array.isArray(db[k])) db[k] = [];
+  for (const k of ['admins', 'keys', 'devices', 'sessions', 'invoices', 'processedTx']) if (!Array.isArray(db[k])) db[k] = [];
   // Migration: ensure there is an owner (the earliest-created admin) even for
   // accounts created before the role field existed.
   if (db.admins.length && !db.admins.some((a) => a.role === 'owner')) {
@@ -350,6 +350,63 @@ function removeCredential(adminId, id) {
   return a.credentials.length < n;
 }
 
+// ---- billing: plans, USDT invoices, provisioning (Telegram bot) ----------------
+// Prices in USDT (1 USDT ~= 1 USD). All plans are full-featured at launch; the term
+// just sets the subscription length. Enforcement of expiry is a later step.
+const PLANS = {
+  monthly:   { key: 'monthly',   label: 'Monthly',            usdt: 29,  days: 30 },
+  quarterly: { key: 'quarterly', label: 'Quarterly (3 months)', usdt: 78,  days: 90 },
+  biannual:  { key: 'biannual',  label: 'Biannual (6 months)',  usdt: 138, days: 180 },
+  annual:    { key: 'annual',    label: 'Annual (12 months)',   usdt: 228, days: 365 },
+};
+const plans = () => PLANS;
+
+// Create a pending invoice with a UNIQUE amount (base price + a tiny per-invoice tag
+// in the last micro-USDT digits) so one receiving address can serve everyone: the
+// watcher matches an incoming transfer to exactly one invoice by amount.
+function createInvoice(tgUserId, tgChat, planKey) {
+  const p = PLANS[planKey]; if (!p) return null;
+  if (!Array.isArray(db.invoices)) db.invoices = [];
+  const baseMicro = p.usdt * 1000000;
+  const used = new Set(db.invoices.filter((i) => i.status === 'pending' && i.expiresAt > Date.now()).map((i) => i.amountMicro));
+  let amountMicro, tries = 0;
+  do { amountMicro = baseMicro + 1 + Math.floor(Math.random() * 9999); tries++; } while (used.has(amountMicro) && tries < 5000);
+  const now = Date.now();
+  const inv = { id: genId(), tgUserId, tgChat, plan: planKey, amountMicro, status: 'pending', txid: null, adminId: null, createdAt: now, expiresAt: now + 60 * 60 * 1000 };
+  db.invoices.push(inv); save();
+  return inv;
+}
+function getInvoice(id) { return (db.invoices || []).find((i) => i.id === id); }
+function expireInvoices() {
+  let ch = false;
+  for (const i of db.invoices || []) if (i.status === 'pending' && i.expiresAt <= Date.now()) { i.status = 'expired'; ch = true; }
+  if (ch) save();
+}
+function matchPendingInvoiceByAmount(amountMicro) {
+  return (db.invoices || []).find((i) => i.status === 'pending' && i.expiresAt > Date.now() && i.amountMicro === amountMicro);
+}
+const isTxProcessed = (txid) => (db.processedTx || []).includes(txid);
+function markTxProcessed(txid) {
+  if (!Array.isArray(db.processedTx)) db.processedTx = [];
+  if (!db.processedTx.includes(txid)) { db.processedTx.push(txid); if (db.processedTx.length > 5000) db.processedTx = db.processedTx.slice(-3000); save(); }
+}
+// On a confirmed payment: create a customer account + its enrollment key, stamp the
+// subscription, mark the invoice paid, and return the credentials to DM the buyer.
+function provisionFromInvoice(inv) {
+  const p = PLANS[inv.plan] || PLANS.monthly;
+  let username, tries = 0;
+  do { username = 'hc-' + crypto.randomBytes(3).toString('hex'); tries++; } while (findAdminByEmail(username) && tries < 50);
+  const password = crypto.randomBytes(6).toString('base64url'); // ~8 chars
+  const { admin, key } = createAdmin(username, password, username, 'admin');
+  admin.plan = inv.plan;
+  admin.subStart = Date.now();
+  admin.subExpires = Date.now() + p.days * 86400000;
+  admin.tgUserId = inv.tgUserId;
+  inv.status = 'paid'; inv.adminId = admin.id; inv.paidAt = Date.now();
+  save();
+  return { username, password, key: key.key, plan: p };
+}
+
 module.exports = {
   DATA_DIR,
   createAdmin, findAdminByEmail, findAdminById, publicAdmin, verifyPassword,
@@ -360,4 +417,5 @@ module.exports = {
   upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, markUninstalled, setAsleep, ownerOfDevice,
   setDeviceProtection, allowUninstall, uninstallAllowed,
   getCredentials, addCredential, removeCredential,
+  plans, createInvoice, getInvoice, expireInvoices, matchPendingInvoiceByAmount, isTxProcessed, markTxProcessed, provisionFromInvoice,
 };

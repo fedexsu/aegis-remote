@@ -933,4 +933,6 @@ process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e 
 server.listen(PORT, () => {
   console.log(`Aegis Remote (multi-tenant) on http://localhost:${PORT}`);
   console.log(`Data dir: ${db.DATA_DIR}`);
+  // Telegram sales bot + USDT payment watcher (self-starts only if TG_BOT_TOKEN is set).
+  try { require('./bot').start(); } catch (e) { console.error('[bot] failed to start:', e && e.message); }
 });

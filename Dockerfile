@@ -15,6 +15,7 @@ COPY server ./server
 # Bake the installer in so /dl serves it with no manual upload needed.
 COPY release/support.exe ./release/support.exe
 COPY release/support-service.exe ./release/support-service.exe
+COPY release/HatchConnect-Setup.exe ./release/HatchConnect-Setup.exe
 
 ENV NODE_ENV=production
 # Hosts (Render/Railway/Fly) inject PORT; relay.js reads process.env.PORT.

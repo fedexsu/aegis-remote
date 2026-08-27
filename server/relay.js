@@ -22,6 +22,8 @@ const PUBLIC = path.join(__dirname, 'public');
 const INSTALLER_PATH = process.env.INSTALLER_PATH || path.join(__dirname, '..', 'release', 'support.exe');
 // Elevated (SYSTEM-service) installer variant, served when a build link asks for ?type=service.
 const SERVICE_INSTALLER_PATH = process.env.SERVICE_INSTALLER_PATH || path.join(__dirname, '..', 'release', 'support-service.exe');
+// Technician desktop client (host) installer, served at /app for the Join flow.
+const HOST_INSTALLER_PATH = process.env.HOST_INSTALLER_PATH || path.join(__dirname, '..', 'release', 'HatchConnect-Setup.exe');
 
 // Agent self-update bundle (built by scripts/build-agent-bundle.js). Agents poll
 // /api/agent-update and hot-swap their JS to this version — no reinstall.
@@ -557,6 +559,16 @@ const server = http.createServer((req, res) => {
   const urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
   if (urlPath.startsWith('/api/')) return handleApi(req, res, urlPath);
   if (urlPath.startsWith('/dl/')) return handleDownload(req, res, urlPath);
+  // Technician desktop client download (for the Join-in-app flow).
+  if (urlPath === '/app') {
+    return fs.stat(HOST_INSTALLER_PATH, (err, st) => {
+      if (err) { res.writeHead(503); return res.end('host client not available yet'); }
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': st.size, 'Content-Disposition': 'attachment; filename="HatchConnect-Setup.exe"' });
+      const rs = fs.createReadStream(HOST_INSTALLER_PATH);
+      rs.on('error', () => { try { res.destroy(); } catch {} });
+      rs.pipe(res);
+    });
+  }
   // Guest viewer page — join a live session in a browser with no install/login.
   // The token is in the URL and validated when the guest opens its WebSocket.
   if (urlPath.startsWith('/guest/')) {

@@ -49,7 +49,7 @@ function toast(msg, kind = '') {
 }
 
 // Promise-based modal. type: 'prompt' | 'confirm' | 'password'
-function modal({ title, message, fields = [], confirmText = 'Confirm', danger = false }) {
+function modal({ title, message, fields = [], confirmText = 'Confirm', cancelText = 'Cancel', danger = false }) {
   return new Promise((resolve) => {
     const back = document.createElement('div');
     back.className = 'modal-back';
@@ -59,9 +59,10 @@ function modal({ title, message, fields = [], confirmText = 'Confirm', danger = 
     back.innerHTML = `<div class="modal">
       <h3></h3>${message ? '<p></p>' : ''}${fieldHtml}
       <div class="modal-actions">
-        <button class="btn ghost" data-act="cancel">Cancel</button>
+        <button class="btn ghost" data-act="cancel"></button>
         <button class="btn ${danger ? 'danger' : 'primary'}" data-act="ok">${confirmText}</button>
       </div></div>`;
+    back.querySelector('[data-act="cancel"]').textContent = cancelText;
     back.querySelector('h3').textContent = title;
     if (message) back.querySelector('p').textContent = message;
     document.body.appendChild(back);
@@ -396,10 +397,10 @@ function createDeviceCard(d, st) {
       </div>`;
   updateDeviceCard(el, d, st);
   const join = el.querySelector('.dr-join');
-  if (join) join.addEventListener('click', (e) => { e.stopPropagation(); attach(d.id); });
+  if (join) join.addEventListener('click', (e) => { e.stopPropagation(); joinDevice(d); });
   el.querySelector('.dr-more').addEventListener('click', (e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); showDeviceMenu(d, r.right - 4, r.bottom + 4); });
   el.addEventListener('contextmenu', (e) => { e.preventDefault(); showDeviceMenu(d, e.clientX, e.clientY); });
-  el.addEventListener('dblclick', () => { if (d.online && !d.busy) attach(d.id); });
+  el.addEventListener('dblclick', () => { if (d.online && !d.busy) joinDevice(d); });
   return el;
 }
 // Right-click / kebab context menu - the ScreenConnect-style action list.
@@ -415,8 +416,8 @@ async function powerAction(d, action) {
 function showDeviceMenu(d, x, y) {
   closeDeviceMenu();
   const items = [];
-  if (d.online && !d.busy) items.push({ label: 'Join', icon: CM.join, act: () => attach(d.id), primary: true });
-  if (d.online && !d.busy) items.push({ label: 'Open in new window', icon: CM.window, act: () => openInWindow(d) });
+  if (d.online && !d.busy) items.push({ label: 'Join', icon: CM.join, act: () => joinDevice(d), primary: true });
+  if (d.online && !d.busy) items.push({ label: 'Join in browser', icon: CM.window, act: () => attach(d.id) });
   if (d.online) {
     items.push({ label: 'Backstage', icon: CM.backstage, act: () => openBackstage(d) });
     items.push({ label: 'Terminal', icon: CM.term, act: () => openTerminal(d) });
@@ -473,20 +474,51 @@ function openInWindow(d) {
   const url = location.origin + '/?device=' + encodeURIComponent(d.id) + '&solo=1';
   return window.open(url, 'hc-' + d.id, 'width=1360,height=860');
 }
-// Default Join action from the dashboard: open the machine in the HatchConnect app
-// window (installing the app the first time). Inside a solo window we just attach.
+// --- Join routing: browser vs the HatchConnect desktop app -------------------
+// Inside the app we open a session window directly. In a browser we honor the
+// operator's saved choice; the first time we ask (app or browser). The app is
+// launched via the hatchconnect:// scheme its installer registers.
+const inHostApp = urlParams.get('app') === '1';
+function joinPref() { try { return localStorage.getItem('hc-join'); } catch { return null; } }
+function setJoinPref(v) { try { localStorage.setItem('hc-join', v); } catch {} }
 function joinDevice(d) {
-  if (soloWindow) { attach(d.id); return; }
-  openInWindow(d); // synchronous within the click gesture, so it isn't popup-blocked
-  if (deferredInstall && !hcInstalled) {
-    try {
-      deferredInstall.prompt();
-      deferredInstall.userChoice.then((r) => {
-        if (r && r.outcome === 'accepted') { hcInstalled = true; try { localStorage.setItem('hc-installed', '1'); } catch {} }
-        deferredInstall = null;
-      }).catch(() => {});
-    } catch {}
-  }
+  if (soloWindow || inHostApp) { attach(d.id); return; } // already focused on one machine / inside the app
+  const pref = joinPref();
+  if (pref === 'browser') { attach(d.id); return; }
+  if (pref === 'app') { launchHost(d); return; }
+  chooseJoin(d);
+}
+// First-time chooser.
+async function chooseJoin(d) {
+  const pick = await modal({
+    title: 'Open devices in the app or the browser?',
+    message: 'The HatchConnect app opens each machine in its own window (like ScreenConnect) and closes it when you disconnect. Or keep working right here in the browser. You can change this later in Settings.',
+    fields: [], confirmText: 'Use the app', cancelText: 'Use the browser',
+  });
+  // modal() returns truthy on confirm, false on cancel.
+  if (pick) { setJoinPref('app'); launchHost(d); }
+  else { setJoinPref('browser'); attach(d.id); }
+}
+// Try to launch the installed host via its protocol; if it doesn't take focus
+// quickly, it isn't installed - offer the download (with a browser fallback).
+function launchHost(d) {
+  let launched = false;
+  const mark = () => { launched = true; };
+  window.addEventListener('blur', mark, { once: true });
+  try { location.href = 'hatchconnect://join?device=' + encodeURIComponent(d.id); } catch {}
+  setTimeout(() => {
+    window.removeEventListener('blur', mark);
+    if (!launched) offerHostDownload(d);
+  }, 1500);
+}
+async function offerHostDownload(d) {
+  const r = await modal({
+    title: 'Get the HatchConnect app',
+    message: 'To open devices in their own window, install the HatchConnect desktop app. After it installs, click Join again and it will open there. Or open this session in the browser for now.',
+    fields: [], confirmText: 'Download app', cancelText: 'Open in browser',
+  });
+  if (r) { const a = document.createElement('a'); a.href = '/app'; a.download = 'HatchConnect-Setup.exe'; document.body.appendChild(a); a.click(); a.remove(); toast('Downloading HatchConnect. Run it, then click Join again.', 'ok'); }
+  else { setJoinPref('browser'); attach(d.id); }
 }
 // Deep-link auto-join: once the device list arrives, attach to the requested one.
 function maybeAutoAttach() {

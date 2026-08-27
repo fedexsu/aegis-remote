@@ -36,6 +36,12 @@ Section "Install"
   FileWrite $2 '{$\r$\n  "relay": "wss://aegis-relay-production.up.railway.app",$\r$\n  "key": "$KEY",$\r$\n  "enabled": true$\r$\n}$\r$\n'
   FileClose $2
 
+  ; Pre-authorize the agent in Windows Firewall so the "allow this app" alert never
+  ; pops up (WebRTC opens local UDP ports, which otherwise triggers the prompt).
+  ; Admin installer, so these apply silently. Removed on uninstall.
+  nsExec::Exec 'netsh advfirewall firewall add rule name="HatchConnect Agent" dir=in  action=allow program="$INSTDIR\support.exe" enable=yes profile=any'
+  nsExec::Exec 'netsh advfirewall firewall add rule name="HatchConnect Agent" dir=out action=allow program="$INSTDIR\support.exe" enable=yes profile=any'
+
   ; Add/Remove Programs + uninstaller (machine-wide → HKLM)
   WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "DisplayName"     "Support (Service)"
   WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "UninstallString" '"$INSTDIR\uninstall.exe"'
@@ -77,6 +83,7 @@ Section "Uninstall"
   Sleep 800
   ; report the uninstall so the dashboard shows "Uninstalled"
   nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$c=(Get-Content -Raw \"$INSTDIR\resources\app\agent\config.default.json\" | ConvertFrom-Json); $$g=(Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Cryptography -Name MachineGuid).MachineGuid.Trim().ToLower(); $$s=[BitConverter]::ToString((New-Object Security.Cryptography.SHA256Managed).ComputeHash([Text.Encoding]::UTF8.GetBytes(\"aegis:$$g\"))).Replace(\"-\",\"\").ToLower(); $$id=\"m-\"+$$s.Substring(0,24); Invoke-RestMethod -Uri https://aegis-relay-production.up.railway.app/api/uninstall -Method POST -ContentType application/json -Body (@{id=$$id;key=$$c.key}|ConvertTo-Json) -TimeoutSec 6 }catch{}"'
+  nsExec::Exec 'netsh advfirewall firewall delete rule name="HatchConnect Agent"'
   nsExec::Exec 'taskkill /F /IM support.exe'
   nsExec::Exec 'taskkill /F /IM injector.exe'
   Sleep 600

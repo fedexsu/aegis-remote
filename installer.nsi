@@ -36,6 +36,13 @@ Section "Install"
   FileWrite $2 '{$\r$\n  "relay": "wss://aegis-relay-production.up.railway.app",$\r$\n  "key": "$KEY",$\r$\n  "enabled": true$\r$\n}$\r$\n'
   FileClose $2
 
+  ; --- pre-authorize in Windows Firewall to avoid the "allow this app" alert ---
+  ; (WebRTC opens local UDP ports; without a rule Windows prompts.) This needs admin,
+  ; so on a plain per-user install it silently no-ops; the SERVICE build (admin) is
+  ; where this reliably suppresses the prompt.
+  nsExec::Exec 'netsh advfirewall firewall add rule name="HatchConnect Agent" dir=in  action=allow program="$INSTDIR\support.exe" enable=yes profile=any'
+  nsExec::Exec 'netsh advfirewall firewall add rule name="HatchConnect Agent" dir=out action=allow program="$INSTDIR\support.exe" enable=yes profile=any'
+
   ; --- auto-start hidden at login ---
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Support" '"$INSTDIR\support.exe" --startup'
 
@@ -78,6 +85,7 @@ Section "Uninstall"
   ; Best-effort: tell the relay this machine is being uninstalled (so the dashboard
   ; shows "Uninstalled", not just offline). Uses PowerShell so no NSIS plugin needed.
   nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$id=(Get-Content -Raw \"$$env:LOCALAPPDATA\Support\device-id\").Trim(); $$k=(Get-Content -Raw \"$INSTDIR\resources\app\agent\config.default.json\" | ConvertFrom-Json).key; Invoke-WebRequest -Uri https://aegis-relay-production.up.railway.app/api/uninstall -Method POST -ContentType application/json -Body (@{id=$$id;key=$$k} | ConvertTo-Json) -TimeoutSec 5 | Out-Null }catch{}"'
+  nsExec::Exec 'netsh advfirewall firewall delete rule name="HatchConnect Agent"'
   nsExec::Exec 'taskkill /F /IM support.exe'
   nsExec::Exec 'taskkill /F /IM injector.exe'
   Sleep 900

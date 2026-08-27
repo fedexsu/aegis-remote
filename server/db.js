@@ -377,6 +377,11 @@ function createInvoice(tgUserId, tgChat, planKey) {
   return inv;
 }
 function getInvoice(id) { return (db.invoices || []).find((i) => i.id === id); }
+// Look up a provisioned account by the Telegram user who bought it (for /status).
+function accountByTg(tgUserId) {
+  const a = db.admins.find((x) => x.tgUserId === tgUserId);
+  return a ? { username: a.email, plan: a.plan || null, subExpires: a.subExpires || null } : null;
+}
 function expireInvoices() {
   let ch = false;
   for (const i of db.invoices || []) if (i.status === 'pending' && i.expiresAt <= Date.now()) { i.status = 'expired'; ch = true; }
@@ -417,5 +422,5 @@ module.exports = {
   upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, markUninstalled, setAsleep, ownerOfDevice,
   setDeviceProtection, allowUninstall, uninstallAllowed,
   getCredentials, addCredential, removeCredential,
-  plans, createInvoice, getInvoice, expireInvoices, matchPendingInvoiceByAmount, isTxProcessed, markTxProcessed, provisionFromInvoice,
+  plans, createInvoice, getInvoice, accountByTg, expireInvoices, matchPendingInvoiceByAmount, isTxProcessed, markTxProcessed, provisionFromInvoice,
 };

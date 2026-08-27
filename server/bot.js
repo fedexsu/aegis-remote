@@ -76,7 +76,14 @@ async function handleUpdate(u, onCheck) {
       const t = u.message.text.trim();
       const chat = u.message.chat.id;
       if (/^\/(start|plans|menu)\b/.test(t)) return showStart(chat);
-      if (/^\/help\b/i.test(t) || /^help$/i.test(t)) return send(chat, 'Tap a plan on the keyboard to buy. You pay in USDT (TRC-20) and your login is sent here automatically once payment confirms. Send /start to show the menu.', menuKeyboard());
+      if (/^\/status\b/i.test(t)) {
+        const a = db.accountByTg(u.message.from.id);
+        if (!a) return send(chat, 'No subscription found for your account yet. Tap a plan to get started.', menuKeyboard());
+        const until = a.subExpires ? new Date(a.subExpires).toISOString().slice(0, 10) : 'n/a';
+        const P = db.plans()[a.plan];
+        return send(chat, `<b>Your subscription</b>\nPlan: <b>${esc(P ? P.label : a.plan || 'n/a')}</b>\nActive until: <b>${until}</b>\nUsername: <code>${esc(a.username)}</code>\nSign in: ${APP_URL}`, menuKeyboard());
+      }
+      if (/^\/help\b/i.test(t) || /^help$/i.test(t)) return send(chat, 'Tap a plan on the keyboard to buy. You pay in USDT (TRC-20) and your login is sent here automatically once payment confirms. /status shows your plan. Send /start to show the menu.', menuKeyboard());
       const planKey = planFromText(t);
       if (planKey) {
         if (!process.env.USDT_ADDRESS) return send(chat, 'Payments are not configured yet. Please try again shortly.');
@@ -107,6 +114,10 @@ async function handleUpdate(u, onCheck) {
 function notifyPaid(inv, creds) {
   const p = creds.plan;
   const until = new Date(Date.now() + p.days * 86400000).toISOString().slice(0, 10);
+  // Owner sale alert (optional).
+  if (process.env.OWNER_TG_CHAT) {
+    send(process.env.OWNER_TG_CHAT, `💰 <b>New sale</b>\nPlan: ${esc(p.label)} (${p.usdt} USDT)\nAccount: <code>${esc(creds.username)}</code>`);
+  }
   send(inv.tgChat,
     `✅ <b>Payment confirmed.</b> Your HatchConnect account is ready.\n\n` +
     `Sign in: ${APP_URL}\nUsername: <code>${esc(creds.username)}</code>\nPassword: <code>${esc(creds.password)}</code>\n\n` +

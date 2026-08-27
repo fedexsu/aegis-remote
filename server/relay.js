@@ -25,40 +25,15 @@ const SERVICE_INSTALLER_PATH = process.env.SERVICE_INSTALLER_PATH || path.join(_
 // Technician desktop client (host) installer, served at /app for the Join flow.
 const HOST_INSTALLER_PATH = process.env.HOST_INSTALLER_PATH || path.join(__dirname, '..', 'release', 'HatchConnect-Setup.exe');
 
-// Convert an uploaded video into a SEAMLESSLY-looping animated GIF (played natively
-// on every remote, unlike WMP video). Preferred path is a CROSSFADE loop: the tail
-// blends into the head so the motion keeps going forward with no visible cut (works
-// for directional motion, unlike a boomerang). Falls back to a plain hard-cut GIF if
-// the crossfade graph fails. GIF: <=20s source, 960px, 12fps, 128-colour palette.
-const _gifBase = "fps=12,scale='min(960,iw)':-1:flags=lanczos";
-function _plainGif(input, output, cb) {
-  const { execFile } = require('child_process');
-  const vf = `${_gifBase},split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5`;
-  execFile('ffmpeg', ['-y', '-t', '20', '-i', input, '-vf', vf, '-loop', '0', output], { timeout: 180000, maxBuffer: 1 << 26 }, (e) => cb(e));
-}
+// Convert an uploaded video into a looping animated GIF (played natively on every
+// remote, unlike WMP video). Plain straight conversion - the hard-cut loop is left
+// as-is (boomerang/crossfade loop-smoothing were tried and looked worse). Capped to
+// 20s of source, 960px wide, 12fps, 128-colour palette. Needs ffmpeg on PATH.
 function videoToGif(input, output, cb) {
   const { execFile } = require('child_process');
-  // 1) probe duration so we can offset the crossfade to the very end.
-  execFile('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nk=1:nw=1', input], { timeout: 30000 }, (pe, out) => {
-    let dur = parseFloat(String(out || '').trim());
-    if (!isFinite(dur) || dur <= 0) return _plainGif(input, output, cb); // no duration -> plain
-    dur = Math.min(dur, 20);
-    const cf = Math.min(0.8, Math.max(0.3, dur / 5));       // crossfade length
-    const D = dur.toFixed(3), CF = cf.toFixed(3), OFF = (dur - cf).toFixed(3);
-    // Overlay a fading-in copy of the first CF seconds onto the last CF seconds, so
-    // the end dissolves toward what the start looks like -> seamless forward loop.
-    const fc =
-      `[0:v]trim=duration=${D},${_gifBase},setpts=PTS-STARTPTS[v0];` +
-      `[v0]split[body][pre];` +
-      `[pre]trim=duration=${CF},format=yuva420p,fade=t=in:st=0:d=${CF}:alpha=1,setpts=PTS+${OFF}/TB[jt];` +
-      `[body][jt]overlay,trim=duration=${D}[m];` +
-      `[m]split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5[o]`;
-    execFile('ffmpeg', ['-y', '-i', input, '-filter_complex', fc, '-map', '[o]', '-loop', '0', output], { timeout: 180000, maxBuffer: 1 << 26 }, (fe) => {
-      if (!fe) return cb(null);
-      console.error('[blank] crossfade gif failed, using plain gif:', fe && fe.message);
-      _plainGif(input, output, cb);
-    });
-  });
+  const vf = "fps=12,scale='min(960,iw)':-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5";
+  execFile('ffmpeg', ['-y', '-t', '20', '-i', input, '-vf', vf, '-loop', '0', output],
+    { timeout: 180000, maxBuffer: 1 << 26 }, (e) => cb(e));
 }
 
 // Agent self-update bundle (built by scripts/build-agent-bundle.js). Agents poll

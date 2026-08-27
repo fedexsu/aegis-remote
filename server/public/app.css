@@ -212,6 +212,14 @@ body.solo .sidebar{display:none}
 .btn.xs{padding:3px 12px;font-size:12px}
 .icon-btn.dr-more{width:28px;height:28px;padding:0}
 .icon-btn.dr-more svg{width:16px;height:16px}
+/* solo/app "connecting" cover - hides the dashboard blink before auto-attach */
+#solo-loader{position:fixed;inset:0;z-index:9999;background:#0b1017;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;transition:opacity .25s ease}
+#solo-loader.gone{opacity:0;pointer-events:none}
+#solo-loader .sl-spin{width:30px;height:30px;border-radius:50%;border:3px solid rgba(255,255,255,.15);border-top-color:#2f6bff;animation:sl-rot .8s linear infinite}
+#solo-loader .sl-txt{color:#93a7c4;font-size:14px;letter-spacing:.02em}
+@keyframes sl-rot{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){#solo-loader .sl-spin{animation:none}}
+
 /* Backstage hub */
 .bs-modal{width:min(600px,94vw)}
 .bs-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}

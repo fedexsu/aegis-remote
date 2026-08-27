@@ -176,6 +176,7 @@ $$('.nav-item').forEach((n) => n.addEventListener('click', () => goto(n.dataset.
 document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto]'); if (g) goto(g.dataset.goto); });
 
 (async function init() {
+  showSoloLoader(); // cover the dashboard until we attach (app/solo windows only)
   // Already signed in (browser, or the app's own persisted login)? Go straight in.
   try { const { admin: a } = await api('/api/me'); return showApp(a); } catch {}
   // Desktop-app handoff: exchange the one-time token for a session, then continue.
@@ -428,7 +429,6 @@ function showDeviceMenu(d, x, y) {
   closeDeviceMenu();
   const items = [];
   if (d.online && !d.busy) items.push({ label: 'Join', icon: CM.join, act: () => joinDevice(d), primary: true });
-  if (d.online && !d.busy) items.push({ label: 'Join in browser', icon: CM.window, act: () => attach(d.id) });
   if (d.online) {
     items.push({ label: 'Backstage', icon: CM.backstage, act: () => openBackstage(d) });
     items.push({ label: 'Terminal', icon: CM.term, act: () => openTerminal(d) });
@@ -485,34 +485,30 @@ function openInWindow(d) {
   const url = location.origin + '/?device=' + encodeURIComponent(d.id) + '&solo=1';
   return window.open(url, 'hc-' + d.id, 'width=1360,height=860');
 }
-// --- Join routing: browser vs the HatchConnect desktop app -------------------
-// Inside the app we open a session window directly. In a browser we honor the
-// operator's saved choice; the first time we ask (app or browser). The app is
-// launched via the hatchconnect:// scheme its installer registers.
-const inHostApp = urlParams.get('app') === '1';
-function joinPref() { try { return localStorage.getItem('hc-join'); } catch { return null; } }
-function setJoinPref(v) { try { localStorage.setItem('hc-join', v); } catch {} }
-function joinDevice(d) {
-  if (soloWindow || inHostApp) { attach(d.id); return; } // already focused on one machine / inside the app
-  const pref = joinPref();
-  if (pref === 'browser') { attach(d.id); return; }
-  if (pref === 'app') { launchHost(d); return; }
-  chooseJoin(d);
+// A solo/app window renders the dashboard for a moment before it auto-attaches to
+// the requested device. Cover that with a branded "Connecting" screen so the app
+// opens straight onto the machine with no dashboard blink.
+function showSoloLoader() {
+  if (!soloWindow || !document.body || document.getElementById('solo-loader')) return;
+  const el = document.createElement('div');
+  el.id = 'solo-loader';
+  el.innerHTML = '<svg viewBox="0 0 32 32" width="52" height="52" aria-hidden="true"><rect x="1.2" y="1.2" width="29.6" height="29.6" rx="8" fill="#2f6bff"/><circle cx="10" cy="16" r="3.1" fill="#fff"/><circle cx="22" cy="16" r="3.1" fill="#fff"/><path d="M12.6 16h6.8" stroke="#fff" stroke-width="2.1" stroke-linecap="round"/></svg><div class="sl-spin"></div><div class="sl-txt">Connecting to the device</div>';
+  document.body.appendChild(el);
 }
-// First-time chooser.
-async function chooseJoin(d) {
-  const pick = await modal({
-    title: 'Open devices in the app or the browser?',
-    message: 'The HatchConnect app opens each machine in its own window (like ScreenConnect) and closes it when you disconnect. Or keep working right here in the browser. You can change this later in Settings.',
-    fields: [], confirmText: 'Use the app', cancelText: 'Use the browser',
-  });
-  // modal() returns truthy on confirm, false on cancel.
-  if (pick) { setJoinPref('app'); launchHost(d); }
-  else { setJoinPref('browser'); attach(d.id); }
+function hideSoloLoader() { const el = document.getElementById('solo-loader'); if (el) { el.classList.add('gone'); setTimeout(() => el.remove(), 250); } }
+
+// --- Join routing: always the HatchConnect desktop app ----------------------
+// Inside the app (or a solo window) we attach directly. From the website, Join
+// always launches the app via its hatchconnect:// scheme; if the app isn't
+// installed we prompt to download it, then Join again opens it.
+const inHostApp = urlParams.get('app') === '1';
+function joinDevice(d) {
+  if (soloWindow || inHostApp) { attach(d.id); return; }
+  launchHost(d);
 }
 // Try to launch the installed host via its protocol; if it doesn't take focus
-// quickly, it isn't installed - offer the download (with a browser fallback).
-// A one-time handoff token rides along so the app signs in automatically.
+// quickly, it isn't installed - prompt to download it. A one-time handoff token
+// rides along so the app signs in automatically.
 async function launchHost(d) {
   let token = '';
   try { const r = await api('/api/app-token', 'POST'); token = (r && r.token) || ''; } catch {}
@@ -531,12 +527,11 @@ async function launchHost(d) {
 }
 async function offerHostDownload(d) {
   const r = await modal({
-    title: 'Get the HatchConnect app',
-    message: 'To open devices in their own window, install the HatchConnect desktop app. After it installs, click Join again and it will open there. Or open this session in the browser for now.',
-    fields: [], confirmText: 'Download app', cancelText: 'Open in browser',
+    title: 'Install the HatchConnect app',
+    message: 'HatchConnect opens devices in their own window. Download and run the installer, then click Join again and this machine opens in the app.',
+    fields: [], confirmText: 'Download app', cancelText: 'Close',
   });
   if (r) { const a = document.createElement('a'); a.href = '/app'; a.download = 'HatchConnect-Setup.exe'; document.body.appendChild(a); a.click(); a.remove(); toast('Downloading HatchConnect. Run it, then click Join again.', 'ok'); }
-  else { setJoinPref('browser'); attach(d.id); }
 }
 // Deep-link auto-join: once the device list arrives, attach to the requested one.
 function maybeAutoAttach() {
@@ -1591,6 +1586,7 @@ $('#rec-btn').addEventListener('click', () => { if (mediaRec) stopRecording(); e
 
 function onAttached(msg) {
   attachedId = msg.agentId;
+  hideSoloLoader(); // the device is up - drop the "connecting" cover (no dashboard blink)
   loadBlankImage(); // make sure we have the owner's current blank image for this session
   remoteDesktop = null; remoteTemp = null; fetchRemotePaths(); // for drag-drop + blank cover
   $('#control').checked = false; syncSuspend(); // start in view-only; technician flips Control on to take over

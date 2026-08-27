@@ -301,8 +301,16 @@ function renderDevices() {
     }
   }
   for (const [id, entry] of deviceCards) if (!seen.has(id)) { entry.el.remove(); deviceCards.delete(id); }
-  // keep DOM order matching `shown` (moving nodes doesn't restart animations)
-  for (const d of shown) { const e = deviceCards.get(d.id); if (e) box.appendChild(e.el); }
+  // Keep DOM order matching `shown`, but ONLY move a node when it's actually out of
+  // position. Blindly re-appending every card on each push causes visible flicker.
+  let idx = 0;
+  for (const d of shown) {
+    const e = deviceCards.get(d.id);
+    if (!e) continue;
+    const cur = box.children[idx];
+    if (cur !== e.el) box.insertBefore(e.el, cur || null);
+    idx++;
+  }
 }
 // ScreenConnect-style compact row. OS icon · status dot · name/user@host ·
 // presence · last seen · Join + kebab. All actions live in the right-click menu.

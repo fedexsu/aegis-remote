@@ -98,8 +98,30 @@ function deviceListFor(adminId) {
     };
   });
 }
-function pushDevices(adminId) {
+function pushDevicesNow(adminId) {
   for (const c of consoles.values()) if (c.adminId === adminId && !c.agentId) send(c.ws, { type: 'agents', list: deviceListFor(adminId) });
+}
+// Coalesce bursts: presence heartbeats from many agents (and reconnect storms)
+// would otherwise push the whole device list to every console many times a second,
+// which makes the dashboard list flicker. Fire immediately if idle, then collapse
+// any further pushes in the next window into a single trailing push per admin.
+const _pushDevWindow = 600;
+const _pushDevLast = new Map();   // adminId -> last push timestamp
+const _pushDevTimer = new Map();  // adminId -> pending trailing timeout
+function pushDevices(adminId) {
+  const now = Date.now();
+  const last = _pushDevLast.get(adminId) || 0;
+  if (now - last >= _pushDevWindow) {
+    _pushDevLast.set(adminId, now);
+    pushDevicesNow(adminId);
+  } else if (!_pushDevTimer.has(adminId)) {
+    const wait = _pushDevWindow - (now - last);
+    _pushDevTimer.set(adminId, setTimeout(() => {
+      _pushDevTimer.delete(adminId);
+      _pushDevLast.set(adminId, Date.now());
+      pushDevicesNow(adminId);
+    }, wait));
+  }
 }
 
 // ---------------------------------------------------------------------------

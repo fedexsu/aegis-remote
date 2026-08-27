@@ -396,10 +396,10 @@ function createDeviceCard(d, st) {
       </div>`;
   updateDeviceCard(el, d, st);
   const join = el.querySelector('.dr-join');
-  if (join) join.addEventListener('click', (e) => { e.stopPropagation(); joinDevice(d); });
+  if (join) join.addEventListener('click', (e) => { e.stopPropagation(); attach(d.id); });
   el.querySelector('.dr-more').addEventListener('click', (e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); showDeviceMenu(d, r.right - 4, r.bottom + 4); });
   el.addEventListener('contextmenu', (e) => { e.preventDefault(); showDeviceMenu(d, e.clientX, e.clientY); });
-  el.addEventListener('dblclick', () => { if (d.online && !d.busy) joinDevice(d); });
+  el.addEventListener('dblclick', () => { if (d.online && !d.busy) attach(d.id); });
   return el;
 }
 // Right-click / kebab context menu - the ScreenConnect-style action list.
@@ -415,8 +415,8 @@ async function powerAction(d, action) {
 function showDeviceMenu(d, x, y) {
   closeDeviceMenu();
   const items = [];
-  if (d.online && !d.busy) items.push({ label: 'Join', icon: CM.join, act: () => joinDevice(d), primary: true });
-  if (d.online && !d.busy) items.push({ label: 'Join in this tab', icon: CM.window, act: () => attach(d.id) });
+  if (d.online && !d.busy) items.push({ label: 'Join', icon: CM.join, act: () => attach(d.id), primary: true });
+  if (d.online && !d.busy) items.push({ label: 'Open in new window', icon: CM.window, act: () => openInWindow(d) });
   if (d.online) {
     items.push({ label: 'Backstage', icon: CM.backstage, act: () => openBackstage(d) });
     items.push({ label: 'Terminal', icon: CM.term, act: () => openTerminal(d) });

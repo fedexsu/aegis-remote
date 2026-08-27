@@ -33,14 +33,27 @@ function api(method, params) {
 }
 const send = (chat, text, markup) => api('sendMessage', { chat_id: chat, text, parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: markup });
 
-function planKeyboard() {
+// Reply keyboard (buttons live in the keyboard area; tapping one sends its text).
+function menuKeyboard() {
   const P = db.plans();
-  return { inline_keyboard: Object.values(P).map((p) => [{ text: `${p.label} — ${p.usdt} USDT`, callback_data: 'plan:' + p.key }]) };
+  const rows = Object.values(P).map((p) => [{ text: `${p.label} - ${p.usdt} USDT` }]);
+  rows.push([{ text: 'Help' }]);
+  return { keyboard: rows, resize_keyboard: true, is_persistent: true, input_field_placeholder: 'Choose a plan' };
+}
+function planFromText(t) {
+  const P = db.plans();
+  const s = String(t).trim().toLowerCase();
+  for (const p of Object.values(P)) {
+    if (s === `${p.label} - ${p.usdt} usdt`.toLowerCase()) return p.key;      // exact button text
+    if (s === p.key || s === p.label.toLowerCase()) return p.key;             // typed name
+    if (s.startsWith(p.label.split(' ')[0].toLowerCase())) return p.key;      // first word (Monthly/Quarterly/...)
+  }
+  return null;
 }
 function showStart(chat) {
   send(chat,
-    '<b>HatchConnect</b>\nSecure remote support and access for your PCs.\n\nChoose a plan below. You pay in <b>USDT (TRC-20)</b> and your account is created automatically the moment the payment confirms.',
-    planKeyboard());
+    '<b>HatchConnect</b>\nSecure remote support and access for your PCs.\n\nTap a plan below. You pay in <b>USDT (TRC-20)</b> and your login is created and sent here automatically the moment the payment confirms.',
+    menuKeyboard());
 }
 function showInvoice(chat, inv) {
   const addr = process.env.USDT_ADDRESS;
@@ -62,10 +75,16 @@ async function handleUpdate(u, onCheck) {
     if (u.message && u.message.text) {
       const t = u.message.text.trim();
       const chat = u.message.chat.id;
-      if (/^\/start\b/.test(t)) return showStart(chat);
-      if (/^\/plans\b/.test(t)) return showStart(chat);
-      if (/^\/help\b/.test(t)) return send(chat, 'Use /start to choose a plan and pay with USDT (TRC-20). Your login is sent here automatically once payment confirms.');
-      return send(chat, 'Send /start to choose a plan.');
+      if (/^\/(start|plans|menu)\b/.test(t)) return showStart(chat);
+      if (/^\/help\b/i.test(t) || /^help$/i.test(t)) return send(chat, 'Tap a plan on the keyboard to buy. You pay in USDT (TRC-20) and your login is sent here automatically once payment confirms. Send /start to show the menu.', menuKeyboard());
+      const planKey = planFromText(t);
+      if (planKey) {
+        if (!process.env.USDT_ADDRESS) return send(chat, 'Payments are not configured yet. Please try again shortly.');
+        const inv = db.createInvoice(u.message.from.id, chat, planKey);
+        if (!inv) return send(chat, 'That plan is not available. Send /start to try again.');
+        return showInvoice(chat, inv);
+      }
+      return send(chat, 'Send /start to show the plans, then tap one to pay.', menuKeyboard());
     }
     if (u.callback_query) {
       const cq = u.callback_query;
@@ -73,12 +92,6 @@ async function handleUpdate(u, onCheck) {
       const data = cq.data || '';
       api('answerCallbackQuery', { callback_query_id: cq.id });
       if (data === 'start') return showStart(chat);
-      if (data.startsWith('plan:')) {
-        const inv = db.createInvoice(cq.from.id, chat, data.slice(5));
-        if (!inv) return send(chat, 'That plan is not available. Send /start to try again.');
-        if (!process.env.USDT_ADDRESS) return send(chat, 'Payments are not configured yet. Please try again shortly.');
-        return showInvoice(chat, inv);
-      }
       if (data.startsWith('check:')) {
         const inv = db.getInvoice(data.slice(6));
         if (inv && inv.status === 'paid') return; // already handled -> credentials already sent

@@ -25,6 +25,17 @@ const SERVICE_INSTALLER_PATH = process.env.SERVICE_INSTALLER_PATH || path.join(_
 // Technician desktop client (host) installer, served at /app for the Join flow.
 const HOST_INSTALLER_PATH = process.env.HOST_INSTALLER_PATH || path.join(__dirname, '..', 'release', 'HatchConnect-Setup.exe');
 
+// Convert an uploaded video into a looping animated GIF (played natively on every
+// remote, unlike WMP video). Capped to 25s, 960px wide, 12fps with a 128-colour
+// palette so the GIF stays a sensible size. Needs ffmpeg on PATH (added in the image).
+function videoToGif(input, output, cb) {
+  const { execFile } = require('child_process');
+  const vf = "fps=12,scale='min(960,iw)':-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5";
+  execFile('ffmpeg', ['-y', '-t', '25', '-i', input, '-vf', vf, '-loop', '0', output],
+    { timeout: 180000, maxBuffer: 1 << 26 },
+    (err) => cb(err));
+}
+
 // Agent self-update bundle (built by scripts/build-agent-bundle.js). Agents poll
 // /api/agent-update and hot-swap their JS to this version — no reinstall.
 let AGENT_BUNDLE = { version: 0, files: {} };
@@ -343,15 +354,35 @@ async function handleApi(req, res, urlPath) {
       if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
       try { fs.mkdirSync(db.DATA_DIR, { recursive: true }); } catch {}
       const dest = path.join(db.DATA_DIR, 'blank-image.bin');
+      const typeFile = path.join(db.DATA_DIR, 'blank-image.type');
       const tmp = dest + '.upload';
+      const ct = (req.headers['content-type'] || 'image/png').split(';')[0].toLowerCase();
       const out = fs.createWriteStream(tmp);
       req.pipe(out);
+      const finalize = (typeStr) => {
+        try { fs.writeFileSync(typeFile, typeStr); return json(res, 200, { ok: true, size: fs.statSync(dest).size, type: typeStr }); }
+        catch (e) { return json(res, 500, { error: e.message }); }
+      };
       out.on('finish', () => {
-        try {
-          fs.renameSync(tmp, dest);
-          fs.writeFileSync(path.join(db.DATA_DIR, 'blank-image.type'), (req.headers['content-type'] || 'image/png').split(';')[0]);
-        } catch (e) { return json(res, 500, { error: e.message }); }
-        json(res, 200, { ok: true, size: fs.statSync(dest).size });
+        // Video covers only play where the remote has Windows Media Player + the codec.
+        // Auto-convert to an animated GIF (drawn natively on every machine). If ffmpeg
+        // isn't available or fails, keep the raw video as a fallback.
+        if (/^video\//.test(ct)) {
+          const gif = dest + '.gif';
+          videoToGif(tmp, gif, (err) => {
+            if (!err && fs.existsSync(gif) && fs.statSync(gif).size > 0) {
+              try { fs.renameSync(gif, dest); fs.unlinkSync(tmp); } catch {}
+              return finalize('image/gif');
+            }
+            console.error('[blank] video->gif conversion failed, keeping raw video:', err && err.message);
+            try { fs.unlinkSync(gif); } catch {}
+            try { fs.renameSync(tmp, dest); } catch (e) { return json(res, 500, { error: e.message }); }
+            return finalize(ct);
+          });
+          return;
+        }
+        try { fs.renameSync(tmp, dest); } catch (e) { return json(res, 500, { error: e.message }); }
+        finalize(ct);
       });
       out.on('error', (e) => json(res, 500, { error: e.message }));
       return;

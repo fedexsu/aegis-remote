@@ -1464,7 +1464,7 @@ function renderBlankImageStatus() {
     if (blankCover.kind === 'video' && vid) { vid.src = '/api/blank-image?' + blankCover.version; vid.style.display = ''; st.textContent = 'Looping video shown on every blanked screen.'; }
     else { img.src = '/api/blank-image?' + blankCover.version; img.style.display = ''; st.textContent = (blankCover.kind === 'gif' ? 'Looping GIF' : 'Image') + ' shown on every blanked screen.'; }
     rm.hidden = false;
-  } else { st.textContent = 'No blank cover - screens go plain black. Upload an image or an animated GIF to brand the blank; these display on every machine. Video works only on remote PCs that have Windows Media Player and the right codec, so it is not recommended.'; rm.hidden = true; }
+  } else { st.textContent = 'No blank cover - screens go plain black. Upload an image, an animated GIF, or a video to brand the blank. Videos are automatically converted to a GIF so the cover displays on every machine.'; rm.hidden = true; }
 }
 $('#blank-image-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0]; e.target.value = '';
@@ -1472,24 +1472,15 @@ $('#blank-image-file').addEventListener('change', async (e) => {
   const isVideo = /^video\//.test(f.type);
   const cap = isVideo ? 250 * 1024 * 1024 : 12 * 1024 * 1024; // allow a high-bitrate 1080p clip
   if (f.size > cap) { toast((isVideo ? 'Video' : 'Image') + ' too large (max ' + (cap / 1048576) + ' MB)', 'err'); return; }
-  // Video covers play through Windows Media Player on the remote, so they only show
-  // on machines that HAVE WMP and the right codec. Many customer PCs (Windows N /
-  // LTSC / Server, or HEVC-encoded clips) show pure BLACK instead. Images and
-  // animated GIFs draw natively and display on EVERY machine - strongly steer there.
-  if (isVideo) {
-    const ok = await modal({
-      title: 'Video covers do not work on every machine',
-      message: 'A video cover only shows on remote PCs that have Windows Media Player and the right codec. On many machines (Windows N/LTSC/Server, or HEVC video) it appears as plain black instead. For a cover that displays on every machine, use an animated GIF or a still image. Upload this video anyway?',
-      confirmText: 'Upload video anyway', cancelText: 'Cancel', danger: true,
-    });
-    if (!ok) return;
-  }
+  // Videos are auto-converted to an animated GIF server-side so the cover plays on
+  // every remote (raw video only works where WMP + the codec exist). Just inform.
+  if (isVideo) toast('Converting video to a GIF so it plays on every machine…', 'ok');
   try {
-    toast('Uploading cover…', 'ok');
+    toast(isVideo ? 'Uploading and converting…' : 'Uploading cover…', 'ok');
     const r = await fetch('/api/blank-image', { method: 'POST', body: f, headers: { 'Content-Type': f.type || 'application/octet-stream' } });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || 'upload failed');
-    toast('Blank cover uploaded', 'ok');
+    toast(isVideo && d.type === 'image/gif' ? 'Video converted to GIF and set as the cover' : 'Blank cover uploaded', 'ok');
     await loadBlankImage();
   } catch (err) { toast(err.message, 'err'); }
 });

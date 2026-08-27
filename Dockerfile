@@ -3,6 +3,9 @@
 # (Electron and build tooling are skipped via --omit=dev).
 FROM node:20-alpine
 
+# ffmpeg: auto-converts uploaded blank-cover videos to GIF (plays on every remote).
+RUN apk add --no-cache ffmpeg
+
 WORKDIR /app
 
 # Install production deps only (just `ws`).

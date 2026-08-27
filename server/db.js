@@ -162,34 +162,27 @@ function updatePassword(adminId, newPassword) {
   const { salt, hash } = hashPassword(newPassword);
   a.salt = salt; a.hash = hash; a.mustChangePassword = false;
   save();
-  deleteSessionsForAdmin(adminId); // old sessions can't survive a password change
+  // (Paid phase: also call deleteSessionsForAdmin(adminId) so old tokens die here.)
 }
 
 // ---- sessions ----
+// NOTE: sessions currently never expire and survive a password change — kept this
+// way intentionally for the single-operator phase (no re-login friction). Tighten
+// this (wire up SESSION_TTL below + deleteSessionsForAdmin on password change) once
+// the product goes paid/multi-tenant. See getSession/updatePassword.
 function createSession(adminId) {
   const token = genToken();
-  const now = Date.now();
-  // Opportunistically drop expired sessions so db.sessions can't grow unbounded.
-  db.sessions = db.sessions.filter((s) => now - (s.createdAt || 0) < SESSION_TTL);
-  db.sessions.push({ token, adminId, createdAt: now });
+  db.sessions.push({ token, adminId, createdAt: Date.now() });
   save();
   return token;
 }
-function getSession(token) {
-  if (!token) return null;
-  const s = db.sessions.find((x) => x.token === token);
-  if (!s) return null;
-  if (Date.now() - (s.createdAt || 0) >= SESSION_TTL) { // expired — treat as logged out
-    db.sessions = db.sessions.filter((x) => x.token !== token); save();
-    return null;
-  }
-  return s;
-}
+const getSession = (token) => (token ? db.sessions.find((s) => s.token === token) : null);
 function deleteSession(token) {
   db.sessions = db.sessions.filter((s) => s.token !== token);
   save();
 }
-// Invalidate every session for an admin (used on password change).
+// Ready for the paid phase: invalidate every session for an admin (call on password
+// change once we want stolen tokens to die on a password reset). Dormant for now.
 function deleteSessionsForAdmin(adminId) {
   const before = db.sessions.length;
   db.sessions = db.sessions.filter((s) => s.adminId !== adminId);

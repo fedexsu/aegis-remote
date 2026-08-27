@@ -380,9 +380,8 @@ async function handleApi(req, res, urlPath) {
         return json(res, 400, { error: 'current password is incorrect' });
       }
       if (!b.newPassword || b.newPassword.length < 6) return json(res, 400, { error: 'new password must be 6+ characters' });
-      db.updatePassword(admin.id, b.newPassword); // invalidates ALL sessions...
-      const token = db.createSession(admin.id);   // ...so re-issue one for this browser
-      return json(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(token) });
+      db.updatePassword(admin.id, b.newPassword);
+      return json(res, 200, { ok: true });
     }
 
     // Owner-only: list / generate customer accounts.

@@ -22,11 +22,14 @@ else {
   app.setAsDefaultProtocolClient(PROTO);
   const sessionWindows = new Map(); // deviceId -> BrowserWindow
 
-  const relayUrl = (dev) => dev
-    ? `${RELAY}/?device=${encodeURIComponent(dev)}&solo=1&app=1`
-    : `${RELAY}/?app=1`;
+  const relayUrl = (dev, token) => {
+    const t = token ? `&token=${encodeURIComponent(token)}` : '';
+    return dev
+      ? `${RELAY}/?device=${encodeURIComponent(dev)}&solo=1&app=1${t}`
+      : `${RELAY}/?app=1${t}`;
+  };
 
-  function openWindow(dev) {
+  function openWindow(dev, token) {
     if (dev && sessionWindows.has(dev)) {
       const w = sessionWindows.get(dev);
       if (w && !w.isDestroyed()) { if (w.isMinimized()) w.restore(); w.focus(); return w; }
@@ -41,7 +44,7 @@ else {
       webPreferences: { partition: PARTITION, backgroundThrottling: false },
     });
     win.setMenuBarVisibility(false);
-    win.loadURL(relayUrl(dev));
+    win.loadURL(relayUrl(dev, token));
 
     // A window.open('?device=X&solo=1') from the web app becomes a new app window;
     // external links go to the default browser.
@@ -59,24 +62,24 @@ else {
     return win;
   }
 
-  // Pull hatchconnect://join?device=<id> out of a process argv list.
-  function deviceFromArgv(argv) {
+  // Pull hatchconnect://join?device=<id>&token=<t> out of a process argv list.
+  function paramsFromArgv(argv) {
     const arg = (argv || []).find((a) => typeof a === 'string' && a.indexOf(PROTO + '://') === 0);
     if (!arg) return { has: false };
-    try { return { has: true, device: new URL(arg).searchParams.get('device') || null }; }
-    catch { return { has: true, device: null }; }
+    try { const u = new URL(arg); return { has: true, device: u.searchParams.get('device') || null, token: u.searchParams.get('token') || null }; }
+    catch { return { has: true, device: null, token: null }; }
   }
 
   app.on('second-instance', (_e, argv) => {
-    const r = deviceFromArgv(argv);
-    const w = openWindow(r.has ? r.device : null);
+    const r = paramsFromArgv(argv);
+    const w = openWindow(r.has ? r.device : null, r.token || null);
     if (w) { if (w.isMinimized()) w.restore(); w.focus(); }
   });
 
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
-    const r = deviceFromArgv(process.argv);
-    openWindow(r.has ? r.device : null);
+    const r = paramsFromArgv(process.argv);
+    openWindow(r.has ? r.device : null, r.token || null);
   });
 
   // When the last window closes (e.g. a session ends on disconnect), quit and hand

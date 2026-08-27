@@ -39,6 +39,7 @@ const consoles = new Map(); // consoleId -> { ws, adminId, agentId }
 const opRoutes = new Map(); // reqId -> { consoleId, agentId } — routes op replies back
 const guests = new Map();   // agentId -> Set(ws) — browser guest viewers (view-only JPEG)
 const guestTokens = new Map(); // token -> { adminId, agentId, exp } — share links
+const appTokens = new Map();   // token -> { adminId, exp } — desktop-app SSO handoff
 let seq = 1;
 
 function send(ws, obj) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj)); }
@@ -282,11 +283,35 @@ async function handleApi(req, res, urlPath) {
       return json(res, adminId ? 200 : 404, adminId ? { ok: true } : { error: 'unknown device' });
     }
 
+    // Public: exchange a one-time app-token (minted by an already-signed-in browser)
+    // for a real session. Lets the desktop host client sign in automatically instead
+    // of prompting the technician to log in again.
+    if (urlPath === '/api/app-login' && m === 'POST') {
+      const b = await readBody(req);
+      const t = b.token && appTokens.get(b.token);
+      appTokens.delete(b.token); // single use
+      if (!t || t.exp < Date.now()) return json(res, 401, { error: 'expired handoff token' });
+      const adm = db.findAdminById(t.adminId);
+      if (!adm) return json(res, 401, { error: 'account not found' });
+      const token = db.createSession(adm.id);
+      return json(res, 200, { admin: db.publicAdmin(adm) }, { 'Set-Cookie': sessionCookie(token) });
+    }
+
     // everything below requires auth
     const admin = adminFromReq(req);
     if (!admin) return json(res, 401, { error: 'not signed in' });
 
     if (urlPath === '/api/me' && m === 'GET') return json(res, 200, { admin: db.publicAdmin(admin) });
+
+    // Mint a short-lived, single-use handoff token so the desktop app can adopt this
+    // browser's login (see /api/app-login). Bound to this admin, expires in 2 minutes.
+    if (urlPath === '/api/app-token' && m === 'POST') {
+      const now = Date.now();
+      for (const [k, v] of appTokens) if (v.exp < now) appTokens.delete(k); // prune
+      const token = require('crypto').randomBytes(24).toString('base64url');
+      appTokens.set(token, { adminId: admin.id, exp: now + 120000 });
+      return json(res, 200, { token });
+    }
 
     // Upload the installer to the persistent data dir (raw binary body).
     // Owner-only: the installer is a single shared file served to every admin's

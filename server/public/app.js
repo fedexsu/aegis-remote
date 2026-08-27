@@ -176,8 +176,19 @@ $$('.nav-item').forEach((n) => n.addEventListener('click', () => goto(n.dataset.
 document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto]'); if (g) goto(g.dataset.goto); });
 
 (async function init() {
-  try { const { admin: a } = await api('/api/me'); showApp(a); }
-  catch { showAuth(); }
+  // Already signed in (browser, or the app's own persisted login)? Go straight in.
+  try { const { admin: a } = await api('/api/me'); return showApp(a); } catch {}
+  // Desktop-app handoff: exchange the one-time token for a session, then continue.
+  const handoff = urlParams.get('token');
+  if (handoff) {
+    try {
+      await fetch('/api/app-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: handoff }) });
+      // strip the token from the URL so it isn't kept or reused
+      try { history.replaceState(null, '', location.pathname + '?device=' + encodeURIComponent(urlParams.get('device') || '') + '&solo=1&app=1'); } catch {}
+      const { admin: a } = await api('/api/me'); return showApp(a);
+    } catch {}
+  }
+  showAuth();
 })();
 
 // ---------------------------------------------------------------------------
@@ -501,11 +512,18 @@ async function chooseJoin(d) {
 }
 // Try to launch the installed host via its protocol; if it doesn't take focus
 // quickly, it isn't installed - offer the download (with a browser fallback).
-function launchHost(d) {
+// A one-time handoff token rides along so the app signs in automatically.
+async function launchHost(d) {
+  let token = '';
+  try { const r = await api('/api/app-token', 'POST'); token = (r && r.token) || ''; } catch {}
   let launched = false;
   const mark = () => { launched = true; };
   window.addEventListener('blur', mark, { once: true });
-  try { location.href = 'hatchconnect://join?device=' + encodeURIComponent(d.id); } catch {}
+  const q = 'device=' + encodeURIComponent(d.id) + (token ? '&token=' + encodeURIComponent(token) : '');
+  // Launch via an anchor click, NOT location.href: navigating the page to a custom
+  // protocol can drop the dashboard's logged-in SPA state (you'd come back to a login
+  // screen). An anchor click fires the handler and leaves this page untouched.
+  try { const a = document.createElement('a'); a.href = 'hatchconnect://join?' + q; document.body.appendChild(a); a.click(); a.remove(); } catch {}
   setTimeout(() => {
     window.removeEventListener('blur', mark);
     if (!launched) offerHostDownload(d);

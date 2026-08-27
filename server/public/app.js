@@ -9,6 +9,15 @@ let frameW = 0, frameH = 0;
 const urlParams = new URLSearchParams(location.search);
 let autoAttachId = urlParams.get('device') || null;
 const soloWindow = urlParams.get('solo') === '1';
+// PWA install: browsers won't install silently, but we can capture their install
+// offer and fire it the FIRST time the operator clicks Join, so from then on Join
+// opens the machine in the installed HatchConnect app window.
+let deferredInstall = null;
+let hcInstalled = false;
+try { if (localStorage.getItem('hc-installed')) hcInstalled = true; } catch {}
+if (matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) hcInstalled = true;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstall = e; });
+window.addEventListener('appinstalled', () => { hcInstalled = true; deferredInstall = null; try { localStorage.setItem('hc-installed', '1'); } catch {} });
 let devicesCache = [];
 let deviceCards = new Map(); // id -> {el, sig} for in-place card reconciliation
 let statsCache = { downloads: 0, installs: 0, conversion: 0, byKey: [] };
@@ -181,7 +190,13 @@ function connectWS() {
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => {
     ws.send(JSON.stringify({ type: 'register', role: 'console' }));
-    if (attachedId) backToDashboard(); // any live session was lost on the drop - reset the UI
+    if (attachedId) {
+      // In a solo window, a dropped session should re-join the same machine on
+      // reconnect (not close the window); elsewhere just reset the session UI.
+      const wasAttached = attachedId;
+      backToDashboard();
+      if (soloWindow) autoAttachId = wasAttached; // maybeAutoAttach re-joins when 'agents' arrives
+    }
   };
   ws.onmessage = (ev) => {
     if (ev.data instanceof ArrayBuffer) { if (!$('#screen-wrap').classList.contains('rtc')) drawBinaryFrame(ev.data); return; } // JPEG frame (ignored while WebRTC video is up)
@@ -195,7 +210,7 @@ function connectWS() {
       case 'rtc-offer': onRtcOffer(msg); break;
       case 'rtc-ice': if (rtcPc && msg.candidate) { rtcDiag.remoteCand.add(candType(msg.candidate)); rtcLog('remote candidate', candType(msg.candidate)); rtcPc.addIceCandidate(msg.candidate).catch((e) => rtcLog('addIceCandidate error', e.message)); } break;
       case 'control': $('#ctl-warn').hidden = msg.available !== false ? true : false; if (msg.available === false) toast('Control is blocked on this device (antivirus removed the input helper)', 'err'); break;
-      case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); break;
+      case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); leaveSolo(); break;
       case 'error': toast(msg.text, 'err'); break;
       case 'info': toast(msg.text, 'ok'); break;
       case 'opStream': if (msg.reqId === termReqId) onOpStream(msg); else fsDispatch('stream', msg); break;
@@ -381,10 +396,10 @@ function createDeviceCard(d, st) {
       </div>`;
   updateDeviceCard(el, d, st);
   const join = el.querySelector('.dr-join');
-  if (join) join.addEventListener('click', (e) => { e.stopPropagation(); attach(d.id); });
+  if (join) join.addEventListener('click', (e) => { e.stopPropagation(); joinDevice(d); });
   el.querySelector('.dr-more').addEventListener('click', (e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); showDeviceMenu(d, r.right - 4, r.bottom + 4); });
   el.addEventListener('contextmenu', (e) => { e.preventDefault(); showDeviceMenu(d, e.clientX, e.clientY); });
-  el.addEventListener('dblclick', () => { if (d.online && !d.busy) attach(d.id); });
+  el.addEventListener('dblclick', () => { if (d.online && !d.busy) joinDevice(d); });
   return el;
 }
 // Right-click / kebab context menu - the ScreenConnect-style action list.
@@ -400,8 +415,8 @@ async function powerAction(d, action) {
 function showDeviceMenu(d, x, y) {
   closeDeviceMenu();
   const items = [];
-  if (d.online && !d.busy) items.push({ label: 'Join', icon: CM.join, act: () => attach(d.id), primary: true });
-  if (d.online && !d.busy) items.push({ label: 'Open in new window', icon: CM.window, act: () => openInWindow(d) });
+  if (d.online && !d.busy) items.push({ label: 'Join', icon: CM.join, act: () => joinDevice(d), primary: true });
+  if (d.online && !d.busy) items.push({ label: 'Join in this tab', icon: CM.window, act: () => attach(d.id) });
   if (d.online) {
     items.push({ label: 'Backstage', icon: CM.backstage, act: () => openBackstage(d) });
     items.push({ label: 'Terminal', icon: CM.term, act: () => openTerminal(d) });
@@ -456,7 +471,22 @@ function attach(id) {
 // is installed as an app, the OS opens it as a separate app window.
 function openInWindow(d) {
   const url = location.origin + '/?device=' + encodeURIComponent(d.id) + '&solo=1';
-  window.open(url, 'hc-' + d.id, 'width=1360,height=860');
+  return window.open(url, 'hc-' + d.id, 'width=1360,height=860');
+}
+// Default Join action from the dashboard: open the machine in the HatchConnect app
+// window (installing the app the first time). Inside a solo window we just attach.
+function joinDevice(d) {
+  if (soloWindow) { attach(d.id); return; }
+  openInWindow(d); // synchronous within the click gesture, so it isn't popup-blocked
+  if (deferredInstall && !hcInstalled) {
+    try {
+      deferredInstall.prompt();
+      deferredInstall.userChoice.then((r) => {
+        if (r && r.outcome === 'accepted') { hcInstalled = true; try { localStorage.setItem('hc-installed', '1'); } catch {} }
+        deferredInstall = null;
+      }).catch(() => {});
+    } catch {}
+  }
 }
 // Deep-link auto-join: once the device list arrives, attach to the requested one.
 function maybeAutoAttach() {
@@ -1536,8 +1566,18 @@ function backToDashboard() {
   $('#control-view').hidden = true;
   $('#monitor-select').hidden = true;
 }
-$('#back-dash').addEventListener('click', () => { if (ws) ws.send(JSON.stringify({ type: 'detach' })); backToDashboard(); });
-$('#detach').addEventListener('click', () => { if (ws) ws.send(JSON.stringify({ type: 'detach' })); backToDashboard(); });
+// A pop-out (solo) window exists only for its one session: on an intentional
+// disconnect, close it and hand focus back to the dashboard. Not called on a
+// transient WS reconnect (that re-attaches instead). If the browser refuses to
+// close a non-script-opened window, fall back to the full dashboard view.
+function leaveSolo() {
+  if (!soloWindow) return false;
+  try { window.close(); } catch {}
+  setTimeout(() => document.body.classList.remove('solo'), 350);
+  return true;
+}
+$('#back-dash').addEventListener('click', () => { if (ws) ws.send(JSON.stringify({ type: 'detach' })); backToDashboard(); leaveSolo(); });
+$('#detach').addEventListener('click', () => { if (ws) ws.send(JSON.stringify({ type: 'detach' })); backToDashboard(); leaveSolo(); });
 
 img.onload = () => {
   if (canvas.width !== img.width || canvas.height !== img.height) {

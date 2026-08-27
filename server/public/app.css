@@ -597,7 +597,7 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 
 /* ---------- modal ---------- */
 .modal-back{position:fixed;inset:0;background:rgba(4,7,12,.7);backdrop-filter:blur(3px);display:grid;place-items:center;z-index:90;animation:fadeIn .18s ease both}
-.modal{width:min(400px,92vw);background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:var(--shadow);animation:pop .3s ease both}
+.modal{width:min(400px,92vw);max-height:90vh;overflow-y:auto;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:var(--shadow);animation:pop .3s ease both}
 .modal h3{margin:0 0 6px;font-size:18px}
 .modal p{margin:0 0 18px;color:var(--txt2);font-size:13px;line-height:1.5}
 .modal .field{margin-bottom:14px}

@@ -325,6 +325,7 @@ const CM = {
   deploy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 21h16"/></svg>',
   edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>',
   del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
+  backstage: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l2.5 2.5L7 14M12.5 14H16"/></svg>',
   lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
   unlock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 017.5-2"/></svg>',
 };
@@ -394,6 +395,7 @@ function showDeviceMenu(d, x, y) {
   const items = [];
   if (d.online && !d.busy) items.push({ label: 'Join', icon: CM.join, act: () => attach(d.id), primary: true });
   if (d.online) {
+    items.push({ label: 'Backstage', icon: CM.backstage, act: () => openBackstage(d) });
     items.push({ label: 'Terminal', icon: CM.term, act: () => openTerminal(d) });
     items.push({ label: 'File transfer', icon: CM.files, act: () => openFiles(d) });
     items.push({ label: 'System monitor', icon: CM.sys, act: () => openSystem(d) });
@@ -458,7 +460,7 @@ async function removeDevice(d) {
   const ok = await modal({
     title: 'Remove device?',
     message: d.online
-      ? `"${d.name}" is currently online. Removing it disconnects it now - but if the agent is still installed on that PC it will re-appear on next reconnect. To remove permanently, uninstall Aegis from that machine.`
+      ? `"${d.name}" is currently online. Removing it disconnects it now - but if the agent is still installed on that PC it will re-appear on next reconnect. To remove permanently, uninstall HatchConnect from that machine.`
       : `Forget "${d.name}"? This removes it from your list.`,
     confirmText: 'Remove', danger: true,
   });
@@ -1043,6 +1045,55 @@ function sysTab(name) {
 }
 $$('.sys-tabs .seg-btn').forEach((b) => b.addEventListener('click', () => sysTab(b.dataset.tab)));
 $('#sys-back').addEventListener('click', closeSystem);
+
+// ---------------------------------------------------------------------------
+// Backstage - a background workspace that groups the tools that run WITHOUT
+// showing or interrupting the user's screen (command line, files, processes).
+// ---------------------------------------------------------------------------
+function openBackstage(d) {
+  closeBackstage();
+  const back = document.createElement('div');
+  back.className = 'modal-back'; back.id = 'backstage-back';
+  back.innerHTML = `
+    <div class="modal bs-modal">
+      <div class="bs-head">
+        <div>
+          <div class="bs-title">Backstage <span class="bs-badge">Background session</span></div>
+          <div class="bs-sub"></div>
+        </div>
+        <button class="btn ghost small" id="bs-close">Close</button>
+      </div>
+      <div class="bs-grid">
+        <button class="bs-tile" data-t="term">
+          <span class="bs-ic">${CM.term}</span>
+          <span class="bs-tt">Command line</span>
+          <span class="bs-td">A live PowerShell session on the remote machine.</span>
+        </button>
+        <button class="bs-tile" data-t="files">
+          <span class="bs-ic">${CM.files}</span>
+          <span class="bs-tt">File manager</span>
+          <span class="bs-td">Browse, upload, download, and delete files.</span>
+        </button>
+        <button class="bs-tile" data-t="proc">
+          <span class="bs-ic">${CM.sys}</span>
+          <span class="bs-tt">Processes</span>
+          <span class="bs-td">See running processes and end the stuck ones.</span>
+        </button>
+      </div>
+      <p class="bs-note">Backstage works over the same secure connection but never streams the screen, so nothing appears on the remote display and the person using the PC is not interrupted.</p>
+    </div>`;
+  back.querySelector('.bs-sub').textContent = d.name + '  .  the remote screen is not shown or interrupted';
+  back.addEventListener('click', (e) => { if (e.target === back) closeBackstage(); });
+  document.body.appendChild(back);
+  back.querySelector('#bs-close').addEventListener('click', closeBackstage);
+  back.querySelectorAll('.bs-tile').forEach((t) => t.addEventListener('click', () => {
+    const k = t.dataset.t; closeBackstage();
+    if (k === 'term') openTerminal(d);
+    else if (k === 'files') openFiles(d);
+    else if (k === 'proc') { openSystem(d); setTimeout(() => sysTab('processes'), 0); }
+  }));
+}
+function closeBackstage() { const b = $('#backstage-back'); if (b) b.remove(); }
 
 // --- hardware / OS inventory ---
 let hwCache = null;

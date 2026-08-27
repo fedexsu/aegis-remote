@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-<title>Aegis - Guest View</title>
+<title>HatchConnect - Guest View</title>
 <style>
   :root{--bg:#05070c;--panel:#0d1220;--line:#1b2436;--txt:#e7ecf5;--txt2:#8a97ad;--green:#31d07a;--red:#ff5d6c;--accent:#4f8cff}
   *{box-sizing:border-box}
@@ -25,13 +25,13 @@
 </head>
 <body>
   <div class="bar">
-    <div class="logo">Aegis<span>·</span>Guest</div>
+    <div class="logo">HatchConnect<span>·</span>Guest</div>
     <div class="who" id="who">Connecting…</div>
     <div class="pill" id="pill">Live</div>
   </div>
   <div class="stage" id="stage" hidden><canvas id="screen"></canvas></div>
   <div class="msg" id="msg"><div class="card"><h2 id="mt">Connecting…</h2><p id="mp">Joining the session.</p></div></div>
-  <div class="foot">View-only guest session · Aegis Remote</div>
+  <div class="foot">View-only guest session · HatchConnect</div>
 <script>
   const token = location.pathname.split('/').filter(Boolean).pop();
   const canvas = document.getElementById('screen'), ctx = canvas.getContext('2d');

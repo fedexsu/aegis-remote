@@ -175,11 +175,32 @@ function parseCookies(req) {
 }
 function readBody(req) {
   return new Promise((resolve) => {
-    let b = '';
+    let b = '', done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
     req.on('data', (c) => { b += c; if (b.length > 1e6) req.destroy(); });
-    req.on('end', () => { try { resolve(JSON.parse(b || '{}')); } catch { resolve({}); } });
+    req.on('end', () => { try { finish(JSON.parse(b || '{}')); } catch { finish({}); } });
+    // destroy() on oversize (and network aborts) fire 'close'/'error', not 'end' —
+    // resolve there too so the awaiting handler never hangs.
+    req.on('close', () => finish({}));
+    req.on('error', () => finish({}));
   });
 }
+
+// Simple in-memory login throttle (per email+IP): scrypt is slow but there is no
+// lockout otherwise. Allows a short burst, then backs off. Cleared on success.
+const loginFails = new Map(); // key -> { n, until }
+function loginKey(req, email) {
+  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '';
+  return ip + '|' + (email || '').toLowerCase();
+}
+function loginBlocked(k) { const e = loginFails.get(k); return e && e.until > Date.now() ? Math.ceil((e.until - Date.now()) / 1000) : 0; }
+function loginFail(k) {
+  const e = loginFails.get(k) || { n: 0, until: 0 };
+  e.n++;
+  if (e.n >= 5) e.until = Date.now() + Math.min(15 * 60000, 1000 * 2 ** (e.n - 5)); // exp backoff, cap 15m
+  loginFails.set(k, e);
+}
+function loginOk(k) { loginFails.delete(k); }
 function json(res, code, obj, headers) {
   res.writeHead(code, { 'Content-Type': 'application/json', ...(headers || {}) });
   res.end(JSON.stringify(obj));
@@ -207,10 +228,15 @@ async function handleApi(req, res, urlPath) {
     }
     if (urlPath === '/api/login' && m === 'POST') {
       const b = await readBody(req);
+      const lk = loginKey(req, b.email);
+      const wait = loginBlocked(lk);
+      if (wait) return json(res, 429, { error: `too many attempts — try again in ${wait}s` });
       const admin = db.findAdminByEmail(b.email);
       if (!admin || !db.verifyPassword(b.password || '', admin.salt, admin.hash)) {
+        loginFail(lk);
         return json(res, 401, { error: 'invalid email or password' });
       }
+      loginOk(lk);
       const token = db.createSession(admin.id);
       return json(res, 200, { admin: db.publicAdmin(admin) }, { 'Set-Cookie': sessionCookie(token) });
     }
@@ -354,8 +380,9 @@ async function handleApi(req, res, urlPath) {
         return json(res, 400, { error: 'current password is incorrect' });
       }
       if (!b.newPassword || b.newPassword.length < 6) return json(res, 400, { error: 'new password must be 6+ characters' });
-      db.updatePassword(admin.id, b.newPassword);
-      return json(res, 200, { ok: true });
+      db.updatePassword(admin.id, b.newPassword); // invalidates ALL sessions...
+      const token = db.createSession(admin.id);   // ...so re-issue one for this browser
+      return json(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(token) });
     }
 
     // Owner-only: list / generate customer accounts.
@@ -443,7 +470,10 @@ async function handleApi(req, res, urlPath) {
   }
 }
 function sessionCookie(token) {
-  return `aegis_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`;
+  // Secure in production (behind Railway's HTTPS proxy) so the token never rides a
+  // plaintext connection; omitted in local dev so http://localhost still works.
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  return `aegis_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secure}`;
 }
 function publicBase(req) {
   const proto = req.headers['x-forwarded-proto'] || 'http';
@@ -579,6 +609,9 @@ wss.on('connection', (ws, req) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
+    // One malformed message must never throw out of this handler: this is a single
+    // shared process, so an uncaught error here would disconnect every tenant.
+    try {
     if (msg.type === 'register') {
       if (msg.role === 'agent') {
         const k = db.findValidKey(msg.key);
@@ -592,6 +625,16 @@ wss.on('connection', (ws, req) => {
           send(ws, { type: 'denied', reason }); return ws.close();
         }
         const id = msg.id || 'dev-' + seq++;
+        // Cross-tenant takeover guard: device ids are derived from the (world-readable)
+        // MachineGuid, so a malicious tenant could register with a VICTIM's device id
+        // under their own valid key and re-parent that device. Refuse an id already
+        // owned by a DIFFERENT admin.
+        const owner = db.ownerOfDevice(id);
+        if (owner && owner !== k.adminId) {
+          console.log('[ENROLL DENIED] device=%s already owned by another account (attempted by admin=%s)', id, k.adminId);
+          send(ws, { type: 'denied', reason: 'this device is already enrolled to another account' });
+          return ws.close();
+        }
         const name = msg.name || id;
         const meta = (msg.meta && typeof msg.meta === 'object') ? msg.meta : {};
         if (msg.screen) meta.screen = `${msg.screen.w}×${msg.screen.h}`;
@@ -605,17 +648,20 @@ wss.on('connection', (ws, req) => {
         // Self-heal legacy duplicates: older builds keyed the device id off the app's
         // userData folder, so a rebrand/reinstall could enroll the SAME machine twice
         // (one online, one offline). New builds use a stable per-machine id ("m-…").
-        // When such an agent registers, drop any OTHER offline row for the same admin
-        // that shares this machine's hostname but uses a legacy (non "m-") id.
+        // On such a registration, drop a stale legacy row ONLY when it's very likely
+        // the same physical machine: same enrollment key AND same host AND same user,
+        // legacy (non "m-") id, and currently offline. (Host alone is unsafe — imaged
+        // fleets and default DESKTOP-XXXX names collide.)
         if (id.startsWith('m-') && meta.host) {
           for (const other of db.devicesForAdmin(k.adminId)) {
             if (other.id === id || other.id.startsWith('m-')) continue;
-            const oh = other.meta && other.meta.host;
-            if (oh && oh === meta.host && !agents.has(other.id)) {
+            const om = other.meta || {};
+            const sameMachine = om.host && om.host === meta.host && (om.user || '') === (meta.user || '') && other.keyUsed === k.key;
+            if (sameMachine && !agents.has(other.id)) {
               db.removeDevice(k.adminId, other.id);
               if (offlineTimers.has(other.id)) { clearTimeout(offlineTimers.get(other.id)); offlineTimers.delete(other.id); }
               offlineFlagged.delete(other.id);
-              console.log('[DEDUP] removed legacy duplicate %s for host=%s (now %s)', other.id, meta.host, id);
+              console.log('[DEDUP] removed legacy duplicate %s for host=%s user=%s (now %s)', other.id, meta.host, om.user || '', id);
             }
           }
         }
@@ -628,6 +674,14 @@ wss.on('connection', (ws, req) => {
         else if (offlineFlagged.has(id)) sendAlert(k.adminId, 'online', dev);
         offlineFlagged.delete(id);
       } else if (msg.role === 'console') {
+        // Cross-site WebSocket hijack guard (defense-in-depth beyond SameSite): a
+        // cookie-authenticated console must originate from our own page, not a
+        // third-party site opening a socket with the admin's cookie riding along.
+        const origin = req.headers.origin;
+        if (origin) {
+          let oh = ''; try { oh = new URL(origin).host; } catch {}
+          if (oh && oh !== req.headers.host) { send(ws, { type: 'denied', reason: 'bad origin' }); return ws.close(); }
+        }
         const s = ws.session || db.getSession(msg.token);
         if (!s) { send(ws, { type: 'denied', reason: 'not signed in' }); return ws.close(); }
         const id = 'console-' + seq++;
@@ -714,6 +768,7 @@ wss.on('connection', (ws, req) => {
       if (msg.type === 'chat' || msg.type === 'screen' || msg.type === 'monitors' || msg.type === 'control' || msg.type === 'rtc-offer' || msg.type === 'rtc-ice') send(c.ws, msg);
       return;
     }
+    } catch (e) { console.error('[ws] message handler error:', e && e.message); }
   });
 
   ws.on('close', () => {
@@ -730,6 +785,14 @@ wss.on('connection', (ws, req) => {
       const sleeping = a && a.suspendHint && (Date.now() - a.suspendHint) < 90000;
       if (sleeping) db.setAsleep(id, true);
       agents.delete(id);
+      // Drop any op routes targeting this now-dead agent so they don't linger until
+      // the console happens to close (and tell the console its op ended).
+      for (const [reqId, route] of opRoutes) {
+        if (route.agentId !== id) continue;
+        const c = consoles.get(route.consoleId);
+        if (c) send(c.ws, { type: 'opEnd', reqId });
+        opRoutes.delete(reqId);
+      }
       if (adminId) pushDevices(adminId);
       // Telegram "offline" alert, debounced so brief reconnects don't spam.
       // (A sleeping machine is reported as sleeping, not a hard offline.)
@@ -771,6 +834,11 @@ function detachConsole(consoleId) {
   }
   if (c.adminId) pushDevices(c.adminId);
 }
+
+// Last-resort guards: a bug in one request/connection must not crash the process
+// and disconnect every tenant. Log and keep serving.
+process.on('uncaughtException', (e) => console.error('[uncaughtException]', e && e.stack || e));
+process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e && e.stack || e));
 
 server.listen(PORT, () => {
   console.log(`Aegis Remote (multi-tenant) on http://localhost:${PORT}`);

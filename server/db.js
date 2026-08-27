@@ -15,6 +15,41 @@ const crypto = require('crypto');
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
+// Sessions expire server-side (the cookie Max-Age is only a client-side hint).
+const SESSION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// ---- credential-vault encryption at rest -----------------------------------
+// Stored passwords are AES-256-GCM encrypted so a leaked db.json / volume
+// snapshot doesn't expose them in cleartext. The key comes from VAULT_SECRET
+// (set it in prod); otherwise a random key persisted OUTSIDE db.json (vault.key)
+// so at least the ciphertext and key aren't in the same file.
+function deriveVaultKey() {
+  const secret = process.env.VAULT_SECRET;
+  if (secret) return crypto.createHash('sha256').update(String(secret)).digest();
+  const kf = path.join(DATA_DIR, 'vault.key');
+  try { const k = fs.readFileSync(kf); if (k.length === 32) return k; } catch {}
+  const k = crypto.randomBytes(32);
+  try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(kf, k, { mode: 0o600 }); } catch {}
+  return k;
+}
+const VAULT_KEY = deriveVaultKey();
+function encSecret(plain) {
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', VAULT_KEY, iv);
+  const ct = Buffer.concat([c.update(String(plain == null ? '' : plain), 'utf8'), c.final()]);
+  return 'v1:' + Buffer.concat([iv, c.getAuthTag(), ct]).toString('base64');
+}
+function decSecret(stored) {
+  if (typeof stored !== 'string') return '';
+  if (!stored.startsWith('v1:')) return stored; // legacy plaintext (pre-encryption)
+  try {
+    const raw = Buffer.from(stored.slice(3), 'base64');
+    const d = crypto.createDecipheriv('aes-256-gcm', VAULT_KEY, raw.subarray(0, 12));
+    d.setAuthTag(raw.subarray(12, 28));
+    return Buffer.concat([d.update(raw.subarray(28)), d.final()]).toString('utf8');
+  } catch { return ''; }
+}
+
 let db = { admins: [], keys: [], devices: [], sessions: [] };
 
 function load() {
@@ -127,19 +162,38 @@ function updatePassword(adminId, newPassword) {
   const { salt, hash } = hashPassword(newPassword);
   a.salt = salt; a.hash = hash; a.mustChangePassword = false;
   save();
+  deleteSessionsForAdmin(adminId); // old sessions can't survive a password change
 }
 
 // ---- sessions ----
 function createSession(adminId) {
   const token = genToken();
-  db.sessions.push({ token, adminId, createdAt: Date.now() });
+  const now = Date.now();
+  // Opportunistically drop expired sessions so db.sessions can't grow unbounded.
+  db.sessions = db.sessions.filter((s) => now - (s.createdAt || 0) < SESSION_TTL);
+  db.sessions.push({ token, adminId, createdAt: now });
   save();
   return token;
 }
-const getSession = (token) => (token ? db.sessions.find((s) => s.token === token) : null);
+function getSession(token) {
+  if (!token) return null;
+  const s = db.sessions.find((x) => x.token === token);
+  if (!s) return null;
+  if (Date.now() - (s.createdAt || 0) >= SESSION_TTL) { // expired — treat as logged out
+    db.sessions = db.sessions.filter((x) => x.token !== token); save();
+    return null;
+  }
+  return s;
+}
 function deleteSession(token) {
   db.sessions = db.sessions.filter((s) => s.token !== token);
   save();
+}
+// Invalidate every session for an admin (used on password change).
+function deleteSessionsForAdmin(adminId) {
+  const before = db.sessions.length;
+  db.sessions = db.sessions.filter((s) => s.adminId !== adminId);
+  if (db.sessions.length !== before) save();
 }
 
 // ---- enrollment keys ----
@@ -219,11 +273,17 @@ function setAsleep(id, val) {
 function markUninstalled(id, key) {
   const d = db.devices.find((x) => x.id === id);
   if (!d) return null;
-  if (key && d.keyUsed !== key && !db.keys.some((k) => k.key === key && k.adminId === d.adminId)) return null;
+  // Must present a valid enrollment key for THIS device's owner, else anyone who
+  // knows a device id could flag it uninstalled (kick the agent, spoof alerts).
+  // A missing key is a failure, not a bypass.
+  if (!key || (d.keyUsed !== key && !db.keys.some((k) => k.key === key && k.adminId === d.adminId))) return null;
   d.uninstalledAt = Date.now();
   save();
   return d.adminId;
 }
+// Which admin, if any, already owns this device id (across all tenants). Used to
+// block cross-tenant device takeover on register.
+const ownerOfDevice = (id) => { const d = db.devices.find((x) => x.id === id); return d ? d.adminId : null; };
 const devicesForAdmin = (adminId) => db.devices.filter((d) => d.adminId === adminId);
 function touchDevice(id) {
   const d = db.devices.find((x) => x.id === id);
@@ -246,12 +306,19 @@ function renameDevice(adminId, id, name) {
 }
 
 // ---- credential vault (per admin) ----
-function getCredentials(adminId) { const a = findAdminById(adminId); return (a && a.credentials) || []; }
+// Returns credentials with passwords DECRYPTED, for the authenticated owner to use
+// (send-to-screen). Encryption here is at-rest protection for db.json, not from
+// the admin who owns them.
+function getCredentials(adminId) {
+  const a = findAdminById(adminId);
+  return ((a && a.credentials) || []).map((c) => ({ id: c.id, label: c.label, username: c.username, password: decSecret(c.password) }));
+}
 function addCredential(adminId, cred) {
   const a = findAdminById(adminId); if (!a) return null;
   a.credentials = a.credentials || [];
-  const c = { id: genId(), label: (cred.label || 'Credential').slice(0, 60), username: (cred.username || '').slice(0, 256), password: (cred.password || '').slice(0, 256) };
-  a.credentials.push(c); save(); return c;
+  const c = { id: genId(), label: (cred.label || 'Credential').slice(0, 60), username: (cred.username || '').slice(0, 256), password: encSecret((cred.password || '').slice(0, 256)) };
+  a.credentials.push(c); save();
+  return { id: c.id, label: c.label, username: c.username, password: cred.password || '' };
 }
 function removeCredential(adminId, id) {
   const a = findAdminById(adminId); if (!a || !a.credentials) return false;
@@ -263,9 +330,9 @@ module.exports = {
   DATA_DIR,
   createAdmin, findAdminByEmail, findAdminById, publicAdmin, verifyPassword,
   hasAdmins, listAdmins, updatePassword,
-  createSession, getSession, deleteSession,
+  createSession, getSession, deleteSession, deleteSessionsForAdmin,
   createKey, keysForAdmin, findValidKey, revokeKey, unrevokeKey, incKeyDownload, statsForAdmin,
   getAlerts, setAlerts,
-  upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, markUninstalled, setAsleep,
+  upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, markUninstalled, setAsleep, ownerOfDevice,
   getCredentials, addCredential, removeCredential,
 };

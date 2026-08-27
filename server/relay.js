@@ -95,6 +95,8 @@ function deviceListFor(adminId) {
       res,                                  // screen resolution
       meta: d.meta || {},                   // { os, host, user, version, cpu, ... }
       presence: online && live.presence ? live.presence : null, // active/idle/locked
+      protected: !!d.protected,             // uninstall protection on?
+      uninstallAuthorized: !!d.uninstallAuthorized, // operator released it for removal
     };
   });
 }
@@ -251,6 +253,14 @@ async function handleApi(req, res, urlPath) {
       const have = parseInt((req.url.split('?')[1] || '').match(/have=(\d+)/)?.[1] || '0', 10);
       if (have >= AGENT_BUNDLE.version) return json(res, 200, { version: AGENT_BUNDLE.version, upToDate: true });
       return json(res, 200, { version: AGENT_BUNDLE.version, files: AGENT_BUNDLE.files });
+    }
+
+    // Public: the remote uninstaller asks here whether it's allowed to remove the
+    // agent. Denied when the operator turned on uninstall protection and hasn't
+    // released this device. Key-authenticated (device id + enrollment key).
+    if (urlPath === '/api/uninstall-allowed' && m === 'POST') {
+      const b = await readBody(req);
+      return json(res, 200, { allowed: db.uninstallAllowed(b.id, b.key) });
     }
 
     // Public: the uninstaller reports here (device id + enrollment key) right
@@ -419,6 +429,20 @@ async function handleApi(req, res, urlPath) {
       const live = agents.get(b.id);
       if (live && live.adminId === admin.id) live.name = nm;
       const ok = db.renameDevice(admin.id, b.id, nm);
+      pushDevices(admin.id);
+      return json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'device not found' });
+    }
+    // Toggle uninstall protection on a device (service build only; see uninstallAllowed).
+    if (urlPath === '/api/devices/protection' && m === 'POST') {
+      const b = await readBody(req);
+      const ok = db.setDeviceProtection(admin.id, b.id, !!b.on);
+      pushDevices(admin.id);
+      return json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'device not found' });
+    }
+    // Release a protected device so its remote uninstaller is allowed to run.
+    if (urlPath === '/api/devices/allow-uninstall' && m === 'POST') {
+      const b = await readBody(req);
+      const ok = db.allowUninstall(admin.id, b.id);
       pushDevices(admin.id);
       return json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'device not found' });
     }

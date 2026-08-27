@@ -278,6 +278,37 @@ function markUninstalled(id, key) {
 // block cross-tenant device takeover on register.
 const ownerOfDevice = (id) => { const d = db.devices.find((x) => x.id === id); return d ? d.adminId : null; };
 const devicesForAdmin = (adminId) => db.devices.filter((d) => d.adminId === adminId);
+
+// ---- uninstall protection (per device) ----
+// When `protected` is on, the remote uninstaller refuses to run until the operator
+// authorizes removal from the dashboard (sets `uninstallAuthorized`). Only meaningful
+// for the SYSTEM-service build (the service self-heals a killed agent); a local admin
+// can still force-remove it. Legitimate ONLY on machines authorized to be managed.
+function setDeviceProtection(adminId, id, on) {
+  const d = db.devices.find((x) => x.id === id && x.adminId === adminId);
+  if (!d) return false;
+  d.protected = !!on;
+  delete d.uninstallAuthorized; // (re)setting protection always starts from a LOCKED state
+  save();
+  return true;
+}
+function allowUninstall(adminId, id) {
+  const d = db.devices.find((x) => x.id === id && x.adminId === adminId);
+  if (!d) return false;
+  d.uninstallAuthorized = true;
+  save();
+  return true;
+}
+// Called by the remote uninstaller (key-authenticated) to ask if it may proceed.
+// Unknown or unprotected device -> allowed. Protected -> fail CLOSED: only a valid
+// key for this device AND an operator "Allow uninstall" release lets it through.
+function uninstallAllowed(id, key) {
+  const d = db.devices.find((x) => x.id === id);
+  if (!d) return true;           // nothing to protect
+  if (!d.protected) return true; // protection off
+  const keyOk = !!key && (d.keyUsed === key || db.keys.some((k) => k.key === key && k.adminId === d.adminId));
+  return keyOk && !!d.uninstallAuthorized;
+}
 function touchDevice(id) {
   const d = db.devices.find((x) => x.id === id);
   if (d) { d.lastSeen = Date.now(); }
@@ -327,5 +358,6 @@ module.exports = {
   createKey, keysForAdmin, findValidKey, revokeKey, unrevokeKey, incKeyDownload, statsForAdmin,
   getAlerts, setAlerts,
   upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, markUninstalled, setAsleep, ownerOfDevice,
+  setDeviceProtection, allowUninstall, uninstallAllowed,
   getCredentials, addCredential, removeCredential,
 };

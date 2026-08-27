@@ -325,6 +325,8 @@ const CM = {
   deploy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 21h16"/></svg>',
   edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>',
   del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
+  lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
+  unlock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 017.5-2"/></svg>',
 };
 function osIcon(m) {
   const os = (m.os || '').toLowerCase();
@@ -343,6 +345,15 @@ function updateDeviceCard(el, d, st) {
   pe.className = 'dr-presence' + (pres ? ' presence ' + pres.cls : '');
   pe.textContent = pres ? pres.text : '';
   el.querySelector('.dr-seen').textContent = d.online ? statusLabel(st) : (st === 'uninstalled' ? relTime(d.uninstalledAt) : relTime(d.lastSeen));
+  const lk = el.querySelector('.dr-lock');
+  if (lk) {
+    if (d.protected) {
+      lk.hidden = false;
+      lk.innerHTML = d.uninstallAuthorized ? CM.unlock : CM.lock;
+      lk.className = 'dr-lock' + (d.uninstallAuthorized ? ' released' : '');
+      lk.title = d.uninstallAuthorized ? 'Uninstall released — this device can be removed at the PC' : 'Protected from uninstall';
+    } else { lk.hidden = true; lk.innerHTML = ''; }
+  }
 }
 function createDeviceCard(d, st) {
   const m = d.meta || {};
@@ -354,6 +365,7 @@ function createDeviceCard(d, st) {
       <span class="dr-status st-${st}"><span class="status-dot"></span></span>
       <div class="dr-main"><span class="dr-name"></span><span class="dr-sub"></span></div>
       <span class="dr-presence"></span>
+      <span class="dr-lock" hidden></span>
       <span class="dr-seen"></span>
       <div class="dr-actions">
         ${d.online && !d.busy ? '<button class="btn primary xs dr-join">Join</button>' : (d.busy ? '<span class="dr-busy">In use</span>' : '')}
@@ -396,6 +408,16 @@ function showDeviceMenu(d, x, y) {
     items.push({ label: 'Shut down', act: () => powerAction(d, 'shutdown'), danger: true });
     items.push({ sep: true });
   }
+  // Uninstall protection (service-build feature): stop the remote uninstaller from
+  // running until the operator releases the device here.
+  if (d.protected) {
+    if (!d.uninstallAuthorized) items.push({ label: 'Allow uninstall', icon: CM.unlock, act: () => allowUninstall(d) });
+    else items.push({ label: 'Uninstall allowed ✓ — re-lock', icon: CM.lock, act: () => setProtection(d, true) }); // re-arm (clears the release)
+    items.push({ label: 'Turn off uninstall protection', icon: CM.unlock, act: () => setProtection(d, false) });
+  } else {
+    items.push({ label: 'Protect from uninstall', icon: CM.lock, act: () => setProtection(d, true) });
+  }
+  items.push({ sep: true });
   items.push({ label: 'Rename', icon: CM.edit, act: () => renameDevice(d) });
   items.push({ label: 'Remove', icon: CM.del, act: () => removeDevice(d), danger: true });
   const menu = document.createElement('div'); menu.className = 'ctx-menu';
@@ -442,6 +464,29 @@ async function removeDevice(d) {
   });
   if (!ok) return;
   try { await api('/api/devices/remove', 'POST', { id: d.id }); toast('Device removed', 'ok'); }
+  catch (e) { toast(e.message, 'err'); }
+}
+// --- uninstall protection (service build) ---
+async function setProtection(d, on) {
+  if (on) {
+    const ok = await modal({
+      title: 'Protect from uninstall?',
+      message: `The agent on "${d.name}" won't be able to uninstall until you release it here (right-click → Allow uninstall). Only works on the SYSTEM-service build, and a local administrator can still force-remove it. Use only on machines you're authorized to manage.`,
+      confirmText: 'Protect',
+    });
+    if (!ok) return;
+  }
+  try { await api('/api/devices/protection', 'POST', { id: d.id, on }); toast(on ? 'Uninstall protection on' : 'Protection off', 'ok'); }
+  catch (e) { toast(e.message, 'err'); }
+}
+async function allowUninstall(d) {
+  const ok = await modal({
+    title: 'Allow uninstall?',
+    message: `This releases "${d.name}" so it can be uninstalled from that PC. Anyone at the machine will then be able to remove the agent. Continue?`,
+    confirmText: 'Allow uninstall', danger: true,
+  });
+  if (!ok) return;
+  try { await api('/api/devices/allow-uninstall', 'POST', { id: d.id }); toast('Uninstall unlocked on that device', 'ok'); }
   catch (e) { toast(e.message, 'err'); }
 }
 

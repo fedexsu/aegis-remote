@@ -209,6 +209,9 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .btn.xs{padding:3px 12px;font-size:12px}
 .icon-btn.dr-more{width:28px;height:28px;padding:0}
 .icon-btn.dr-more svg{width:16px;height:16px}
+.dr-lock{display:inline-flex;align-items:center;color:var(--accent);flex:0 0 auto}
+.dr-lock svg{width:15px;height:15px}
+.dr-lock.released{color:#f0c674}
 .device-row.uninstalled{opacity:.6}
 .device-row.asleep{opacity:.85}
 @media(max-width:640px){.dr-seen{display:none}}

@@ -1373,14 +1373,15 @@ const canvas = $('#screen');
 const ctx = canvas.getContext('2d');
 const img = new Image();
 
-let blankOn = false;
+let blankOn = false;      // what the technician asked for (button state)
+let blankActive = false;  // what the agent CONFIRMED is applied (drives the synth cursor)
 function updateBlankBtn() {
   const b = $('#blank-btn');
   b.classList.toggle('on', blankOn); // toggle tile - fixed label, switch shows state
-  // Drive the synthetic cursor: while blanked the remote cursor is hidden, so
-  // show our own pointer in the view (and hide the browser cursor over the canvas).
-  $('#screen-wrap').classList.toggle('blank', blankOn);
-  if (blankOn) positionSynthCursor();
+  // The synthetic cursor stands in for the hidden remote cursor - only show it once
+  // the agent confirms the screen is actually blanked, never on a normal view.
+  $('#screen-wrap').classList.toggle('blank', blankActive);
+  if (blankActive) positionSynthCursor();
 }
 // Track the technician's pointer over the screen so the synthetic cursor sits
 // exactly where they're aiming (its tip is at ~2,2 in the SVG, hence the -2).
@@ -1391,13 +1392,16 @@ function positionSynthCursor() {
 }
 $('#screen-wrap').addEventListener('mousemove', (e) => {
   lastPointer = { x: e.clientX, y: e.clientY };
-  if (blankOn) positionSynthCursor();
+  if (blankActive) positionSynthCursor();
 });
 $('#blank-btn').addEventListener('click', async () => {
   if (!attachedId) return;
   blankOn = !blankOn;
   updateBlankBtn();
-  const done = (m) => { if (!m.ok) { blankOn = false; updateBlankBtn(); toast(m.error || 'blank failed', 'err'); } else toast(blankOn ? 'Remote screen blanked' : 'Remote screen restored', 'ok'); };
+  const done = (m) => {
+    if (!m.ok) { blankOn = false; blankActive = false; updateBlankBtn(); toast(m.error || 'blank failed', 'err'); }
+    else { blankActive = blankOn; updateBlankBtn(); toast(blankOn ? 'Remote screen blanked' : 'Remote screen restored', 'ok'); }
+  };
   if (!blankOn) return deviceOp(attachedId, 'blank', { on: false }, { onResult: done });
   // Turning ON - with a cover if the owner set one, else plain black.
   if (!blankCover.ready) return deviceOp(attachedId, 'blank', { on: true }, { onResult: done });
@@ -1594,7 +1598,7 @@ function onAttached(msg) {
   rtcIceServers = msg.iceServers || null;
   $('#session-name').textContent = msg.name;
   $('#ctl-warn').hidden = true;
-  blankOn = false; updateBlankBtn();
+  blankOn = false; blankActive = false; updateBlankBtn();
   lockOn = false; updateLockBtn();
   setRtcMode('connecting');
   $('#control-view').hidden = false;
@@ -1606,7 +1610,7 @@ function backToDashboard() {
   zoom = 0; annotOn = false; annotCanvas.hidden = true; $('#annot-btn').classList.remove('on'); stopShareClip(); // reset view tools
   try { if (document.fullscreenElement) document.exitFullscreen(); } catch {} // leave fullscreen when the session ends
   if (mediaRec) stopRecording(); // auto-save any in-progress recording
-  blankOn = false; updateBlankBtn();
+  blankOn = false; blankActive = false; updateBlankBtn();
   lockOn = false; updateLockBtn();
   closeConsoleRtc();
   $('#control-view').hidden = true;

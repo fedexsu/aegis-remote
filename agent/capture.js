@@ -38,9 +38,9 @@ function applyQuality() {
       p.encodings[0].maxBitrate = q.br;
       p.encodings[0].scaleResolutionDownBy = 1 / q.scale;
       p.encodings[0].maxFramerate = q.fps;
-      // Keep MOTION smooth: under uplink pressure, drop resolution before framerate
-      // so mouse movement and scrolling stay responsive instead of stuttering.
-      p.degradationPreference = 'maintain-framerate';
+      // Keep the picture SHARP (this is a support tool - reading text matters): under
+      // uplink pressure, drop framerate before resolution rather than blurring.
+      p.degradationPreference = 'maintain-resolution';
       s.setParameters(p);
     } catch {}
   }
@@ -258,7 +258,7 @@ async function startRtc() {
   try {
     pc = new RTCPeerConnection({ iceServers: rtcIceServers || ICE });
     for (const t of stream.getVideoTracks()) {
-      try { t.contentHint = 'motion'; } catch {} // favour smooth movement/low latency; high bitrate keeps text readable when static
+      try { t.contentHint = 'detail'; } catch {} // screen text: prioritise sharpness over motion smoothness
       pc.addTrack(t, stream);
     }
     pc.onicecandidate = (e) => { if (e.candidate && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rtc-ice', candidate: e.candidate })); };

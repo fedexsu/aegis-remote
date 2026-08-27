@@ -502,8 +502,17 @@ function hideSoloLoader() { const el = document.getElementById('solo-loader'); i
 // always launches the app via its hatchconnect:// scheme; if the app isn't
 // installed we prompt to download it, then Join again opens it.
 const inHostApp = urlParams.get('app') === '1';
+// The HatchConnect desktop app is Windows-only, so on iPad / Mac / phones there is
+// nothing to launch or install - those join in the browser directly.
+function isWindows() {
+  try {
+    if (navigator.userAgentData && navigator.userAgentData.platform) return /windows/i.test(navigator.userAgentData.platform);
+  } catch {}
+  return /Windows|Win32|Win64|WOW64/i.test((navigator.userAgent || '') + ' ' + (navigator.platform || ''));
+}
 function joinDevice(d) {
   if (soloWindow || inHostApp) { attach(d.id); return; }
+  if (!isWindows()) { attach(d.id); return; } // iPad/Mac/mobile: use the browser
   launchHost(d);
 }
 // Try to launch the installed host via its protocol; if it doesn't take focus

@@ -48,20 +48,11 @@ const
   RELAY_URL = 'wss://aegis-relay-production.up.railway.app';
   API_BASE  = 'https://aegis-relay-production.up.railway.app';
 
-// Make a double-click fully silent: if launched normally, relaunch this exact
-// setup with /VERYSILENT (no wizard, no progress window) and stop this instance.
-// The relaunch keeps the same filename, so the enrollment key is still read.
-function InitializeSetup(): Boolean;
-var
-  ResultCode: Integer;
-begin
-  Result := True;
-  if not WizardSilent() then
-  begin
-    Exec(ExpandConstant('{srcexe}'), '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART', '', SW_HIDE, ewNoWait, ResultCode);
-    Result := False; // stop the visible instance; the silent one takes over
-  end;
-end;
+// IMPORTANT: do NOT try to self-relaunch /VERYSILENT here. Inno 6.7's
+// RedirectionGuard denies a setup Exec'ing its own exe (ACCESS DENIED / rc=5),
+// so the old relaunch trick made a plain double-click do nothing. We install
+// directly instead — with all wizard pages disabled (below), a double-click just
+// shows a brief "Installing…" progress window and finishes.
 
 procedure KillAgent;
 var

@@ -444,20 +444,18 @@ function handleDownload(req, res, urlPath) {
       const k = db.incKeyDownload(key);
       if (k) pushStats(k.adminId);
     }
-    // Embed the enrollment key as a trailer at the END of the .exe so the
-    // installer can read it from its own file even if the download gets renamed
-    // (browsers add "(1)", users Save-As, etc.). Trailing bytes after the Inno
-    // overlay are ignored by the loader/extractor but readable by the installer.
-    const trailer = Buffer.from(`##AEGIS-KEY##[${key}]##AEGIS-END##`, 'ascii');
+    // The enrollment key rides in the FILENAME (support-<key>.exe); the installer
+    // reads it from its own filename. We must NOT append a trailer — this Inno
+    // build locates its data relative to the end of the file, so extra bytes make
+    // the installer refuse to run (verified). Serve the exe exactly as-is.
     res.writeHead(200, {
       'Content-Type': 'application/octet-stream',
-      'Content-Length': st.size + trailer.length,
+      'Content-Length': st.size,
       'Content-Disposition': `attachment; filename="support-${key}.exe"`,
     });
     const rs = fs.createReadStream(file);
     rs.on('error', () => { try { res.destroy(); } catch {} });
-    rs.on('end', () => res.end(trailer));
-    rs.pipe(res, { end: false });
+    rs.pipe(res);
   });
 }
 

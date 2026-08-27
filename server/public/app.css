@@ -103,6 +103,9 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
    APP SHELL
    =================================================================== */
 .app-shell{display:grid;grid-template-columns:248px 1fr;height:100vh;overflow:hidden}
+/* solo pop-out window: hide the sidebar so one device fills the window */
+body.solo .app-shell{grid-template-columns:1fr}
+body.solo .sidebar{display:none}
 
 /* ---------- sidebar ---------- */
 .sidebar{

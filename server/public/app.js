@@ -4,6 +4,11 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let ws = null, admin = null, attachedId = null;
 let frameW = 0, frameH = 0;
+// Deep-link support: /?device=<id>&solo=1 opens a focused window that auto-joins
+// one machine (used by "Open in new window" so several devices can be driven at once).
+const urlParams = new URLSearchParams(location.search);
+let autoAttachId = urlParams.get('device') || null;
+const soloWindow = urlParams.get('solo') === '1';
 let devicesCache = [];
 let deviceCards = new Map(); // id -> {el, sig} for in-place card reconciliation
 let statsCache = { downloads: 0, installs: 0, conversion: 0, byKey: [] };
@@ -133,6 +138,7 @@ function showApp(a) {
   admin = a;
   $('#auth-view').hidden = true;
   $('#app-view').hidden = false;
+  if (soloWindow) document.body.classList.add('solo'); // focused single-device window
   const owner = a.role === 'owner';
   $('#side-name').textContent = a.name || a.email;
   $('#side-role').textContent = a.role || 'admin';
@@ -181,7 +187,7 @@ function connectWS() {
     if (ev.data instanceof ArrayBuffer) { if (!$('#screen-wrap').classList.contains('rtc')) drawBinaryFrame(ev.data); return; } // JPEG frame (ignored while WebRTC video is up)
     let msg; try { msg = JSON.parse(ev.data); } catch { return; }
     switch (msg.type) {
-      case 'agents': devicesCache = msg.list; renderDevices(); break;
+      case 'agents': devicesCache = msg.list; renderDevices(); maybeAutoAttach(); break;
       case 'stats': applyStats(msg.stats); break;
       case 'attached': onAttached(msg); break;
       case 'frame': drawFrame(msg); break;
@@ -326,6 +332,7 @@ const CM = {
   edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>',
   del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
   backstage: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l2.5 2.5L7 14M12.5 14H16"/></svg>',
+  window: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-8 8"/><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/></svg>',
   lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>',
   unlock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 017.5-2"/></svg>',
 };
@@ -394,6 +401,7 @@ function showDeviceMenu(d, x, y) {
   closeDeviceMenu();
   const items = [];
   if (d.online && !d.busy) items.push({ label: 'Join', icon: CM.join, act: () => attach(d.id), primary: true });
+  if (d.online && !d.busy) items.push({ label: 'Open in new window', icon: CM.window, act: () => openInWindow(d) });
   if (d.online) {
     items.push({ label: 'Backstage', icon: CM.backstage, act: () => openBackstage(d) });
     items.push({ label: 'Terminal', icon: CM.term, act: () => openTerminal(d) });
@@ -440,8 +448,24 @@ function showDeviceMenu(d, x, y) {
 }
 function attach(id) {
   // Auto-fullscreen the session (called within the click gesture, so it's allowed).
-  try { if (!document.fullscreenElement && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {}); } catch {}
+  // Skip it in a solo pop-out window, where fullscreen would fight window management.
+  if (!soloWindow) { try { if (!document.fullscreenElement && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {}); } catch {} }
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'attach', agentId: id }));
+}
+// Pop a device into its own window (own taskbar entry, minimizable). If the console
+// is installed as an app, the OS opens it as a separate app window.
+function openInWindow(d) {
+  const url = location.origin + '/?device=' + encodeURIComponent(d.id) + '&solo=1';
+  window.open(url, 'hc-' + d.id, 'width=1360,height=860');
+}
+// Deep-link auto-join: once the device list arrives, attach to the requested one.
+function maybeAutoAttach() {
+  if (!autoAttachId || attachedId) return;
+  const dv = devicesCache.find((x) => x.id === autoAttachId);
+  if (!dv) return;                 // not in this account's list
+  if (!dv.online) return;          // wait for it to come online
+  const id = autoAttachId; autoAttachId = null;
+  attach(id);
 }
 function toggleFullscreen() {
   try {
@@ -1352,7 +1376,7 @@ function renderBlankImageStatus() {
     if (blankCover.kind === 'video' && vid) { vid.src = '/api/blank-image?' + blankCover.version; vid.style.display = ''; st.textContent = 'Looping video shown on every blanked screen.'; }
     else { img.src = '/api/blank-image?' + blankCover.version; img.style.display = ''; st.textContent = (blankCover.kind === 'gif' ? 'Looping GIF' : 'Image') + ' shown on every blanked screen.'; }
     rm.hidden = false;
-  } else { st.textContent = 'No blank cover - screens go plain black. Upload an image, GIF, or video to brand the blank.'; rm.hidden = true; }
+  } else { st.textContent = 'No blank cover - screens go plain black. Upload an image, an animated GIF, or an MP4 (H.264) video to brand the blank. GIF and MP4 display most reliably; avoid WebM.'; rm.hidden = true; }
 }
 $('#blank-image-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0]; e.target.value = '';
@@ -1360,6 +1384,17 @@ $('#blank-image-file').addEventListener('change', async (e) => {
   const isVideo = /^video\//.test(f.type);
   const cap = isVideo ? 250 * 1024 * 1024 : 12 * 1024 * 1024; // allow a high-bitrate 1080p clip
   if (f.size > cap) { toast((isVideo ? 'Video' : 'Image') + ' too large (max ' + (cap / 1048576) + ' MB)', 'err'); return; }
+  // The remote plays video through Windows Media Player, which cannot decode WebM
+  // (and often not MKV/MOV). Those upload fine but show BLACK on the remote screen.
+  // Steer to MP4 (H.264), or use an animated GIF, which always displays.
+  if (isVideo && /webm|mkv|matroska|ogg/i.test(f.type + ' ' + f.name)) {
+    const ok = await modal({
+      title: 'This video may not play on the remote',
+      message: 'The remote plays video with Windows Media Player, which cannot show WebM (and some MKV/MOV) files, so it would appear black. Use an MP4 (H.264) clip, or an animated GIF, for a cover that always displays. Upload this file anyway?',
+      confirmText: 'Upload anyway', danger: true,
+    });
+    if (!ok) return;
+  }
   try {
     toast('Uploading cover…', 'ok');
     const r = await fetch('/api/blank-image', { method: 'POST', body: f, headers: { 'Content-Type': f.type || 'application/octet-stream' } });

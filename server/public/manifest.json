@@ -1,0 +1,13 @@
+{
+  "name": "HatchConnect",
+  "short_name": "HatchConnect",
+  "description": "Secure remote support and access console",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b1017",
+  "theme_color": "#2f6bff",
+  "icons": [
+    { "src": "/icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any maskable" }
+  ]
+}

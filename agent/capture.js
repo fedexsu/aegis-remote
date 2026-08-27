@@ -19,13 +19,13 @@ const canvas = $('#cap-canvas');
 const ctx = canvas.getContext('2d');
 
 const CFG = {};
-const FPS = 15;
+const FPS = 24;       // JPEG-fallback frame rate (raised from 15 for smoother motion)
 const MAX_W = 1920;   // capture ceiling; adaptive logic scales down from here
 const JPEG_Q = 0.82;  // max quality; adaptive logic lowers it on slow links
 // Quality selector (console L/M/H). Caps WebRTC bitrate/resolution + JPEG scale.
 let qualityLevel = 'H';
 let qMaxScale = 1;
-const Q_PROFILES = { L: { br: 1500000, scale: 0.5, fps: 20 }, M: { br: 5000000, scale: 0.75, fps: 30 }, H: { br: 12000000, scale: 1, fps: 30 } };
+const Q_PROFILES = { L: { br: 2000000, scale: 0.6, fps: 24 }, M: { br: 6000000, scale: 0.8, fps: 30 }, H: { br: 14000000, scale: 1, fps: 30 } };
 function applyQuality() {
   const q = Q_PROFILES[qualityLevel] || Q_PROFILES.H;
   qMaxScale = q.scale;
@@ -38,7 +38,9 @@ function applyQuality() {
       p.encodings[0].maxBitrate = q.br;
       p.encodings[0].scaleResolutionDownBy = 1 / q.scale;
       p.encodings[0].maxFramerate = q.fps;
-      p.degradationPreference = 'maintain-resolution';
+      // Keep MOTION smooth: under uplink pressure, drop resolution before framerate
+      // so mouse movement and scrolling stay responsive instead of stuttering.
+      p.degradationPreference = 'maintain-framerate';
       s.setParameters(p);
     } catch {}
   }
@@ -256,7 +258,7 @@ async function startRtc() {
   try {
     pc = new RTCPeerConnection({ iceServers: rtcIceServers || ICE });
     for (const t of stream.getVideoTracks()) {
-      try { t.contentHint = 'detail'; } catch {} // screen text: prioritise sharpness over motion smoothness
+      try { t.contentHint = 'motion'; } catch {} // favour smooth movement/low latency; high bitrate keeps text readable when static
       pc.addTrack(t, stream);
     }
     pc.onicecandidate = (e) => { if (e.candidate && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rtc-ice', candidate: e.candidate })); };

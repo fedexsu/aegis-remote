@@ -552,7 +552,7 @@ function handleDownload(req, res, urlPath) {
 // ---------------------------------------------------------------------------
 // HTTP server (API + download + static console/dashboard)
 // ---------------------------------------------------------------------------
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml' };
 const server = http.createServer((req, res) => {
   const urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
   if (urlPath.startsWith('/api/')) return handleApi(req, res, urlPath);

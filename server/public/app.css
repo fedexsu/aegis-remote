@@ -1,5 +1,5 @@
 /* ===================================================================
-   Aegis Remote — dashboard
+   Aegis Remote - dashboard
    =================================================================== */
 :root{
   --bg:#0b0f17;
@@ -233,6 +233,19 @@ svg.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;strok
 .build-link-row{display:flex;gap:8px}
 .build-link-row input{flex:1;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:8px 11px;font-size:12px;font-family:ui-monospace,monospace}
 #build-download{text-align:center;text-decoration:none}
+/* install-method chooser */
+.build-method-label{display:block;color:var(--txt2);font-size:13px;margin:16px 0 8px}
+.build-methods{display:flex;flex-direction:column;gap:10px}
+.method-card{display:flex;gap:11px;align-items:flex-start;padding:12px;border:1px solid var(--line2);border-radius:10px;background:var(--panel3);cursor:pointer;transition:border-color .12s,background .12s}
+.method-card:hover{border-color:var(--line2)}
+.method-card.selected{border-color:var(--accent);background:var(--panel2)}
+.method-card input{margin-top:3px;accent-color:var(--accent);flex:0 0 auto}
+.method-body{flex:1}
+.method-title{color:var(--txt);font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
+.method-tag{font-size:10.5px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;padding:2px 7px;border-radius:999px}
+.method-tag.ok{color:#7ee0a8;background:rgba(126,224,168,.13)}
+.method-tag.warn{color:#f0c674;background:rgba(240,198,116,.14)}
+.method-desc{color:var(--txt2);font-size:12px;line-height:1.5;margin:5px 0 0}
 /* session-bar extras */
 .quality-seg{display:inline-flex}
 .quality-seg .q-btn{min-width:26px;padding:4px 8px;font-size:12px}

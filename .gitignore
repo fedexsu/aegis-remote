@@ -8,3 +8,4 @@ signing/tools/
 signing/metadata.json
 *.exe
 !release/support.exe
+!release/support-service.exe

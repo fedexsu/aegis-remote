@@ -32,7 +32,7 @@ $('#connect').addEventListener('click', connect);
 $('#key').addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
 
 // Remember relay + key, and auto-connect on page load so opening the console
-// "just works" — no need to type anything or click Connect.
+// "just works" - no need to type anything or click Connect.
 (function autoConnect() {
   const savedRelay = localStorage.getItem('aegis-relay');
   const savedKey = localStorage.getItem('aegis-key');
@@ -65,7 +65,7 @@ function connect() {
         break;
       case 'denied':
         setStatus(false, 'denied: ' + msg.reason);
-        $('#empty').innerHTML = '⚠️ <b>Access denied</b> — the key is wrong.<br>Fix the key and click Connect.';
+        $('#empty').innerHTML = '⚠️ <b>Access denied</b> - the key is wrong.<br>Fix the key and click Connect.';
         break;
       case 'agents': renderAgents(msg.list); break;
       case 'attached': onAttached(msg); break;
@@ -214,7 +214,7 @@ canvas.addEventListener('wheel', (e) => {
   sendInput({ kind: 'wheel', dy: e.deltaY < 0 ? 120 : -120 });
 }, { passive: false });
 
-// Keyboard — only when the canvas has focus.
+// Keyboard - only when the canvas has focus.
 canvas.addEventListener('keydown', (e) => {
   if (!controlOn()) return;
   e.preventDefault();

@@ -68,7 +68,7 @@ function modal({ title, message, fields = [], confirmText = 'Confirm', danger = 
 }
 
 function relTime(ts) {
-  if (!ts) return '—';
+  if (!ts) return '-';
   const s = Math.floor((Date.now() - ts) / 1000);
   if (s < 45) return 'just now';
   if (s < 90) return 'a minute ago';
@@ -80,7 +80,7 @@ function relTime(ts) {
   if (d < 30) return d + (d === 1 ? ' day ago' : ' days ago');
   return new Date(ts).toLocaleDateString();
 }
-function fmtDate(ts) { return ts ? new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—'; }
+function fmtDate(ts) { return ts ? new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '-'; }
 
 // ---------------------------------------------------------------------------
 // Auth
@@ -175,7 +175,7 @@ function connectWS() {
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => {
     ws.send(JSON.stringify({ type: 'register', role: 'console' }));
-    if (attachedId) backToDashboard(); // any live session was lost on the drop — reset the UI
+    if (attachedId) backToDashboard(); // any live session was lost on the drop - reset the UI
   };
   ws.onmessage = (ev) => {
     if (ev.data instanceof ArrayBuffer) { if (!$('#screen-wrap').classList.contains('rtc')) drawBinaryFrame(ev.data); return; } // JPEG frame (ignored while WebRTC video is up)
@@ -359,7 +359,7 @@ function createDeviceCard(d, st) {
   el.addEventListener('dblclick', () => { if (d.online && !d.busy) attach(d.id); });
   return el;
 }
-// Right-click / kebab context menu — the ScreenConnect-style action list.
+// Right-click / kebab context menu - the ScreenConnect-style action list.
 let ctxMenuEl = null;
 function closeDeviceMenu() { if (ctxMenuEl) { ctxMenuEl.remove(); ctxMenuEl = null; } }
 document.addEventListener('click', closeDeviceMenu);
@@ -428,7 +428,7 @@ async function removeDevice(d) {
   const ok = await modal({
     title: 'Remove device?',
     message: d.online
-      ? `"${d.name}" is currently online. Removing it disconnects it now — but if the agent is still installed on that PC it will re-appear on next reconnect. To remove permanently, uninstall Aegis from that machine.`
+      ? `"${d.name}" is currently online. Removing it disconnects it now - but if the agent is still installed on that PC it will re-appear on next reconnect. To remove permanently, uninstall Aegis from that machine.`
       : `Forget "${d.name}"? This removes it from your list.`,
     confirmText: 'Remove', danger: true,
   });
@@ -470,6 +470,12 @@ async function loadKeys() {
         </div>
         <div class="link-actions"></div>`;
       row.querySelector('.link-label').textContent = k.label;
+      if (k.method === 'service') {
+        const b = document.createElement('span');
+        b.className = 'method-tag warn'; b.textContent = 'Elevated'; b.style.marginLeft = '8px';
+        b.title = 'Installs as a SYSTEM service (one-time UAC on the remote)';
+        row.querySelector('.link-label').appendChild(b);
+      }
       row.querySelector('.link-url').textContent = k.downloadUrl;
       const acts = row.querySelector('.link-actions');
       if (k.revoked) {
@@ -486,7 +492,7 @@ async function loadKeys() {
         const rev = document.createElement('button');
         rev.className = 'btn danger small'; rev.textContent = 'Revoke';
         rev.addEventListener('click', async () => {
-          const ok = await modal({ title: 'Revoke link?', message: `⚠ This disconnects EVERY device already installed with "${k.label}" — they'll drop offline immediately and can't reconnect until you re-activate the link. Only revoke if you want to cut those machines off.`, confirmText: 'Revoke', danger: true });
+          const ok = await modal({ title: 'Revoke link?', message: `⚠ This disconnects EVERY device already installed with "${k.label}" - they'll drop offline immediately and can't reconnect until you re-activate the link. Only revoke if you want to cut those machines off.`, confirmText: 'Revoke', danger: true });
           if (!ok) return;
           await api('/api/keys/revoke', 'POST', { key: k.key }); toast('Link revoked', 'ok'); loadKeys();
         });
@@ -530,10 +536,25 @@ function applyStats(s) {
 // then copy the link or download the installer.
 function openBuild() {
   ['#b-company', '#b-site', '#b-dept', '#b-devtype'].forEach((s) => ($(s).value = ''));
+  // reset the install method to the silent per-user default
+  document.querySelectorAll('input[name="b-method"]').forEach((r) => { r.checked = r.value === 'user'; });
+  syncMethodCards();
   $('#build-result').hidden = true;
   $('#build-create').disabled = false;
   $('#build-modal').hidden = false;
 }
+// highlight the chosen method card
+function syncMethodCards() {
+  document.querySelectorAll('.method-card').forEach((card) => {
+    const r = card.querySelector('input[name="b-method"]');
+    card.classList.toggle('selected', !!(r && r.checked));
+  });
+}
+function buildMethod() {
+  const r = document.querySelector('input[name="b-method"]:checked');
+  return r ? r.value : 'user';
+}
+document.querySelectorAll('input[name="b-method"]').forEach((r) => r.addEventListener('change', syncMethodCards));
 function closeBuild() { $('#build-modal').hidden = true; }
 $('#new-key').addEventListener('click', openBuild);
 $('#build-cancel').addEventListener('click', () => { closeBuild(); loadKeys(); });
@@ -548,10 +569,12 @@ $('#build-create').addEventListener('click', async () => {
   const label = meta.company || meta.deviceType || 'Installer';
   try {
     $('#build-create').disabled = true;
-    const r = await api('/api/keys', 'POST', { label, meta });
-    const url = r.downloadUrl;
+    const method = buildMethod();
+    const r = await api('/api/keys', 'POST', { label, meta, method });
+    const url = r.downloadUrl; // server already includes ?type=service for the service build
     $('#build-link').value = url;
     $('#build-download').href = url;
+    $('#build-download').textContent = method === 'service' ? 'Download service installer' : 'Download installer';
     $('#build-result').hidden = false;
     toast('Installer built', 'ok');
   } catch (e) { $('#build-create').disabled = false; toast(e.message || 'failed', 'err'); }
@@ -629,7 +652,7 @@ $('#alerts-save').addEventListener('click', async () => {
 });
 $('#alerts-test').addEventListener('click', async () => {
   const c = collectAlerts();
-  try { await api('/api/alerts/test', 'POST', { botToken: c.botToken, chatId: c.chatId }); toast('Test sent — check Telegram', 'ok'); }
+  try { await api('/api/alerts/test', 'POST', { botToken: c.botToken, chatId: c.chatId }); toast('Test sent - check Telegram', 'ok'); }
   catch (e) { toast(e.message, 'err'); }
 });
 
@@ -660,7 +683,7 @@ $('#gen-account').addEventListener('click', async () => {
     const d = await api('/api/accounts', 'POST', { name: vals[0] || '' });
     const out = $('#account-out');
     out.hidden = false;
-    out.innerHTML = `<h4>✓ Account created — give these to the customer</h4>
+    out.innerHTML = `<h4>✓ Account created - give these to the customer</h4>
       <div class="cred-grid">
         <span class="ck">Username</span><span class="cv" id="cu"></span><button class="btn ghost small" data-c="cu">Copy</button>
         <span class="ck">Password</span><span class="cv" id="cp"></span><button class="btn ghost small" data-c="cp">Copy</button>
@@ -719,7 +742,7 @@ $('#term-input').addEventListener('keydown', (e) => {
   e.preventDefault();
   const line = e.target.value;
   e.target.value = '';
-  if (!termReqId) { termAppend('\n[session closed — reopen the terminal]\n'); return; }
+  if (!termReqId) { termAppend('\n[session closed - reopen the terminal]\n'); return; }
   sendOp('term-input', { data: line + '\r\n' });
 });
 
@@ -970,8 +993,8 @@ $('#sys-back').addEventListener('click', closeSystem);
 
 // --- hardware / OS inventory ---
 let hwCache = null;
-const HW_E = (s) => (s == null || s === '') ? '—' : String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-const HW_LINES = (arr) => (arr && arr.length) ? arr.map(HW_E).join('<br>') : '—';
+const HW_E = (s) => (s == null || s === '') ? '-' : String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const HW_LINES = (arr) => (arr && arr.length) ? arr.map(HW_E).join('<br>') : '-';
 function loadHwInfo(force) {
   if (hwCache && !force) return renderHwInfo(hwCache);
   $('#hw-body').innerHTML = '<div class="hint" style="padding:22px">Gathering hardware details…</div>';
@@ -985,8 +1008,8 @@ function renderHwInfo(hw) {
   const sec = (t, inner) => `<div class="hw-sec"><div class="hw-sec-t">${t}</div>${inner}</div>`;
   const cpu = hw.cpu || {}, os = hw.os || {}, bios = hw.bios || {}, board = hw.board || {};
   const ram = (hw.ramSlots || []).map((r) => `${r.capGB}GB${r.speed ? ' @ ' + r.speed + 'MHz' : ''}${r.part ? ' (' + r.part + ')' : ''}`);
-  const disks = (hw.disks || []).map((d) => `${d.model || '?'} — ${d.sizeGB}GB${d.iface ? ' [' + d.iface + ']' : ''}${d.serial ? ' · SN ' + d.serial : ''}`);
-  const net = (hw.net || []).map((n) => `${n.name || '?'} — ${n.mac || ''}`);
+  const disks = (hw.disks || []).map((d) => `${d.model || '?'} - ${d.sizeGB}GB${d.iface ? ' [' + d.iface + ']' : ''}${d.serial ? ' · SN ' + d.serial : ''}`);
+  const net = (hw.net || []).map((n) => `${n.name || '?'} - ${n.mac || ''}`);
   $('#hw-body').innerHTML =
       sec('System', rows([
         ['Manufacturer', HW_E(hw.manufacturer)], ['Model', HW_E(hw.model)], ['Type', HW_E(hw.systemType)],
@@ -994,9 +1017,9 @@ function renderHwInfo(hw) {
         ['BIOS', HW_E([bios.vendor, bios.version, bios.date].filter(Boolean).join(' · '))],
       ]))
     + sec('Processor', rows([
-        ['CPU', HW_E(cpu.name)], ['Cores / threads', HW_E((cpu.cores || '?') + ' / ' + (cpu.threads || '?'))], ['Max clock', cpu.mhz ? HW_E(cpu.mhz + ' MHz') : '—'],
+        ['CPU', HW_E(cpu.name)], ['Cores / threads', HW_E((cpu.cores || '?') + ' / ' + (cpu.threads || '?'))], ['Max clock', cpu.mhz ? HW_E(cpu.mhz + ' MHz') : '-'],
       ]))
-    + sec('Memory', rows([['Total', hw.ramTotalGB ? HW_E(hw.ramTotalGB + ' GB') : '—'], ['Modules', HW_LINES(ram)]]))
+    + sec('Memory', rows([['Total', hw.ramTotalGB ? HW_E(hw.ramTotalGB + ' GB') : '-'], ['Modules', HW_LINES(ram)]]))
     + sec('Graphics', rows([['GPU', HW_LINES(hw.gpu || [])]]))
     + sec('Storage', rows([['Drives', HW_LINES(disks)]]))
     + sec('Network', rows([['Adapters', HW_LINES(net)]]))
@@ -1027,11 +1050,11 @@ $('#dep-run').addEventListener('click', () => {
     const dest = joinPath(m.data.temp, depFile.name);
     filesAgentId = sysAgentId; // route file ops to this device
     uploadFileTo(depFile, dest, { silent: true, onDone: () => {
-      out.textContent = 'Running ' + depFile.name + (elevated ? ' (elevated — check the remote screen for a UAC prompt)…' : '…');
+      out.textContent = 'Running ' + depFile.name + (elevated ? ' (elevated - check the remote screen for a UAC prompt)…' : '…');
       sysOp('deploy-run', { path: dest, args, msi, elevated }, { onResult: (r) => {
         if (!r.ok) { out.textContent = 'Failed: ' + (r.error || 'error'); toast('Deploy failed', 'err'); return; }
         const success = r.data.exitCode === 0;
-        out.textContent = (success ? '✓ Success — ' : '') + 'exit code ' + r.data.exitCode + '\n\n' + (r.data.output || '');
+        out.textContent = (success ? '✓ Success - ' : '') + 'exit code ' + r.data.exitCode + '\n\n' + (r.data.output || '');
         toast(success ? 'Deployed successfully' : 'Finished (exit ' + r.data.exitCode + ')', success ? 'ok' : 'err');
       } });
     } });
@@ -1130,7 +1153,7 @@ $('#clip-set').addEventListener('click', () => {
   sysOp('clip-set', { text: $('#clip-text').value }, { onResult: (m) => { if (m.ok) toast('Remote clipboard set', 'ok'); else toast(m.error || 'failed', 'err'); } });
 });
 
-// Power labels/confirmations — used by the card's Power popout (see renderDevices).
+// Power labels/confirmations - used by the card's Power popout (see renderDevices).
 const POWER_LABEL = { lock: 'Lock', logoff: 'Sign out', sleep: 'Sleep', restart: 'Restart', shutdown: 'Shut down', safemode: 'Reboot to Safe Mode', normalmode: 'Reboot to Normal Mode' };
 const POWER_CONFIRM = {
   restart: 'Restart the remote PC now? It will reconnect automatically at login.',
@@ -1150,7 +1173,7 @@ const img = new Image();
 let blankOn = false;
 function updateBlankBtn() {
   const b = $('#blank-btn');
-  b.classList.toggle('on', blankOn); // toggle tile — fixed label, switch shows state
+  b.classList.toggle('on', blankOn); // toggle tile - fixed label, switch shows state
   // Drive the synthetic cursor: while blanked the remote cursor is hidden, so
   // show our own pointer in the view (and hide the browser cursor over the canvas).
   $('#screen-wrap').classList.toggle('blank', blankOn);
@@ -1173,7 +1196,7 @@ $('#blank-btn').addEventListener('click', async () => {
   updateBlankBtn();
   const done = (m) => { if (!m.ok) { blankOn = false; updateBlankBtn(); toast(m.error || 'blank failed', 'err'); } else toast(blankOn ? 'Remote screen blanked' : 'Remote screen restored', 'ok'); };
   if (!blankOn) return deviceOp(attachedId, 'blank', { on: false }, { onResult: done });
-  // Turning ON — with a cover if the owner set one, else plain black.
+  // Turning ON - with a cover if the owner set one, else plain black.
   if (!blankCover.ready) return deviceOp(attachedId, 'blank', { on: true }, { onResult: done });
   try {
     if (!remoteTemp) { fetchRemotePaths(); throw new Error('preparing'); }
@@ -1190,7 +1213,7 @@ $('#blank-btn').addEventListener('click', async () => {
   } catch (e) {
     // Fall back to black if the cover couldn't be prepared.
     deviceOp(attachedId, 'blank', { on: true }, { onResult: done });
-    if (e.message !== 'preparing') toast('Cover unavailable — blanked black', 'err');
+    if (e.message !== 'preparing') toast('Cover unavailable - blanked black', 'err');
   }
 });
 function opCoverCheck(coverPath, version) {
@@ -1225,7 +1248,7 @@ function renderBlankImageStatus() {
     if (blankCover.kind === 'video' && vid) { vid.src = '/api/blank-image?' + blankCover.version; vid.style.display = ''; st.textContent = 'Looping video shown on every blanked screen.'; }
     else { img.src = '/api/blank-image?' + blankCover.version; img.style.display = ''; st.textContent = (blankCover.kind === 'gif' ? 'Looping GIF' : 'Image') + ' shown on every blanked screen.'; }
     rm.hidden = false;
-  } else { st.textContent = 'No blank cover — screens go plain black. Upload an image, GIF, or video to brand the blank.'; rm.hidden = true; }
+  } else { st.textContent = 'No blank cover - screens go plain black. Upload an image, GIF, or video to brand the blank.'; rm.hidden = true; }
 }
 $('#blank-image-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0]; e.target.value = '';
@@ -1246,7 +1269,7 @@ $('#blank-image-remove').addEventListener('click', async () => {
   try {
     const r = await fetch('/api/blank-image', { method: 'DELETE' });
     if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'failed'); }
-    toast('Blank cover removed — screens go black', 'ok');
+    toast('Blank cover removed - screens go black', 'ok');
     await loadBlankImage();
   } catch (err) { toast(err.message, 'err'); }
 });
@@ -1262,7 +1285,7 @@ $('#lock-btn').addEventListener('click', () => {
   deviceOp(attachedId, 'lockinput', { on: lockOn }, { onResult: (m) => { if (!m.ok) { lockOn = false; updateLockBtn(); toast(m.error || 'failed', 'err'); } else toast(lockOn ? 'Local input locked' : 'Local input unlocked', 'ok'); } });
 });
 
-// Guest share link — let someone watch this session in a browser (view-only).
+// Guest share link - let someone watch this session in a browser (view-only).
 $('#share-btn').addEventListener('click', async () => {
   if (!attachedId) return;
   try {
@@ -1271,10 +1294,10 @@ $('#share-btn').addEventListener('click', async () => {
     if (!r.ok) throw new Error(d.error || 'failed');
     const vals = await modal({
       title: 'Guest view link',
-      message: 'Anyone with this link can WATCH this session in a browser — view-only, no control, no login. It expires in ' + d.expiresInMin + ' minutes.',
+      message: 'Anyone with this link can WATCH this session in a browser - view-only, no control, no login. It expires in ' + d.expiresInMin + ' minutes.',
       fields: [{ label: 'Share link', value: d.url }], confirmText: 'Copy link',
     });
-    if (vals) { try { await navigator.clipboard.writeText(d.url); toast('Guest link copied', 'ok'); } catch { toast('Copy failed — select and copy manually', 'err'); } }
+    if (vals) { try { await navigator.clipboard.writeText(d.url); toast('Guest link copied', 'ok'); } catch { toast('Copy failed - select and copy manually', 'err'); } }
   } catch (e) { toast(e.message, 'err'); }
 });
 
@@ -1288,7 +1311,7 @@ function fetchRemotePaths() {
 }
 async function handleScreenDrop(files) {
   if (!attachedId) return;
-  if (!remoteDesktop) { fetchRemotePaths(); toast('Preparing transfer — drop again in a second', 'err'); return; }
+  if (!remoteDesktop) { fetchRemotePaths(); toast('Preparing transfer - drop again in a second', 'err'); return; }
   filesAgentId = attachedId; // route fs ops to the machine we're viewing
   for (const f of files) {
     if (f.size > 500 * 1024 * 1024) { toast(f.name + ' is too large (500MB max)', 'err'); continue; }
@@ -1303,7 +1326,7 @@ async function handleScreenDrop(files) {
   sw.addEventListener('drop', (e) => { e.preventDefault(); hint().hidden = true; const files = [...((e.dataTransfer && e.dataTransfer.files) || [])]; if (files.length) handleScreenDrop(files); });
 })();
 
-// Session recording — capture the live canvas (works for both WebRTC-painted and
+// Session recording - capture the live canvas (works for both WebRTC-painted and
 // JPEG frames) to a .webm saved on the technician's computer. No server load.
 let mediaRec = null, recChunks = [], recTimer = null, recStart = 0;
 function recMime() {
@@ -1387,7 +1410,7 @@ function drawFrame(msg) { img.src = 'data:image/jpeg;base64,' + msg.data; } // l
 let decoding = false;
 function drawBinaryFrame(buf) {
   if (!$('#screen-wrap').classList.contains('rtc') && !$('#rtc-mode').classList.contains('sd')) setRtcMode('sd'); // JPEG path active
-  if (decoding) return; // never queue decodes — always render the freshest frame
+  if (decoding) return; // never queue decodes - always render the freshest frame
   decoding = true;
   const blob = new Blob([buf], { type: 'image/jpeg' });
   createImageBitmap(blob).then((bmp) => {
@@ -1444,7 +1467,7 @@ function curScale() { return zoom || Math.min($('#screen-wrap').clientWidth / (f
 $('#zoom-in').addEventListener('click', () => { zoom = Math.min(4, curScale() * 1.25); applyZoom(); });
 $('#zoom-out').addEventListener('click', () => { zoom = Math.max(0.25, curScale() / 1.25); applyZoom(); });
 $('#zoom-lbl').addEventListener('click', () => { zoom = 0; applyZoom(); });
-// Annotate — draw on the current view (local; great for screenshots/recording).
+// Annotate - draw on the current view (local; great for screenshots/recording).
 const annotCanvas = $('#annot-canvas');
 let annotOn = false, annotDrawing = false, annotCtx = null;
 function syncAnnotSize() {
@@ -1456,7 +1479,7 @@ $('#annot-btn').addEventListener('click', () => {
   annotOn = !annotOn;
   $('#annot-btn').classList.toggle('on', annotOn);
   annotCanvas.hidden = !annotOn;
-  if (annotOn) { syncAnnotSize(); toast('Annotate on — draw on the screen (double-click to clear)', 'ok'); }
+  if (annotOn) { syncAnnotSize(); toast('Annotate on - draw on the screen (double-click to clear)', 'ok'); }
 });
 function annotPos(e) { const r = annotCanvas.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * annotCanvas.width, y: (e.clientY - r.top) / r.height * annotCanvas.height }; }
 annotCanvas.addEventListener('mousedown', (e) => { if (!annotOn) return; annotDrawing = true; const p = annotPos(e); annotCtx.beginPath(); annotCtx.moveTo(p.x, p.y); });
@@ -1465,7 +1488,7 @@ window.addEventListener('mouseup', () => { annotDrawing = false; });
 annotCanvas.addEventListener('dblclick', () => { if (annotCtx) annotCtx.clearRect(0, 0, annotCanvas.width, annotCanvas.height); });
 
 // ---------------------------------------------------------------------------
-// WebRTC receiver — sharp, sub-second video. The canvas stays on top as a
+// WebRTC receiver - sharp, sub-second video. The canvas stays on top as a
 // transparent input layer, so all control code is unchanged.
 // ---------------------------------------------------------------------------
 let rtcPc = null;
@@ -1563,12 +1586,12 @@ async function onRtcOffer(msg) {
       v.onloadedmetadata = () => { showRtcVideo(); };   // update dims once known
       v.onresize = () => { showRtcVideo(); };            // re-fit if the remote resolution changes
       v.play().catch(() => {});
-      showRtcVideo();                                    // don't wait for metadata — reveal the video now
+      showRtcVideo();                                    // don't wait for metadata - reveal the video now
     };
     rtcPc.onconnectionstatechange = () => {
       if (!rtcPc) return;
       rtcDiag.conn = rtcPc.connectionState; rtcLog('connectionState', rtcPc.connectionState);
-      // Re-reveal on every (re)connect — a connected→disconnected→connected flap
+      // Re-reveal on every (re)connect - a connected→disconnected→connected flap
       // must never leave the badge on HD while the video stays hidden.
       if (rtcPc.connectionState === 'connected') showRtcVideo();
       else if (['failed', 'closed'].includes(rtcPc.connectionState)) { $('#screen-wrap').classList.remove('rtc'); setRtcMode('sd'); }
@@ -1617,7 +1640,7 @@ $('#ka-tile').addEventListener('click', () => {
   const on = !$('#ka-tile').classList.contains('on');
   deviceOp(attachedId, 'keepawake', { on }, { onResult: (m) => { if (m.ok) { $('#ka-tile').classList.toggle('on', !!m.data.keepAwake); toast(m.data.keepAwake ? 'Wake lock on' : 'Wake lock off', 'ok'); } else toast(m.error || 'failed', 'err'); } });
 });
-// Send Clipboard Keystrokes — type the technician's clipboard onto the remote.
+// Send Clipboard Keystrokes - type the technician's clipboard onto the remote.
 $('#clipkeys-btn').addEventListener('click', async () => {
   if (!attachedId) return;
   try {
@@ -1627,11 +1650,11 @@ $('#clipkeys-btn').addEventListener('click', async () => {
     toast('Typed your clipboard onto the remote', 'ok');
   } catch { toast('Couldn’t read your clipboard (grant permission)', 'err'); }
 });
-// Suspend My Input — mirror of the Control toggle (on = view-only).
+// Suspend My Input - mirror of the Control toggle (on = view-only).
 function syncSuspend() { $('#suspend-tile').classList.toggle('on', !$('#control').checked); }
 $('#suspend-tile').addEventListener('click', () => { $('#control').checked = $('#suspend-tile').classList.contains('on'); syncSuspend(); toast($('#control').checked ? 'Control resumed' : 'Your input is suspended (view-only)', 'ok'); });
 $('#control').addEventListener('change', syncSuspend);
-// Share Clipboard — live two-way sync while the session is open.
+// Share Clipboard - live two-way sync while the session is open.
 let shareClipT = null, clipLast = null;
 $('#shareclip-tile').addEventListener('click', () => {
   const on = !$('#shareclip-tile').classList.contains('on');
@@ -1659,7 +1682,7 @@ async function clipTick() {
   } });
 }
 function stopShareClip() { if (shareClipT) { clearInterval(shareClipT); shareClipT = null; } $('#shareclip-tile').classList.remove('on'); }
-// Manage Credentials — vault + "Send to screen" (types into the focused field).
+// Manage Credentials - vault + "Send to screen" (types into the focused field).
 $('#cred-add-btn').addEventListener('click', () => openCredModal());
 $('#cred-send-btn').addEventListener('click', () => openCredModal());
 $('#cred-close').addEventListener('click', () => ($('#cred-modal').hidden = true));
@@ -1670,7 +1693,7 @@ async function loadCreds() {
   try {
     const { credentials } = await api('/api/credentials');
     box.innerHTML = '';
-    if (!credentials.length) { box.innerHTML = '<div class="hint">No saved credentials yet — add one below.</div>'; return; }
+    if (!credentials.length) { box.innerHTML = '<div class="hint">No saved credentials yet - add one below.</div>'; return; }
     for (const c of credentials) {
       const row = document.createElement('div'); row.className = 'cred-row';
       row.innerHTML = '<div class="cn"><b></b><span></span></div><button class="btn primary xs send">Send to screen</button><button class="btn ghost icon-btn del" title="Delete"><svg viewBox="0 0 24 24" class="ic"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button>';
@@ -1698,9 +1721,9 @@ function typeCredential(c) {
   sendInput({ kind: 'text', ch: c.password || '' });
   toast('Typed "' + c.label + '" into the focused field', 'ok');
 }
-// Share Printers is the only remaining placeholder — real redirection needs a
+// Share Printers is the only remaining placeholder - real redirection needs a
 // signed virtual print driver on the remote, which a user-mode agent can't install.
-$$('.sc-tile.soon').forEach((t) => t.addEventListener('click', () => toast('Printer redirection needs a signed print driver on the remote — not possible from a user-mode agent.', 'err')));
+$$('.sc-tile.soon').forEach((t) => t.addEventListener('click', () => toast('Printer redirection needs a signed print driver on the remote - not possible from a user-mode agent.', 'err')));
 document.addEventListener('fullscreenchange', () => setTimeout(fit, 60)); // re-fit after entering/leaving fullscreen
 
 function renderMonitors(msg) {

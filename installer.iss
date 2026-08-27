@@ -27,7 +27,7 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
-ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesInstallIn64BitMode=x64
 ; No custom installer icon (business build) — Inno uses its neutral default,
 ; so the installer .exe carries no branded/identifiable icon (like ScreenConnect).
 ; SetupIconFile=build\icon.ico
@@ -48,11 +48,16 @@ const
   RELAY_URL = 'wss://aegis-relay-production.up.railway.app';
   API_BASE  = 'https://aegis-relay-production.up.railway.app';
 
-// IMPORTANT: do NOT try to self-relaunch /VERYSILENT here. Inno 6.7's
-// RedirectionGuard denies a setup Exec'ing its own exe (ACCESS DENIED / rc=5),
-// so the old relaunch trick made a plain double-click do nothing. We install
-// directly instead — with all wizard pages disabled (below), a double-click just
-// shows a brief "Installing…" progress window and finishes.
+// Force-skip every interactive wizard page (DisableReadyPage alone wasn't honored)
+// so a double-click goes straight to installing with no clicks.
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := (PageID = wpWelcome) or (PageID = wpLicense) or (PageID = wpPassword)
+    or (PageID = wpInfoBefore) or (PageID = wpUserInfo) or (PageID = wpSelectDir)
+    or (PageID = wpSelectComponents) or (PageID = wpSelectProgramGroup)
+    or (PageID = wpSelectTasks) or (PageID = wpReady) or (PageID = wpInfoAfter)
+    or (PageID = wpFinished);
+end;
 
 procedure KillAgent;
 var
@@ -104,6 +109,12 @@ begin
   if Result = '' then Result := GetKeyFromFilename;
 end;
 
+// TRULY SILENT install (no wizard, like before). A plain double-click isn't
+// silent, so we relaunch OURSELVES /VERYSILENT. The catch: the running setup
+// holds its own srcexe open, so Exec'ing {srcexe} directly is ACCESS DENIED
+// (rc=5). Fix: copy the exe to a fresh temp file — keeping the key in the name so
+// the silent child still reads it — and exec THAT copy. This instance then quits
+// with no UI. Falls back to a normal install only if the copy/exec fails.
 // After install: write the agent's config (relay + enrollment key) and launch it.
 procedure CurStepChanged(CurStep: TSetupStep);
 var

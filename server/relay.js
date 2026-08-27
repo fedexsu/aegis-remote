@@ -20,6 +20,8 @@ const db = require('./db');
 const PORT = process.env.PORT || 8443;
 const PUBLIC = path.join(__dirname, 'public');
 const INSTALLER_PATH = process.env.INSTALLER_PATH || path.join(__dirname, '..', 'release', 'support.exe');
+// Elevated (SYSTEM-service) installer variant, served when a build link asks for ?type=service.
+const SERVICE_INSTALLER_PATH = process.env.SERVICE_INSTALLER_PATH || path.join(__dirname, '..', 'release', 'support-service.exe');
 
 // Agent self-update bundle (built by scripts/build-agent-bundle.js). Agents poll
 // /api/agent-update and hot-swap their JS to this version — no reinstall.
@@ -374,17 +376,23 @@ async function handleApi(req, res, urlPath) {
     }
     if (urlPath === '/api/keys' && m === 'GET') {
       const base = publicBase(req);
-      const keys = db.keysForAdmin(admin.id).map((k) => ({
-        key: k.key, label: k.label, meta: k.meta || {}, revoked: k.revoked, createdAt: k.createdAt,
-        downloadUrl: `${base}/dl/${k.key}`,
-      }));
+      const keys = db.keysForAdmin(admin.id).map((k) => {
+        const svc = k.meta && k.meta.method === 'service';
+        return {
+          key: k.key, label: k.label, meta: k.meta || {}, revoked: k.revoked, createdAt: k.createdAt,
+          method: svc ? 'service' : 'user',
+          downloadUrl: `${base}/dl/${k.key}${svc ? '?type=service' : ''}`,
+        };
+      });
       return json(res, 200, { keys });
     }
     if (urlPath === '/api/keys' && m === 'POST') {
       const b = await readBody(req);
       const meta = (b.meta && typeof b.meta === 'object') ? b.meta : {};
+      if (b.method === 'service') meta.method = 'service';
       const k = db.createKey(admin.id, b.label, meta);
-      return json(res, 200, { key: k.key, downloadUrl: `${publicBase(req)}/dl/${k.key}` });
+      const svc = meta.method === 'service';
+      return json(res, 200, { key: k.key, method: svc ? 'service' : 'user', downloadUrl: `${publicBase(req)}/dl/${k.key}${svc ? '?type=service' : ''}` });
     }
     if (urlPath === '/api/keys/revoke' && m === 'POST') {
       const b = await readBody(req);
@@ -424,18 +432,26 @@ function publicBase(req) {
 // link always works with zero manual upload. An owner-uploaded support.exe (on the
 // persistent volume) still overrides it. The old legacy AegisSetup.exe is ignored
 // on purpose — it installed the previous brand.
-function installerFile() {
+function installerFile(type) {
+  if (type === 'service') {
+    const up = path.join(db.DATA_DIR, 'support-service.exe');
+    if (fs.existsSync(up)) return up;
+    return SERVICE_INSTALLER_PATH; // bundled release/support-service.exe
+  }
   const uploaded = path.join(db.DATA_DIR, 'support.exe');
   if (fs.existsSync(uploaded)) return uploaded;
   return INSTALLER_PATH; // bundled release/support.exe (in the repo, deployed with the relay)
 }
 
 // Serve the installer with the key in its filename (installer self-configures).
+// ?type=service serves the elevated SYSTEM-service build; otherwise the per-user build.
 function handleDownload(req, res, urlPath) {
   const key = decodeURIComponent(urlPath.slice('/dl/'.length)).trim();
   const valid = db.findValidKey(key);
   if (!valid) { res.writeHead(404); return res.end('invalid or revoked link'); }
-  const file = installerFile();
+  const type = /[?&]type=service(&|$)/.test(req.url || '') ? 'service' : 'user';
+  const namePrefix = type === 'service' ? 'support-service-' : 'support-';
+  const file = installerFile(type);
   fs.stat(file, (err, st) => {
     if (err) { res.writeHead(503); return res.end('installer not uploaded yet'); }
     // Count the download and push the updated funnel to the admin's dashboards.
@@ -451,7 +467,7 @@ function handleDownload(req, res, urlPath) {
     res.writeHead(200, {
       'Content-Type': 'application/octet-stream',
       'Content-Length': st.size,
-      'Content-Disposition': `attachment; filename="support-${key}.exe"`,
+      'Content-Disposition': `attachment; filename="${namePrefix}${key}.exe"`,
     });
     const rs = fs.createReadStream(file);
     rs.on('error', () => { try { res.destroy(); } catch {} });

@@ -580,6 +580,23 @@ wss.on('connection', (ws, req) => {
         ws.meta = { role: 'agent', id, adminId: k.adminId };
         agents.set(id, { ws, name, adminId: k.adminId, consoleId: null, screen: msg.screen || null });
         send(ws, { type: 'registered', id });
+        // Self-heal legacy duplicates: older builds keyed the device id off the app's
+        // userData folder, so a rebrand/reinstall could enroll the SAME machine twice
+        // (one online, one offline). New builds use a stable per-machine id ("m-…").
+        // When such an agent registers, drop any OTHER offline row for the same admin
+        // that shares this machine's hostname but uses a legacy (non "m-") id.
+        if (id.startsWith('m-') && meta.host) {
+          for (const other of db.devicesForAdmin(k.adminId)) {
+            if (other.id === id || other.id.startsWith('m-')) continue;
+            const oh = other.meta && other.meta.host;
+            if (oh && oh === meta.host && !agents.has(other.id)) {
+              db.removeDevice(k.adminId, other.id);
+              if (offlineTimers.has(other.id)) { clearTimeout(offlineTimers.get(other.id)); offlineTimers.delete(other.id); }
+              offlineFlagged.delete(other.id);
+              console.log('[DEDUP] removed legacy duplicate %s for host=%s (now %s)', other.id, meta.host, id);
+            }
+          }
+        }
         pushDevices(k.adminId);
         pushStats(k.adminId);   // an enrollment = an install; refresh the funnel
         // Telegram alerts: new install, or a genuine offline→online recovery.

@@ -1,6 +1,7 @@
 node_modules
 release/*
-!release/AegisSetup.exe
+!release/support.exe
+!release/support-service.exe
 agent
 build
 *.zip

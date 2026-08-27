@@ -167,10 +167,38 @@ function createTray() {
 ipcMain.handle('cfg:get', () => loadConfig());
 ipcMain.handle('cfg:save', (_e, cfg) => saveConfig(cfg));
 
-// A stable, unique-per-install device id (so two machines with the same
-// Windows hostname don't collide on the relay). Generated once, then persisted.
+// A stable, unique-PER-MACHINE device id. It MUST stay the same across reinstalls,
+// rebrands, and per-user vs SYSTEM-service launches — otherwise the same PC enrolls
+// twice and shows up as two rows (one online, one offline) on the dashboard.
+//
+// So we key off the Windows MachineGuid (a hardware/OS install id under
+// HKLM\SOFTWARE\Microsoft\Cryptography), which every process on the box reads the
+// same. We hash it (with a fixed salt) so we don't leak the raw MachineGuid, and
+// cache it to a file. Only if the registry read fails do we fall back to a random
+// UUID persisted per install (old behaviour).
+function machineGuid() {
+  try {
+    const { execSync } = require('child_process');
+    const out = execSync(
+      'reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid',
+      { windowsHide: true, timeout: 4000 }
+    ).toString();
+    const m = out.match(/MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]{10,})/);
+    if (m) return m[1].trim().toLowerCase();
+  } catch { /* not Windows, or reg unavailable */ }
+  return '';
+}
 function getDeviceId() {
   const p = path.join(app.getPath('userData'), 'device-id');
+  const guid = machineGuid();
+  if (guid) {
+    // Deterministic id from the machine guid — same on every launch, every user,
+    // every reinstall. (Salted hash so the raw guid never leaves the machine.)
+    const id = 'm-' + crypto.createHash('sha256').update('aegis:' + guid).digest('hex').slice(0, 24);
+    try { fs.writeFileSync(p, id); } catch { /* ignore */ }
+    return id;
+  }
+  // Fallback: previously-persisted id, else a fresh random one.
   try {
     const id = fs.readFileSync(p, 'utf8').trim();
     if (id) return id;

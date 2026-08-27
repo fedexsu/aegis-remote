@@ -828,11 +828,15 @@ app.whenReady().then(() => {
   powerMonitor.on('suspend', () => { if (win) try { win.webContents.send('power:suspend'); } catch {} });
   powerMonitor.on('resume', () => { if (win) try { win.webContents.send('power:resume'); } catch {} });
 
-  // Self-update: check shortly after start, on every resume, and every 30 min.
+  // Self-update: check shortly after start, on every resume, every 5 min, and
+  // whenever the agent reconnects to the relay (see ipc 'update:check' below) - so
+  // a freshly deployed update reaches online agents within seconds, not 30 min.
   setTimeout(checkForUpdate, 15000);
-  setInterval(checkForUpdate, 30 * 60 * 1000);
+  setInterval(checkForUpdate, 5 * 60 * 1000);
   powerMonitor.on('resume', () => setTimeout(checkForUpdate, 8000));
 });
+// The renderer calls this right after it (re)registers with the relay.
+ipcMain.handle('update:check', () => { checkForUpdate(); return true; });
 
 app.on('before-quit', () => { app.isQuitting = true; destroyBlank(); if (injector) try { injector.kill(); } catch {} });
 app.on('window-all-closed', (e) => { /* keep running in tray */ });

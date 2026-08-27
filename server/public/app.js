@@ -1464,7 +1464,7 @@ function renderBlankImageStatus() {
     if (blankCover.kind === 'video' && vid) { vid.src = '/api/blank-image?' + blankCover.version; vid.style.display = ''; st.textContent = 'Looping video shown on every blanked screen.'; }
     else { img.src = '/api/blank-image?' + blankCover.version; img.style.display = ''; st.textContent = (blankCover.kind === 'gif' ? 'Looping GIF' : 'Image') + ' shown on every blanked screen.'; }
     rm.hidden = false;
-  } else { st.textContent = 'No blank cover - screens go plain black. Upload an image, an animated GIF, or an MP4 (H.264) video to brand the blank. GIF and MP4 display most reliably; avoid WebM.'; rm.hidden = true; }
+  } else { st.textContent = 'No blank cover - screens go plain black. Upload an image or an animated GIF to brand the blank; these display on every machine. Video works only on remote PCs that have Windows Media Player and the right codec, so it is not recommended.'; rm.hidden = true; }
 }
 $('#blank-image-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0]; e.target.value = '';
@@ -1472,14 +1472,15 @@ $('#blank-image-file').addEventListener('change', async (e) => {
   const isVideo = /^video\//.test(f.type);
   const cap = isVideo ? 250 * 1024 * 1024 : 12 * 1024 * 1024; // allow a high-bitrate 1080p clip
   if (f.size > cap) { toast((isVideo ? 'Video' : 'Image') + ' too large (max ' + (cap / 1048576) + ' MB)', 'err'); return; }
-  // The remote plays video through Windows Media Player, which cannot decode WebM
-  // (and often not MKV/MOV). Those upload fine but show BLACK on the remote screen.
-  // Steer to MP4 (H.264), or use an animated GIF, which always displays.
-  if (isVideo && /webm|mkv|matroska|ogg/i.test(f.type + ' ' + f.name)) {
+  // Video covers play through Windows Media Player on the remote, so they only show
+  // on machines that HAVE WMP and the right codec. Many customer PCs (Windows N /
+  // LTSC / Server, or HEVC-encoded clips) show pure BLACK instead. Images and
+  // animated GIFs draw natively and display on EVERY machine - strongly steer there.
+  if (isVideo) {
     const ok = await modal({
-      title: 'This video may not play on the remote',
-      message: 'The remote plays video with Windows Media Player, which cannot show WebM (and some MKV/MOV) files, so it would appear black. Use an MP4 (H.264) clip, or an animated GIF, for a cover that always displays. Upload this file anyway?',
-      confirmText: 'Upload anyway', danger: true,
+      title: 'Video covers do not work on every machine',
+      message: 'A video cover only shows on remote PCs that have Windows Media Player and the right codec. On many machines (Windows N/LTSC/Server, or HEVC video) it appears as plain black instead. For a cover that displays on every machine, use an animated GIF or a still image. Upload this video anyway?',
+      confirmText: 'Upload video anyway', cancelText: 'Cancel', danger: true,
     });
     if (!ok) return;
   }

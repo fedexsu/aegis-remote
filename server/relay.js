@@ -25,13 +25,17 @@ const SERVICE_INSTALLER_PATH = process.env.SERVICE_INSTALLER_PATH || path.join(_
 // Technician desktop client (host) installer, served at /app for the Join flow.
 const HOST_INSTALLER_PATH = process.env.HOST_INSTALLER_PATH || path.join(__dirname, '..', 'release', 'HatchConnect-Setup.exe');
 
-// Convert an uploaded video into a looping animated GIF (played natively on every
-// remote, unlike WMP video). Capped to 25s, 960px wide, 12fps with a 128-colour
-// palette so the GIF stays a sensible size. Needs ffmpeg on PATH (added in the image).
+// Convert an uploaded video into a SEAMLESSLY-looping animated GIF (played natively
+// on every remote, unlike WMP video). Uses a boomerang (forward then reverse) so the
+// end always flows back into the start with no visible jump/cut. Capped to 12s of
+// source (~24s round trip), 960px wide, 12fps, 128-colour palette. Needs ffmpeg.
 function videoToGif(input, output, cb) {
   const { execFile } = require('child_process');
-  const vf = "fps=12,scale='min(960,iw)':-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5";
-  execFile('ffmpeg', ['-y', '-t', '25', '-i', input, '-vf', vf, '-loop', '0', output],
+  const fc = "[0:v]fps=12,scale='min(960,iw)':-1:flags=lanczos,split[a][b];" +
+             "[b]reverse[r];[a][r]concat=n=2:v=1[cat];" +
+             "[cat]split[s0][s1];[s0]palettegen=max_colors=128[p];" +
+             "[s1][p]paletteuse=dither=bayer:bayer_scale=5[o]";
+  execFile('ffmpeg', ['-y', '-t', '12', '-i', input, '-filter_complex', fc, '-map', '[o]', '-loop', '0', output],
     { timeout: 180000, maxBuffer: 1 << 26 },
     (err) => cb(err));
 }

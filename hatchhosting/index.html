@@ -387,60 +387,202 @@ tbody tr:hover{background:var(--panel-2)}
 <script>
 (function(){
   var shell=document.querySelector('.shell');
+  var nav=document.getElementById('nav');
   function ic(p){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'+p+'</svg>';}
   function gb(mb){return (mb/1024).toFixed(mb>=10240?0:1);}
   function pct(u,q){return q?Math.min(100,Math.round(u/q*100)):(u?12:2);}
-  function esc(s){return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function tbody(page){return document.querySelector('section[data-page="'+page+'"] tbody');}
+  function primaryBtn(page){return document.querySelector('section[data-page="'+page+'"] .btn.primary');}
+  function loading(el,cols){ if(el) el.innerHTML='<tr><td colspan="'+cols+'" class="dim" style="text-align:center;padding:22px">Loading…</td></tr>'; }
+  function empty(el,cols,msg){ if(el) el.innerHTML='<tr><td colspan="'+cols+'" class="dim" style="text-align:center;padding:26px">'+esc(msg)+'</td></tr>'; }
+
+  // --- toast ---
+  function toast(msg,ok){ var t=document.createElement('div'); t.textContent=msg;
+    t.style.cssText='position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:400;background:'+(ok===false?'#c8362f':'#1c1f26')+';color:#fff;padding:11px 16px;border-radius:10px;font-size:13.5px;box-shadow:0 10px 34px rgba(0,0,0,.32);max-width:90vw;text-align:center';
+    document.body.appendChild(t); setTimeout(function(){t.style.transition='opacity .4s';t.style.opacity='0';setTimeout(function(){t.remove();},420);},2800); }
+
+  // --- api helper (actions return {ok:true} or {error}) ---
+  async function api(url,body){
+    var r=await fetch(url, body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{ });
+    var d={}; try{ d=await r.json(); }catch(e){}
+    if(!r.ok || d.ok===false || d.error){ throw new Error(d.error||('Error '+r.status)); }
+    return d;
+  }
+  async function getJSON(url){ var r=await fetch(url); if(!r.ok) throw new Error('Error '+r.status); return r.json(); }
+
+  // --- modal form ---
+  function openForm(title, fields, submitText, onSubmit){
+    var ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:360;background:rgba(10,12,16,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+    var inputs=fields.map(function(f){
+      return '<label style="display:block;margin-bottom:12px"><span style="display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:5px">'+esc(f.label)+'</span>'
+        +'<input data-n="'+esc(f.name)+'" type="'+(f.type||'text')+'" value="'+esc(f.value||'')+'" placeholder="'+esc(f.ph||'')+'" autocapitalize="none" spellcheck="false" style="width:100%;padding:10px 12px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:14px;box-sizing:border-box"/></label>';
+    }).join('');
+    ov.innerHTML='<form style="width:min(420px,94vw);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:var(--shadow)">'
+      +'<h3 style="margin:0 0 16px;font-family:Archivo,system-ui,sans-serif;font-size:17px">'+esc(title)+'</h3>'+inputs
+      +'<div data-err style="color:#c8362f;font-size:12.5px;min-height:16px;margin:2px 0 10px"></div>'
+      +'<div style="display:flex;gap:10px;justify-content:flex-end"><button type="button" data-cancel class="btn ghost">Cancel</button><button type="submit" data-ok class="btn primary">'+esc(submitText||'Create')+'</button></div></form>';
+    document.body.appendChild(ov);
+    var form=ov.querySelector('form'), err=ov.querySelector('[data-err]'), okb=ov.querySelector('[data-ok]');
+    function close(){ ov.remove(); }
+    ov.querySelector('[data-cancel]').onclick=close;
+    ov.addEventListener('mousedown',function(e){ if(e.target===ov) close(); });
+    var first=ov.querySelector('input'); if(first) first.focus();
+    form.onsubmit=async function(e){ e.preventDefault(); err.textContent='';
+      var v={}; ov.querySelectorAll('input[data-n]').forEach(function(i){ v[i.getAttribute('data-n')]=i.value.trim(); });
+      okb.disabled=true; var lbl=okb.textContent; okb.textContent='Working…';
+      try{ await onSubmit(v); close(); }
+      catch(ex){ err.textContent=ex.message||'Something went wrong'; okb.disabled=false; okb.textContent=lbl; }
+    };
+  }
+
+  // --- Overview cards ---
   function card(label,i,num,unit,p,cls,sub){
     return '<div class="rc"><div class="rc-top"><span class="rc-label">'+label+'</span><span class="rc-ic">'+i+'</span></div>'
       +'<div class="rc-num">'+num+'<span> '+unit+'</span></div>'
       +'<div class="bar'+(cls?' '+cls:'')+'"><i style="width:'+p+'%"></i></div>'
       +'<div class="rc-sub">'+(sub||'')+'</div></div>';
   }
+  var lastAccount=null, sessionUser='';
   function fillAccount(a){
-    var g=document.getElementById('usage-grid'); if(!g)return;
-    var dq=a.diskQuotaMB?(gb(a.diskQuotaMB)+' GB'):'unlimited', bq=a.bwQuotaMB?(gb(a.bwQuotaMB)+' GB'):'unlimited';
-    var dp=pct(a.diskUsedMB,a.diskQuotaMB), bp=pct(a.bwUsedMB,a.bwQuotaMB);
-    g.innerHTML=
-      card('Disk',ic('<ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6"/>'),gb(a.diskUsedMB),'/ '+dq,dp,dp>90?'crit':(dp>75?'warn':''),a.diskQuotaMB?(gb(a.diskQuotaMB-a.diskUsedMB)+' GB free'):'unlimited')
-      +card('Bandwidth',ic('<path d="M3 17l5-6 4 4 5-7 4 5" stroke-linecap="round" stroke-linejoin="round"/>'),gb(a.bwUsedMB),'/ '+bq,bp,'','This month')
-      +card('Websites',ic('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/>'),a.webDomains,'/ '+(a.webLimit||'unlimited'),a.webLimit?pct(a.webDomains,a.webLimit):(a.webDomains?40:2),'',a.webSsl+' with SSL')
-      +card('Email accounts',ic('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5 12 13l8.5-6.5"/>'),a.mailAccounts,'/ '+(a.mailLimit||'unlimited'),a.mailLimit?pct(a.mailAccounts,a.mailLimit):(a.mailAccounts?10:2),a.databases+' databases');
+    lastAccount=a;
+    var g=document.getElementById('usage-grid');
+    if(g){
+      var dq=a.diskQuotaMB?(gb(a.diskQuotaMB)+' GB'):'unlimited', bq=a.bwQuotaMB?(gb(a.bwQuotaMB)+' GB'):'unlimited';
+      var dp=pct(a.diskUsedMB,a.diskQuotaMB), bp=pct(a.bwUsedMB,a.bwQuotaMB);
+      g.innerHTML=
+        card('Disk',ic('<ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6"/>'),gb(a.diskUsedMB),'/ '+dq,dp,dp>90?'crit':(dp>75?'warn':''),a.diskQuotaMB?(gb(a.diskQuotaMB-a.diskUsedMB)+' GB free'):'unlimited')
+        +card('Bandwidth',ic('<path d="M3 17l5-6 4 4 5-7 4 5" stroke-linecap="round" stroke-linejoin="round"/>'),gb(a.bwUsedMB),'/ '+bq,bp,'','This month')
+        +card('Websites',ic('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/>'),a.webDomains,'/ '+(a.webLimit||'unlimited'),a.webLimit?pct(a.webDomains,a.webLimit):(a.webDomains?40:2),'',a.webSsl+' with SSL')
+        +card('Email accounts',ic('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5 12 13l8.5-6.5"/>'),a.mailAccounts,'/ '+(a.mailLimit||'unlimited'),a.mailLimit?pct(a.mailAccounts,a.mailLimit):(a.mailAccounts?10:2),a.databases+' databases');
+    }
+    var st=tbody('settings');
+    if(st){
+      var disk=a.diskQuotaMB?(gb(a.diskUsedMB)+' / '+gb(a.diskQuotaMB)+' GB'):(gb(a.diskUsedMB)+' GB used (unlimited)');
+      st.innerHTML=
+        '<tr><td class="rc-label" style="text-transform:none;font-size:13px">Username</td><td class="mono">'+esc(sessionUser||a.name)+'</td></tr>'
+        +'<tr><td class="rc-label" style="text-transform:none;font-size:13px">Plan</td><td>'+esc(a.package||'—')+'</td></tr>'
+        +'<tr><td class="rc-label" style="text-transform:none;font-size:13px">Disk</td><td class="mono dim">'+disk+'</td></tr>'
+        +'<tr><td class="rc-label" style="text-transform:none;font-size:13px">Websites</td><td class="mono dim">'+a.webDomains+(a.webLimit?(' / '+a.webLimit):'')+'</td></tr>'
+        +(a.email?'<tr><td class="rc-label" style="text-transform:none;font-size:13px">Contact</td><td class="mono dim">'+esc(a.email)+'</td></tr>':'');
+    }
   }
   function sslChip(on){return on?'<span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Active</span>':'<span class="chip warn"><span class="dot" style="background:var(--warn)"></span>Off</span>';}
+  function act(label,a,data){ var d=''; for(var k in data){ d+=' data-'+k+'="'+esc(data[k])+'"'; } return '<span class="ln" data-act="'+a+'"'+d+' style="cursor:pointer">'+esc(label)+'</span>'; }
+
   function fillSites(list){
     var ov=document.getElementById('ov-sites'), ws=document.getElementById('ws-sites');
-    if(!list.length){ if(ov)ov.innerHTML='<tr><td colspan="6" class="dim" style="text-align:center;padding:26px">No websites yet. Click "New website" to add one.</td></tr>'; if(ws)ws.innerHTML='<tr><td colspan="6" class="dim" style="text-align:center;padding:26px">No websites yet.</td></tr>'; return; }
+    if(!list.length){ empty(ov,6,'No websites yet — click "Add website" to create your first one.'); empty(ws,6,'No websites yet — click "Add website" to create your first one.'); return; }
     if(ov) ov.innerHTML=list.map(function(s){return '<tr><td><span class="site-name"><span class="fav">'+ic('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/>')+'</span>'+esc(s.domain)+'</span></td>'
       +'<td>'+sslChip(s.ssl)+'</td><td class="mono dim">'+esc(s.backend||'-')+'</td><td class="dim">web</td><td class="mono dim">'+s.diskMB+' MB</td>'
-      +'<td><div class="row-act"><span class="ln">Open</span><span class="ln">Manage</span></div></td></tr>';}).join('');
+      +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'Enable SSL','ssl',{domain:s.domain})+act('Delete','web-del',{domain:s.domain})+'</div></td></tr>';}).join('');
     if(ws) ws.innerHTML=list.map(function(s){return '<tr><td class="site-name">'+esc(s.domain)+'</td><td>'+sslChip(s.ssl)+'</td><td class="mono dim">'+esc(s.backend||'-')+'</td>'
       +'<td class="mono dim">'+esc(s.docRoot||'-')+'</td><td>'+(s.suspended?'<span class="chip warn">Suspended</span>':'<span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Online</span>')+'</td>'
-      +'<td><div class="row-act"><span class="ln">SSL</span><span class="ln">Files</span><span class="ln">Delete</span></div></td></tr>';}).join('');
+      +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'Enable SSL','ssl',{domain:s.domain})+act('Files','web-files',{domain:s.domain})+act('Delete','web-del',{domain:s.domain})+'</div></td></tr>';}).join('');
   }
-  function showLogin(v){ var l=document.getElementById('hh-login'); if(l)l.style.display=v?'flex':'none'; if(shell)shell.style.filter=v?'blur(3px)':''; }
-  async function loadData(){
+  function fillDatabases(list){
+    var el=tbody('databases'); if(!el) return;
+    if(!list.length){ empty(el,5,'No databases yet — click "New database" to create one.'); return; }
+    el.innerHTML=list.map(function(d){return '<tr><td class="mono">'+esc(d.name)+'</td><td class="mono dim">'+esc(d.dbuser)+'</td><td class="mono dim">'+d.sizeMB+' MB</td><td class="dim">'+esc(d.type)+'</td>'
+      +'<td><div class="row-act">'+act('Delete','db-del',{name:d.name})+'</div></td></tr>';}).join('');
+  }
+  function fillMail(list){
+    var el=tbody('email'); if(!el) return;
+    if(!list.length){ empty(el,5,'No mailboxes yet — click "Create email" to add one.'); return; }
+    el.innerHTML=list.map(function(m){ var q=m.quotaMB?(gb(m.quotaMB)+' GB'):'unlimited'; var p=m.quotaMB?pct(m.usedMB,m.quotaMB):3;
+      return '<tr><td class="mono">'+esc(m.address)+'</td><td class="dim">'+gb(m.usedMB)+' GB</td><td class="dim">'+q+'</td>'
+      +'<td style="width:180px"><span class="bar" style="margin:0"><i style="width:'+p+'%"></i></span></td>'
+      +'<td><div class="row-act">'+act('Delete','mail-del',{domain:m.domain,account:m.account})+'</div></td></tr>';}).join('');
+  }
+  function fillBackups(list){
+    var el=tbody('backups'); if(!el) return;
+    if(!list.length){ empty(el,4,'No backups yet — click "Back up now" to create your first snapshot.'); return; }
+    el.innerHTML=list.map(function(b){return '<tr><td class="mono">'+esc(b.date||b.name)+'</td><td><span class="chip mono">'+esc(b.type||'backup')+'</span></td><td class="mono dim">'+(b.sizeMB?(b.sizeMB+' MB'):'—')+'</td><td><div class="row-act"><span class="dim">on server</span></div></td></tr>';}).join('');
+  }
+
+  // --- loaders ---
+  async function loadOverview(){ try{ fillAccount(await getJSON('/api/account')); fillSites(await getJSON('/api/websites')); }catch(e){} }
+  async function loadWebsites(){ try{ fillSites(await getJSON('/api/websites')); }catch(e){ empty(document.getElementById('ws-sites'),6,'Could not load websites.'); } try{ fillAccount(await getJSON('/api/account')); }catch(e){} }
+  async function loadDatabases(){ loading(tbody('databases'),5); try{ fillDatabases(await getJSON('/api/databases')); }catch(e){ empty(tbody('databases'),5,'Could not load databases.'); } }
+  async function loadMail(){ loading(tbody('email'),5); try{ fillMail(await getJSON('/api/mail')); }catch(e){ empty(tbody('email'),5,'Could not load mailboxes.'); } }
+  async function loadBackups(){ loading(tbody('backups'),4); try{ fillBackups(await getJSON('/api/backups')); }catch(e){ empty(tbody('backups'),4,'Could not load backups.'); } }
+
+  // --- actions ---
+  function addWebsite(){ openForm('Add website',[{name:'domain',label:'Domain',ph:'mysite.com'}],'Add website',async function(v){
+    await api('/api/website/add',{domain:v.domain}); toast('Website added'); loadWebsites(); }); }
+  function addDatabase(){ openForm('New database',[{name:'name',label:'Database name',ph:'blog'},{name:'dbuser',label:'Database user',ph:'bloguser'},{name:'password',label:'Password',type:'password',ph:'at least 6 characters'}],'Create',async function(v){
+    await api('/api/database/add',{name:v.name,dbuser:v.dbuser,password:v.password}); toast('Database created'); loadDatabases(); if(lastAccount) loadOverview(); }); }
+  function addMail(){ openForm('Create email',[{name:'account',label:'Mailbox name',ph:'hello'},{name:'domain',label:'Domain',ph:'mysite.com'},{name:'password',label:'Password',type:'password',ph:'at least 6 characters'}],'Create',async function(v){
+    await api('/api/mail/add',{domain:v.domain,account:v.account,password:v.password}); toast('Mailbox created'); loadMail(); if(lastAccount) loadOverview(); }); }
+  async function createBackup(){ if(!confirm('Create a full backup of your account now? This can take a few minutes.')) return; try{ await api('/api/backup/create'); toast('Backup started — it will appear here shortly.'); setTimeout(loadBackups,4000); }catch(e){ toast(e.message,false); } }
+
+  // delegated row actions
+  document.addEventListener('click',async function(e){
+    var el=e.target.closest('[data-act]'); if(!el) return;
+    var a=el.getAttribute('data-act'), domain=el.getAttribute('data-domain'), account=el.getAttribute('data-account'), name=el.getAttribute('data-name');
     try{
-      var a=await (await fetch('/api/account')).json();
-      var s=await (await fetch('/api/websites')).json();
-      if(a && !a.error) fillAccount(a);
-      if(Array.isArray(s)) fillSites(s);
-    }catch(e){}
+      if(a==='ssl'){ if(!confirm('Issue a free SSL certificate for '+domain+'?\n\nThe domain must already point to this server.')) return; el.textContent='…'; await api('/api/website/ssl',{domain}); toast('SSL enabled for '+domain); loadWebsites(); }
+      else if(a==='web-del'){ if(!confirm('Delete '+domain+'?\n\nThis permanently removes the site and its files. This cannot be undone.')) return; await api('/api/website/delete',{domain}); toast('Website deleted'); loadWebsites(); }
+      else if(a==='web-files'){ toast('Connect with SFTP — host: your server, port 22, username & password: your panel login.'); }
+      else if(a==='db-del'){ if(!confirm('Delete database '+name+'?\n\nAll data in it is permanently removed.')) return; await api('/api/database/delete',{name}); toast('Database deleted'); loadDatabases(); if(lastAccount) loadOverview(); }
+      else if(a==='mail-del'){ if(!confirm('Delete mailbox '+account+'@'+domain+'?')) return; await api('/api/mail/delete',{domain,account}); toast('Mailbox deleted'); loadMail(); if(lastAccount) loadOverview(); }
+    }catch(ex){ toast(ex.message,false); if(a==='ssl') loadWebsites(); }
+  });
+
+  // wire primary + quick-action buttons
+  function wireButtons(){
+    var bw=primaryBtn('websites'); if(bw) bw.onclick=addWebsite;
+    var bd=primaryBtn('databases'); if(bd) bd.onclick=addDatabase;
+    var bm=primaryBtn('email'); if(bm) bm.onclick=addMail;
+    var bb=primaryBtn('backups'); if(bb) bb.onclick=createBackup;
+    document.querySelectorAll('.qa-btn').forEach(function(b){
+      var t=(b.textContent||'').trim().toLowerCase();
+      b.addEventListener('click',function(){
+        if(t.indexOf('website')>=0) addWebsite();
+        else if(t.indexOf('email')>=0) addMail();
+        else if(t.indexOf('database')>=0) addDatabase();
+        else if(t.indexOf('wordpress')>=0) toast('One-click WordPress is coming soon. For now create a database and upload WordPress via SFTP.');
+        else if(t.indexOf('file')>=0) toast('Connect with SFTP — host: your server, port 22, username & password: your panel login.');
+      });
+    });
+    // File manager section: no browse API yet — show honest guidance instead of demo files.
+    var ft=tbody('files'); if(ft) ft.innerHTML='<tr><td colspan="4" class="dim" style="padding:22px">Browse and upload your files over SFTP — host: your server, port <b>22</b>, using your panel username and password. An in-panel file browser is coming soon.</td></tr>';
   }
+
+  // lazy-load a section when its nav is clicked
+  var loaded={};
+  function ensureSection(p){
+    if(p==='databases' && !loaded.db){ loaded.db=1; loadDatabases(); }
+    if(p==='email' && !loaded.mail){ loaded.mail=1; loadMail(); }
+    if(p==='backups' && !loaded.bk){ loaded.bk=1; loadBackups(); }
+  }
+  if(nav) nav.addEventListener('click',function(e){ var b=e.target.closest('.nav-item'); if(b) ensureSection(b.getAttribute('data-p')); });
+
+  function showLogin(v){ var l=document.getElementById('hh-login'); if(l)l.style.display=v?'flex':'none'; if(shell)shell.style.filter=v?'blur(3px)':''; }
+  function afterLogin(){ showLogin(false); loaded={}; loadOverview(); }
+
   async function init(){
+    wireButtons();
+    // pre-clear any static sample rows so nothing demo shows before data loads
+    loading(tbody('databases'),5); loading(tbody('email'),5); loading(tbody('backups'),4);
     var sess;
-    try{ sess=await (await fetch('/api/session')).json(); }catch(e){ showLogin(true); return; }
-    if(!sess.authed){ showLogin(true); }
-    else { showLogin(false); loadData(); }
+    try{ sess=await getJSON('/api/session'); }catch(e){ showLogin(true); return; }
+    sessionUser=sess.user||'';
+    if(!sess.authed){ showLogin(true); } else { afterLogin(); }
   }
   var form=document.getElementById('hh-login-form');
   if(form) form.addEventListener('submit', async function(e){
     e.preventDefault();
     var err=document.getElementById('hh-login-err'); err.textContent='';
+    var okb=form.querySelector('button[type="submit"]'); okb.disabled=true; okb.textContent='Signing in…';
     try{
       var r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('hh-user').value,password:document.getElementById('hh-pass').value})});
-      if(r.ok){ showLogin(false); loadData(); } else { var d=await r.json().catch(function(){return{};}); err.textContent=d.error||'Login failed'; }
+      var d={}; try{ d=await r.json(); }catch(e){}
+      if(r.ok && d.ok){ sessionUser=d.user||document.getElementById('hh-user').value; afterLogin(); }
+      else { err.textContent=(d&&d.error)||'Login failed'; }
     }catch(e){ err.textContent='Network error'; }
+    okb.disabled=false; okb.textContent='Sign in';
   });
   init();
 })();

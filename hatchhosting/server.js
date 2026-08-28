@@ -77,7 +77,17 @@ async function hestiaJson(cmd, args) {
   const raw = await hestia(cmd, [...(args || []), 'json']);
   try { return JSON.parse(raw); } catch { throw new Error('hestia: ' + String(raw).slice(0, 160)); }
 }
+// Hestia action commands return an empty body on success, or a numeric exit code on error.
+const HESTIA_ERR = { 1: 'Wrong arguments', 2: 'That value is not valid', 3: 'It does not exist', 4: 'It already exists', 5: 'Account is suspended', 6: 'This feature is disabled', 7: 'Password is not valid', 8: 'Not allowed', 12: 'You have reached your plan limit', 13: 'Try again later' };
+async function hestiaDo(cmd, args) {
+  const raw = String(await hestia(cmd, args || [])).trim();
+  if (raw === '' || raw === '0') return { ok: true };
+  const code = parseInt(raw, 10);
+  return { ok: false, error: HESTIA_ERR[code] || ('Server error (' + raw.slice(0, 80) + ')') };
+}
 const numOrNull = (v) => (v === 'unlimited' || v === '' || v == null) ? null : (parseInt(v, 10) || 0);
+const okName = (s) => /^[a-z0-9._-]{1,32}$/i.test(s);
+const okDomain = (s) => /^[a-z0-9.-]{1,253}\.[a-z]{2,}$/i.test(s);
 
 function accountFrom(u) {
   return {
@@ -138,6 +148,85 @@ const server = http.createServer(async (req, res) => {
           backend: w.BACKEND || '', diskMB: parseInt(w.U_DISK, 10) || 0, suspended: w.SUSPENDED === 'yes',
         }));
         return json(res, 200, arr);
+      }
+      if (url === '/api/databases') {
+        const d = await hestiaJson('v-list-databases', [u]);
+        const arr = Object.entries(d).map(([name, x]) => ({
+          name, dbuser: x.DBUSER || '', type: x.TYPE || 'mysql', charset: x.CHARSET || '',
+          sizeMB: parseInt(x.U_DISK, 10) || 0,
+        }));
+        return json(res, 200, arr);
+      }
+      if (url === '/api/mail') {
+        const domains = await hestiaJson('v-list-mail-domains', [u]);
+        const out = [];
+        for (const domain of Object.keys(domains)) {
+          let accts = {};
+          try { accts = await hestiaJson('v-list-mail-accounts', [u, domain]); } catch { accts = {}; }
+          for (const [acc, x] of Object.entries(accts)) {
+            out.push({ address: acc + '@' + domain, domain, account: acc, usedMB: parseInt(x.U_DISK, 10) || 0, quotaMB: numOrNull(x.QUOTA) });
+          }
+        }
+        return json(res, 200, out);
+      }
+      if (url === '/api/backups') {
+        let d = {};
+        try { d = await hestiaJson('v-list-user-backups', [u]); } catch { d = {}; }
+        const arr = Object.entries(d).map(([name, x]) => ({ name, type: x.TYPE || '', sizeMB: parseInt(x.SIZE, 10) || 0, date: ((x.DATE || '') + ' ' + (x.TIME || '')).trim() }));
+        return json(res, 200, arr);
+      }
+
+      // ---- actions (POST) ----
+      if (req.method === 'POST') {
+        const b = await readBody(req);
+        if (url === '/api/website/add') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          if (!okDomain(domain)) return json(res, 400, { error: 'Enter a valid domain like mysite.com' });
+          return json(res, 200, await hestiaDo('v-add-web-domain', [u, domain]));
+        }
+        if (url === '/api/website/delete') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          if (!okDomain(domain)) return json(res, 400, { error: 'Invalid domain' });
+          return json(res, 200, await hestiaDo('v-delete-web-domain', [u, domain]));
+        }
+        if (url === '/api/website/ssl') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          if (!okDomain(domain)) return json(res, 400, { error: 'Invalid domain' });
+          return json(res, 200, await hestiaDo('v-add-letsencrypt-domain', [u, domain]));
+        }
+        if (url === '/api/database/add') {
+          const name = String(b.name || '').trim();
+          const dbuser = String(b.dbuser || '').trim();
+          const pass = String(b.password || '');
+          if (!okName(name) || !okName(dbuser)) return json(res, 400, { error: 'Name and user must be letters, numbers, _ or -' });
+          if (pass.length < 6) return json(res, 400, { error: 'Database password must be at least 6 characters' });
+          return json(res, 200, await hestiaDo('v-add-database', [u, name, dbuser, pass]));
+        }
+        if (url === '/api/database/delete') {
+          const name = String(b.name || '').trim();
+          if (!name) return json(res, 400, { error: 'Missing database' });
+          return json(res, 200, await hestiaDo('v-delete-database', [u, name]));
+        }
+        if (url === '/api/mail/add') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const account = String(b.account || '').trim().toLowerCase();
+          const pass = String(b.password || '');
+          if (!okDomain(domain)) return json(res, 400, { error: 'Enter a valid domain' });
+          if (!okName(account)) return json(res, 400, { error: 'Invalid mailbox name' });
+          if (pass.length < 6) return json(res, 400, { error: 'Mailbox password must be at least 6 characters' });
+          const md = await hestiaDo('v-add-mail-domain', [u, domain]); // ok if it already exists
+          if (!md.ok && !/already/i.test(md.error)) { /* code 4 -> already exists; ignore */ }
+          return json(res, 200, await hestiaDo('v-add-mail-account', [u, domain, account, pass]));
+        }
+        if (url === '/api/mail/delete') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const account = String(b.account || '').trim().toLowerCase();
+          if (!okDomain(domain) || !okName(account)) return json(res, 400, { error: 'Invalid mailbox' });
+          return json(res, 200, await hestiaDo('v-delete-mail-account', [u, domain, account]));
+        }
+        if (url === '/api/backup/create') {
+          return json(res, 200, await hestiaDo('v-backup-user', [u]));
+        }
       }
       return json(res, 404, { error: 'not found' });
     }

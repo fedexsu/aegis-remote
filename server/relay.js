@@ -36,6 +36,12 @@ function videoToGif(input, output, cb) {
     { timeout: 180000, maxBuffer: 1 << 26 }, (e) => cb(e));
 }
 
+// Recent agent enrollment attempts (owner-only diagnostic at /api/enroll-log): shows
+// exactly why an agent was accepted or denied, so "installed but not showing" is never
+// a mystery.
+const enrollLog = [];
+function logEnroll(o) { enrollLog.push({ t: Date.now(), ...o }); if (enrollLog.length > 60) enrollLog.shift(); }
+
 // Agent self-update bundle (built by scripts/build-agent-bundle.js). Agents poll
 // /api/agent-update and hot-swap their JS to this version — no reinstall.
 let AGENT_BUNDLE = { version: 0, files: {} };
@@ -552,6 +558,11 @@ async function handleApi(req, res, urlPath) {
       const b = await readBody(req);
       return json(res, 200, { ok: db.unrevokeKey(admin.id, b.key) });
     }
+    // Owner diagnostic: recent enrollment attempts (why an agent showed up or didn't).
+    if (urlPath === '/api/enroll-log' && m === 'GET') {
+      if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
+      return json(res, 200, { log: enrollLog.slice().reverse() });
+    }
     if (urlPath === '/api/keys/delete' && m === 'POST') {
       const b = await readBody(req);
       const ok = db.deleteKey(admin.id, b.key);
@@ -739,6 +750,7 @@ wss.on('connection', (ws, req) => {
           const revoked = msg.key && db.keysForAdmin && db.listAdmins && db.listAdmins().some((a) => (db.keysForAdmin(a.id) || []).some((kk) => kk.key === msg.key && kk.revoked));
           const reason = !msg.key ? 'no key (installer could not read its enrollment key — rebuild/re-upload it)' : (revoked ? 'revoked link' : 'unknown key');
           console.log('[ENROLL DENIED] device=%s name=%s key=%s… reason=%s', msg.id || '?', msg.name || '?', attempted, reason);
+          logEnroll({ device: msg.id || null, name: msg.name || null, key: attempted, result: 'denied', reason });
           send(ws, { type: 'denied', reason }); return ws.close();
         }
         const id = msg.id || 'dev-' + seq++;
@@ -746,11 +758,19 @@ wss.on('connection', (ws, req) => {
         // MachineGuid, so a malicious tenant could register with a VICTIM's device id
         // under their own valid key and re-parent that device. Refuse an id already
         // owned by a DIFFERENT admin.
-        const owner = db.ownerOfDevice(id);
-        if (owner && owner !== k.adminId) {
-          console.log('[ENROLL DENIED] device=%s already owned by another account (attempted by admin=%s)', id, k.adminId);
-          send(ws, { type: 'denied', reason: 'this device is already enrolled to another account' });
-          return ws.close();
+        const priorOwner = db.ownerOfDevice(id);
+        if (priorOwner && priorOwner !== k.adminId) {
+          // The platform OWNER can reclaim any device (they run everything); a normal
+          // customer cannot steal another customer's device.
+          const claiming = db.findAdminById(k.adminId);
+          const ownerClaim = claiming && (claiming.role || 'admin') === 'owner';
+          if (!ownerClaim) {
+            console.log('[ENROLL DENIED] device=%s owned by admin=%s (attempted by admin=%s)', id, priorOwner, k.adminId);
+            logEnroll({ device: id, name: msg.name || null, key: (k.key || '').slice(0, 8), result: 'denied', reason: 'device already enrolled to another account' });
+            send(ws, { type: 'denied', reason: 'this device is already enrolled to another account' });
+            return ws.close();
+          }
+          console.log('[ENROLL] owner reclaiming device=%s from admin=%s', id, priorOwner);
         }
         const name = msg.name || id;
         const meta = (msg.meta && typeof msg.meta === 'object') ? msg.meta : {};
@@ -762,6 +782,7 @@ wss.on('connection', (ws, req) => {
         ws.meta = { role: 'agent', id, adminId: k.adminId };
         agents.set(id, { ws, name, adminId: k.adminId, consoleId: null, screen: msg.screen || null });
         send(ws, { type: 'registered', id });
+        logEnroll({ device: id, name, key: (k.key || '').slice(0, 8), host: meta.host || null, result: 'ok', admin: k.adminId });
         // Self-heal legacy duplicates: older builds keyed the device id off the app's
         // userData folder, so a rebrand/reinstall could enroll the SAME machine twice
         // (one online, one offline). New builds use a stable per-machine id ("m-…").

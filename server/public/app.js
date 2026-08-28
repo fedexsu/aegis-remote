@@ -641,26 +641,27 @@ async function loadKeys() {
       }
       row.querySelector('.link-url').textContent = k.downloadUrl;
       const acts = row.querySelector('.link-actions');
-      if (k.revoked) {
-        acts.innerHTML = '<span class="tag revoked">Revoked</span>';
-        const un = document.createElement('button');
-        un.className = 'btn ghost small'; un.textContent = 'Re-activate';
-        un.title = 'Turn this link back on (reconnects machines enrolled with it, after they restart)';
-        un.addEventListener('click', async () => { await api('/api/keys/unrevoke', 'POST', { key: k.key }); toast('Link re-activated', 'ok'); loadKeys(); });
-        acts.appendChild(un);
-      } else {
+      if (!k.revoked) {
         const copy = document.createElement('button');
         copy.className = 'btn ghost small'; copy.textContent = 'Copy link';
         copy.addEventListener('click', () => navigator.clipboard.writeText(k.downloadUrl).then(() => { copy.textContent = 'Copied ✓'; toast('Link copied', 'ok'); setTimeout(() => (copy.textContent = 'Copy link'), 1500); }));
-        const rev = document.createElement('button');
-        rev.className = 'btn danger small'; rev.textContent = 'Revoke';
-        rev.addEventListener('click', async () => {
-          const ok = await modal({ title: 'Revoke link?', message: `⚠ This disconnects EVERY device already installed with "${k.label}" - they'll drop offline immediately and can't reconnect until you re-activate the link. Only revoke if you want to cut those machines off.`, confirmText: 'Revoke', danger: true });
-          if (!ok) return;
-          await api('/api/keys/revoke', 'POST', { key: k.key }); toast('Link revoked', 'ok'); loadKeys();
-        });
-        acts.append(copy, rev);
+        acts.appendChild(copy);
+      } else {
+        acts.innerHTML = '<span class="tag revoked">Revoked</span>';
       }
+      const del = document.createElement('button');
+      del.className = 'btn danger small'; del.textContent = 'Delete';
+      del.addEventListener('click', async () => {
+        const ok = await modal({
+          title: 'Delete link?',
+          message: `⚠ This permanently removes "${k.label}" from your Enrollment page and stops it working. Any device already installed with it will drop offline and can't reconnect through this link. This cannot be undone.`,
+          confirmText: 'Delete', danger: true,
+        });
+        if (!ok) return;
+        try { await api('/api/keys/delete', 'POST', { key: k.key }); toast('Link deleted', 'ok'); loadKeys(); }
+        catch (e) { toast(e.message || 'delete failed', 'err'); }
+      });
+      acts.appendChild(del);
       box.appendChild(row);
     }
     applyStats(statsCache); // fill per-link chips with the latest counts

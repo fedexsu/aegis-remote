@@ -532,6 +532,13 @@ async function handleApi(req, res, urlPath) {
       const b = await readBody(req);
       return json(res, 200, { ok: db.unrevokeKey(admin.id, b.key) });
     }
+    if (urlPath === '/api/keys/delete' && m === 'POST') {
+      const b = await readBody(req);
+      const ok = db.deleteKey(admin.id, b.key);
+      // Disconnect any live agents enrolled with this now-deleted link.
+      if (ok) for (const [id, a] of agents) if (a.adminId === admin.id) { const dev = dbDevice(admin.id, id); if (dev && dev.keyUsed === b.key) { try { a.ws.close(); } catch {} } }
+      return json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'link not found' });
+    }
     if (urlPath === '/api/alerts' && m === 'GET') return json(res, 200, { alerts: db.getAlerts(admin.id) });
     if (urlPath === '/api/alerts' && m === 'POST') {
       const b = await readBody(req);

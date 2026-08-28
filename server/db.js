@@ -236,6 +236,15 @@ function unrevokeKey(adminId, keyStr) {
   if (k) { k.revoked = false; save(); }
   return !!k;
 }
+// Permanently remove an enrollment link. It stops working (findValidKey no longer
+// finds it, so agents can't (re)enroll through it) and disappears from the list.
+function deleteKey(adminId, keyStr) {
+  const before = db.keys.length;
+  db.keys = db.keys.filter((k) => !(k.key === keyStr && k.adminId === adminId));
+  const removed = db.keys.length < before;
+  if (removed) save();
+  return removed;
+}
 
 // ---- devices ----
 function upsertDevice(id, adminId, name, keyUsed, meta) {
@@ -417,7 +426,7 @@ module.exports = {
   createAdmin, findAdminByEmail, findAdminById, publicAdmin, verifyPassword,
   hasAdmins, listAdmins, updatePassword,
   createSession, getSession, deleteSession, deleteSessionsForAdmin,
-  createKey, keysForAdmin, findValidKey, revokeKey, unrevokeKey, incKeyDownload, statsForAdmin,
+  createKey, keysForAdmin, findValidKey, revokeKey, unrevokeKey, deleteKey, incKeyDownload, statsForAdmin,
   getAlerts, setAlerts,
   upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, markUninstalled, setAsleep, ownerOfDevice,
   setDeviceProtection, allowUninstall, uninstallAllowed,

@@ -106,13 +106,18 @@ $('#auth-form').addEventListener('submit', async (e) => {
   const btn = $('#au-submit');
   btn.disabled = true;
   try {
-    const data = await api('/api/login', 'POST', {
-      email: $('#au-email').value.trim(),
-      password: $('#au-pass').value,
-    });
-    showApp(data.admin);
+    const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: $('#au-email').value.trim(), password: $('#au-pass').value }) });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) { showApp(data.admin); return; }
+    if (data.expired) {
+      const bot = data.botUrl || 'https://t.me/hatchconnect';
+      $('#auth-err').innerHTML = 'Your subscription has ended. Renew on our Telegram bot to sign in again.<br><a href="' + bot + '" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-weight:600">Open the Telegram bot to renew</a>';
+    } else {
+      $('#auth-err').textContent = data.error || 'Login failed';
+    }
+    btn.disabled = false;
   } catch (err) {
-    $('#auth-err').textContent = err.message;
+    $('#auth-err').textContent = 'Network error, please try again';
     btn.disabled = false;
   }
 });
@@ -178,15 +183,6 @@ document.addEventListener('click', (e) => { const g = e.target.closest('[data-go
 
 (async function init() {
   showSoloLoader(); // cover the dashboard until we attach (app/solo windows only)
-  // Magic login from the Telegram bot: one tap signs the buyer in, no password typed.
-  const magic = urlParams.get('login');
-  if (magic) {
-    try {
-      const r = await fetch('/api/magic-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: magic }) });
-      try { history.replaceState(null, '', location.pathname); } catch {}
-      if (r.ok) { const { admin: a } = await api('/api/me'); return showApp(a); }
-    } catch {}
-  }
   // Already signed in (browser, or the app's own persisted login)? Go straight in.
   try { const { admin: a } = await api('/api/me'); return showApp(a); } catch {}
   // Desktop-app handoff: exchange the one-time token for a session, then continue.

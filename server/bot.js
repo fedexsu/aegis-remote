@@ -17,7 +17,30 @@ const payments = require('./payments');
 
 const TOKEN = process.env.TG_BOT_TOKEN;
 const APP_URL = process.env.PUBLIC_URL || 'https://aegis-relay-production.up.railway.app';
+const CHANNEL_USER = (process.env.CHANNEL_USERNAME || 'hatchconnect').replace(/^@/, '');
+const CHANNEL = '@' + CHANNEL_USER;
+const CHANNEL_URL = 'https://t.me/' + CHANNEL_USER;
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// Force-join: a user must be a member of our channel to use the bot. (The bot must
+// be an ADMIN of the channel for this check to work; if it can't verify, it fails
+// OPEN so a misconfig never blocks sales.)
+async function isMember(userId) {
+  try {
+    const r = await api('getChatMember', { chat_id: CHANNEL, user_id: userId });
+    if (!r || !r.ok) return true; // can't check (bot not admin / channel unset) -> allow
+    const st = r.result && r.result.status;
+    return ['creator', 'administrator', 'member', 'restricted'].includes(st);
+  } catch { return true; }
+}
+function joinPrompt(chat) {
+  send(chat,
+    '📣 <b>One quick step</b>\nJoin our channel to use the bot. 👇\n\nTap <b>Join channel</b>, then tap <b>I have joined</b>.',
+    { inline_keyboard: [
+      [{ text: '📣 Join channel', url: CHANNEL_URL }],
+      [{ text: '✅ I have joined', callback_data: 'joined' }],
+    ] });
+}
 
 function api(method, params) {
   return new Promise((resolve) => {
@@ -40,7 +63,7 @@ function mainMenuKeyboard() {
   return { keyboard: [
     [{ text: '🚀 Get Started' }],
     [{ text: 'ℹ️ About' }, { text: '📊 My Account' }],
-    [{ text: '❓ Help' }],
+    [{ text: '📣 Channel' }, { text: '❓ Help' }],
   ], resize_keyboard: true, is_persistent: true, input_field_placeholder: '👇 Tap to begin' };
 }
 function plansKeyboard() {
@@ -99,10 +122,23 @@ function showInvoice(chat, inv) {
 
 async function handleUpdate(u, onCheck) {
   try {
+    const from = (u.message && u.message.from) || (u.callback_query && u.callback_query.from);
+    const gateChat = (u.message && u.message.chat && u.message.chat.id) || (u.callback_query && u.callback_query.message && u.callback_query.message.chat.id);
+    const isJoinedCb = u.callback_query && u.callback_query.data === 'joined';
+    // Force-join gate (everything except the "I have joined" recheck).
+    if (from && gateChat && !isJoinedCb) {
+      if (!(await isMember(from.id))) return joinPrompt(gateChat);
+    }
+    if (isJoinedCb) {
+      api('answerCallbackQuery', { callback_query_id: u.callback_query.id });
+      if (await isMember(from.id)) return showStart(gateChat);
+      return joinPrompt(gateChat);
+    }
     if (u.message && u.message.text) {
       const t = u.message.text.trim();
       const chat = u.message.chat.id;
       if (/^\/(start|menu)\b/.test(t) || /^⬅️|back$/i.test(t)) return showStart(chat);
+      if (/channel/i.test(t)) return send(chat, '📣 <b>HatchConnect channel</b>\nUpdates, tips, and news. 👇', { inline_keyboard: [[{ text: '📣 Open channel', url: CHANNEL_URL }]] });
       if (/^\/(plans|buy)\b/i.test(t) || /get started|^plans$|^buy$/i.test(t)) return showPlans(chat);
       if (/^\/about\b/i.test(t) || /about/i.test(t)) return showAbout(chat);
       if (/^\/status\b/i.test(t) || /account|status/i.test(t)) {
@@ -141,29 +177,25 @@ async function handleUpdate(u, onCheck) {
   } catch (e) { console.error('[bot] update error:', e.message); }
 }
 
-// DM the buyer once a payment is confirmed (new account or renewal), including a
-// one-tap magic-login link so they don't have to type the generated password.
+// DM the buyer once a payment is confirmed. New account -> fresh username + password
+// + sign-in instructions. Renewal -> extended, same login.
 function notifyPaid(inv, creds) {
   const p = creds.plan;
   const until = new Date(creds.subExpires).toISOString().slice(0, 10);
-  const loginUrl = `${APP_URL}/?login=${db.createMagicToken(creds.adminId)}`;
   if (process.env.OWNER_TG_CHAT) {
     send(process.env.OWNER_TG_CHAT, `💰 <b>${creds.isNew ? 'New sale' : 'Renewal'}</b>\nPlan: ${esc(p.label)} (${p.usdt} USDT)\nAccount: <code>${esc(creds.username)}</code>`);
   }
   if (creds.isNew) {
     send(inv.tgChat,
-      `🎉 <b>Payment confirmed! Your HatchConnect account is live.</b> 🚀\n\n` +
-      `🔐 <b>Tap here to open your dashboard</b> (one tap, no password to type):\n${loginUrl}\n\n` +
-      `Prefer to sign in manually? ${APP_URL}\n👤 Username: <code>${esc(creds.username)}</code>\n🔑 Password: <code>${esc(creds.password)}</code>\n\n` +
-      `📦 Plan: <b>${esc(p.label)}</b> · active until ${until} ✅\n\n` +
-      `👉 <b>Next steps</b>\n1️⃣ Tap the link above 🔓\n2️⃣ Open Enrollment and copy your install link 🔗\n3️⃣ Grab the desktop app: ${APP_URL}/app 💻`,
-      { inline_keyboard: [[{ text: '🔓 Open my dashboard', url: loginUrl }]] });
+      `🎉 <b>Payment confirmed! Here is your HatchConnect account.</b> 🚀\n\n` +
+      `🔗 <b>Dashboard:</b> ${APP_URL}\n👤 <b>Username:</b> <code>${esc(creds.username)}</code>\n🔑 <b>Password:</b> <code>${esc(creds.password)}</code>\n\n` +
+      `📦 <b>Plan:</b> ${esc(p.label)} · active until ${until} ✅\n\n` +
+      `👉 <b>How to sign in</b>\n1️⃣ Open <b>${APP_URL}</b> in your browser\n2️⃣ Enter the username and password above\n3️⃣ Change your password in Settings 🔒\n4️⃣ Open <b>Enrollment</b>, copy your install link, and get the app: ${APP_URL}/app 💻`);
   } else {
     send(inv.tgChat,
       `🔄 <b>Renewal confirmed!</b> Your subscription is extended. 🎉\n\n` +
-      `📦 Plan: <b>${esc(p.label)}</b> · now active until <b>${until}</b> ✅\n\n` +
-      `Your username and password are unchanged.`,
-      { inline_keyboard: [[{ text: '🔓 Open my dashboard', url: loginUrl }]] });
+      `📦 <b>Plan:</b> ${esc(p.label)} · now active until <b>${until}</b> ✅\n\n` +
+      `Sign in with your existing username and password at ${APP_URL}. Same account, more time. 🙌`);
   }
 }
 

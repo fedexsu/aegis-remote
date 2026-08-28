@@ -253,7 +253,7 @@ async function handleApi(req, res, urlPath) {
         return json(res, 401, { error: 'invalid email or password' });
       }
       loginOk(lk);
-      if (db.isExpired(admin)) return json(res, 403, { error: 'Your subscription has expired. Renew in the Telegram bot to sign in again.', expired: true });
+      if (db.isExpired(admin)) return json(res, 403, { error: 'Your subscription has ended. Renew on our Telegram bot to sign in again.', expired: true, botUrl: 'https://t.me/' + (process.env.BOT_USERNAME || 'hatchconnect') });
       const token = db.createSession(admin.id);
       return json(res, 200, { admin: db.publicAdmin(admin) }, { 'Set-Cookie': sessionCookie(token) });
     }

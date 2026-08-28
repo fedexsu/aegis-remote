@@ -15,8 +15,12 @@
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
+const fsp = fs.promises;
 const path = require('path');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileP = promisify(execFile);
 
 const PORT = process.env.PORT || 8080;
 const PROXY_TARGET = process.env.PROXY_TARGET || '';
@@ -44,6 +48,8 @@ if (PROXY_TARGET) {
 // ---- APP mode (VPS) ------------------------------------------------------
 const HESTIA_URL = process.env.HESTIA_URL || '';
 const HESTIA_KEY = process.env.HESTIA_KEY || '';
+const SERVER_IP = process.env.SERVER_IP || '';
+const HOSTNAME = process.env.SERVER_HOSTNAME || require('os').hostname();
 const LIVE = !!(HESTIA_URL && HESTIA_KEY);
 
 const html = fs.readFileSync(path.join(__dirname, 'index.html'));
@@ -89,6 +95,40 @@ const numOrNull = (v) => (v === 'unlimited' || v === '' || v == null) ? null : (
 const okName = (s) => /^[a-z0-9._-]{1,32}$/i.test(s);
 const okDomain = (s) => /^[a-z0-9.-]{1,253}\.[a-z]{2,}$/i.test(s);
 
+// ---- filesystem (VPS): scoped to the logged-in user's own site directories ----
+function siteBase(u, domain) {
+  if (!okName(u) || !okDomain(domain)) throw new Error('Invalid site');
+  return '/home/' + u + '/web/' + domain + '/public_html';
+}
+async function ensureSite(u, domain) {
+  const base = siteBase(u, domain);
+  try { const st = await fsp.stat('/home/' + u + '/web/' + domain); if (!st.isDirectory()) throw 0; }
+  catch { throw new Error('That website is not on your account'); }
+  return base;
+}
+function safeJoin(base, rel) {
+  const p = path.resolve(base, '.' + path.sep + (rel || '')); // force relative
+  if (p !== base && !p.startsWith(base + path.sep)) throw new Error('Invalid path');
+  return p;
+}
+const salt = () => crypto.randomBytes(48).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 64);
+function wpConfig(dbName, dbUser, dbPass) {
+  const K = ['AUTH_KEY', 'SECURE_AUTH_KEY', 'LOGGED_IN_KEY', 'NONCE_KEY', 'AUTH_SALT', 'SECURE_AUTH_SALT', 'LOGGED_IN_SALT', 'NONCE_SALT'];
+  const keys = K.map((k) => "define('" + k + "', '" + salt() + "');").join('\n');
+  return "<?php\n"
+    + "define('DB_NAME', '" + dbName + "');\n"
+    + "define('DB_USER', '" + dbUser + "');\n"
+    + "define('DB_PASSWORD', '" + dbPass + "');\n"
+    + "define('DB_HOST', 'localhost');\n"
+    + "define('DB_CHARSET', 'utf8mb4');\n"
+    + "define('DB_COLLATE', '');\n"
+    + keys + "\n"
+    + "$table_prefix = 'wp_';\n"
+    + "define('WP_AUTO_UPDATE_CORE', 'minor');\n"
+    + "if ( ! defined('ABSPATH') ) { define('ABSPATH', __DIR__ . '/'); }\n"
+    + "require_once ABSPATH . 'wp-settings.php';\n";
+}
+
 function accountFrom(u) {
   return {
     name: u.NAME || '', email: u.CONTACT || '', package: u.PACKAGE || '', ns: u.NS || '',
@@ -108,7 +148,9 @@ const clientIp = (req) => (req.headers['x-forwarded-for'] || req.socket.remoteAd
 const readBody = (req) => new Promise((r) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { try { r(JSON.parse(b || '{}')); } catch { r({}); } }); });
 
 const server = http.createServer(async (req, res) => {
-  const url = (req.url || '/').split('?')[0];
+  const parsed = new URL(req.url || '/', 'http://x');
+  const url = parsed.pathname;
+  const qp = parsed.searchParams;
   try {
     if (url === '/api/session') { const u = sessionUser(req); return json(res, 200, { authed: !!u, user: u }); }
 
@@ -175,6 +217,46 @@ const server = http.createServer(async (req, res) => {
         const arr = Object.entries(d).map(([name, x]) => ({ name, type: x.TYPE || '', sizeMB: parseInt(x.SIZE, 10) || 0, date: ((x.DATE || '') + ' ' + (x.TIME || '')).trim() }));
         return json(res, 200, arr);
       }
+      if (url === '/api/server') {
+        let ip = SERVER_IP;
+        if (!ip) { try { const ips = await hestiaJson('v-list-sys-ips', []); ip = Object.keys(ips)[0] || ''; } catch { ip = ''; } }
+        return json(res, 200, { ip, hostname: HOSTNAME });
+      }
+
+      // ---- file manager (scoped to the user's own site folders) ----
+      if (url === '/api/files') {
+        const domain = String(qp.get('domain') || '').trim().toLowerCase();
+        const base = await ensureSite(u, domain);
+        const dir = safeJoin(base, qp.get('path') || '');
+        let names = [];
+        try { names = await fsp.readdir(dir); } catch { return json(res, 200, { path: qp.get('path') || '', items: [] }); }
+        const items = [];
+        for (const n of names) {
+          try { const st = await fsp.stat(path.join(dir, n)); items.push({ name: n, dir: st.isDirectory(), sizeKB: Math.round(st.size / 1024), mtime: st.mtimeMs }); }
+          catch { /* skip */ }
+        }
+        items.sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name));
+        return json(res, 200, { path: qp.get('path') || '', items });
+      }
+      if (url === '/api/files/download' && req.method === 'GET') {
+        const domain = String(qp.get('domain') || '').trim().toLowerCase();
+        const base = await ensureSite(u, domain);
+        const file = safeJoin(base, (qp.get('path') || '') + '/' + (qp.get('name') || ''));
+        const st = await fsp.stat(file).catch(() => null);
+        if (!st || st.isDirectory()) return json(res, 404, { error: 'File not found' });
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="' + path.basename(file).replace(/"/g, '') + '"', 'Content-Length': st.size });
+        return fs.createReadStream(file).pipe(res);
+      }
+      if (url === '/api/files/upload' && req.method === 'POST') {
+        const domain = String(qp.get('domain') || '').trim().toLowerCase();
+        const base = await ensureSite(u, domain);
+        const name = path.basename(String(qp.get('name') || '')); // strip any path
+        if (!name || name === '.' || name === '..') return json(res, 400, { error: 'Invalid file name' });
+        const dest = safeJoin(base, (qp.get('path') || '') + '/' + name);
+        await new Promise((resolve, reject) => { const ws = fs.createWriteStream(dest); req.pipe(ws); ws.on('finish', resolve); ws.on('error', reject); req.on('error', reject); });
+        try { await execFileP('chown', [u + ':' + u, dest]); } catch {}
+        return json(res, 200, { ok: true });
+      }
 
       // ---- actions (POST) ----
       if (req.method === 'POST') {
@@ -193,6 +275,46 @@ const server = http.createServer(async (req, res) => {
           const domain = String(b.domain || '').trim().toLowerCase();
           if (!okDomain(domain)) return json(res, 400, { error: 'Invalid domain' });
           return json(res, 200, await hestiaDo('v-add-letsencrypt-domain', [u, domain]));
+        }
+        if (url === '/api/website/wordpress') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const base = await ensureSite(u, domain);
+          // don't clobber an existing install
+          if (fs.existsSync(path.join(base, 'wp-config.php'))) return json(res, 200, { ok: false, error: 'WordPress is already installed on this site' });
+          const rnd = crypto.randomBytes(3).toString('hex');
+          const dbSuf = 'wp' + rnd, userSuf = 'wpu' + rnd, dbpass = crypto.randomBytes(12).toString('base64url');
+          const dbr = await hestiaDo('v-add-database', [u, dbSuf, userSuf, dbpass]);
+          if (!dbr.ok) return json(res, 200, { ok: false, error: 'Could not create database: ' + dbr.error });
+          const DB_NAME = u + '_' + dbSuf, DB_USER = u + '_' + userSuf;
+          const tmp = '/tmp/wp-' + rnd;
+          try {
+            await execFileP('mkdir', ['-p', tmp]);
+            await execFileP('curl', ['-fsSL', '-o', tmp + '/wp.tar.gz', 'https://wordpress.org/latest.tar.gz'], { timeout: 180000 });
+            await execFileP('tar', ['xzf', tmp + '/wp.tar.gz', '-C', tmp]);
+            await execFileP('cp', ['-a', tmp + '/wordpress/.', base + '/']);
+            await fsp.writeFile(path.join(base, 'wp-config.php'), wpConfig(DB_NAME, DB_USER, dbpass));
+            await execFileP('chown', ['-R', u + ':' + u, base]);
+          } catch (e) {
+            return json(res, 200, { ok: false, error: 'Install failed: ' + (e.message || e) });
+          } finally { try { await execFileP('rm', ['-rf', tmp]); } catch {} }
+          return json(res, 200, { ok: true, adminUrl: 'http://' + domain + '/wp-admin/' });
+        }
+        if (url === '/api/files/mkdir') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const base = await ensureSite(u, domain);
+          const name = path.basename(String(b.name || ''));
+          if (!name || name === '.' || name === '..' || /[\/]/.test(String(b.name || ''))) return json(res, 400, { error: 'Invalid folder name' });
+          const dir = safeJoin(base, (b.path || '') + '/' + name);
+          try { await fsp.mkdir(dir); await execFileP('chown', [u + ':' + u, dir]); } catch (e) { return json(res, 200, { ok: false, error: e.code === 'EEXIST' ? 'That folder already exists' : 'Could not create folder' }); }
+          return json(res, 200, { ok: true });
+        }
+        if (url === '/api/files/delete') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const base = await ensureSite(u, domain);
+          const target = safeJoin(base, (b.path || '') + '/' + path.basename(String(b.name || '')));
+          if (target === base) return json(res, 400, { error: 'Cannot delete the site root' });
+          try { await fsp.rm(target, { recursive: true, force: true }); } catch { return json(res, 200, { ok: false, error: 'Could not delete' }); }
+          return json(res, 200, { ok: true });
         }
         if (url === '/api/database/add') {
           const name = String(b.name || '').trim();

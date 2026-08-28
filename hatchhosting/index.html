@@ -160,8 +160,8 @@ tbody tr:hover{background:var(--panel-2)}
     </nav>
     <div class="side-foot">
       <div class="side-user">
-        <div class="avatar">S</div>
-        <div><div class="su-name">ski</div><div class="su-plan">Business plan</div></div>
+        <div class="avatar"></div>
+        <div><div class="su-name">…</div><div class="su-plan"></div></div>
       </div>
     </div>
   </aside>
@@ -169,8 +169,8 @@ tbody tr:hover{background:var(--panel-2)}
   <!-- MAIN -->
   <div class="main">
     <div class="topbar">
-      <span class="tb-domain">Primary: <b>mysite.com</b></span>
-      <span class="plan-chip">Business</span>
+      <span class="tb-domain"></span>
+      <span class="plan-chip"></span>
       <div class="tb-right">
         <button class="icon-btn" id="theme" title="Toggle theme" aria-label="Toggle theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.6 6.6 0 0 0 9.8 9.8Z" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <button class="icon-btn" title="Help" aria-label="Help"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 0 1 4.5 1.5c0 1.5-2 2-2 3M12 16.5h.01" stroke-linecap="round"/></svg></button>
@@ -186,27 +186,27 @@ tbody tr:hover{background:var(--panel-2)}
         <div class="grid usage" id="usage-grid">
           <div class="rc">
             <div class="rc-top"><span class="rc-label">Disk</span><span class="rc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6"/></svg></span></div>
-            <div class="rc-num">12.4<span> / 50 GB</span></div>
+            <div class="rc-num">…<span></span></div>
             <div class="bar"><i style="width:25%"></i></div>
-            <div class="rc-sub">37.6 GB free</div>
+            <div class="rc-sub"></div>
           </div>
           <div class="rc">
             <div class="rc-top"><span class="rc-label">Bandwidth</span><span class="rc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 17l5-6 4 4 5-7 4 5" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
-            <div class="rc-num">84<span> / 500 GB</span></div>
+            <div class="rc-num">…<span></span></div>
             <div class="bar"><i style="width:17%"></i></div>
             <div class="rc-sub">This month</div>
           </div>
           <div class="rc">
             <div class="rc-top"><span class="rc-label">Websites</span><span class="rc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/></svg></span></div>
-            <div class="rc-num">3<span> / unlimited</span></div>
+            <div class="rc-num">…<span></span></div>
             <div class="bar"><i style="width:40%"></i></div>
-            <div class="rc-sub">2 with SSL active</div>
+            <div class="rc-sub"></div>
           </div>
           <div class="rc">
             <div class="rc-top"><span class="rc-label">Email accounts</span><span class="rc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5 12 13l8.5-6.5"/></svg></span></div>
-            <div class="rc-num">8<span> / 100</span></div>
+            <div class="rc-num">…<span></span></div>
             <div class="bar"><i style="width:8%"></i></div>
-            <div class="rc-sub">3.1 GB mail storage</div>
+            <div class="rc-sub"></div>
           </div>
         </div>
 
@@ -223,32 +223,7 @@ tbody tr:hover{background:var(--panel-2)}
         <div class="card scroll">
           <table>
             <thead><tr><th>Website</th><th>SSL</th><th>PHP</th><th>App</th><th>Disk</th><th></th></tr></thead>
-            <tbody id="ov-sites">
-              <tr>
-                <td><span class="site-name"><span class="fav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/></svg></span>mysite.com</span></td>
-                <td><span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Active</span></td>
-                <td class="mono dim">8.2</td>
-                <td>WordPress</td>
-                <td class="mono dim">4.1 GB</td>
-                <td><div class="row-act"><span class="ln">Open</span><span class="ln">Manage</span></div></td>
-              </tr>
-              <tr>
-                <td><span class="site-name"><span class="fav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="18" cy="21" r="1"/><path d="M3 4h2l2.4 12.5A2 2 0 0 0 9.3 18h8.4a2 2 0 0 0 2-1.6L21 8H6"/></svg></span>shop.mysite.com</span></td>
-                <td><span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Active</span></td>
-                <td class="mono dim">8.1</td>
-                <td>Laravel</td>
-                <td class="mono dim">6.8 GB</td>
-                <td><div class="row-act"><span class="ln">Open</span><span class="ln">Manage</span></div></td>
-              </tr>
-              <tr>
-                <td><span class="site-name"><span class="fav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M4 9h16"/></svg></span>blog.example.net</span></td>
-                <td><span class="chip warn"><span class="dot" style="background:var(--warn)"></span>Issuing</span></td>
-                <td class="mono dim">8.2</td>
-                <td>WordPress</td>
-                <td class="mono dim">1.5 GB</td>
-                <td><div class="row-act"><span class="ln">Open</span><span class="ln">Manage</span></div></td>
-              </tr>
-            </tbody>
+            <tbody id="ov-sites"><tr><td colspan="6" class="dim" style="text-align:center;padding:24px">Loading…</td></tr></tbody>
           </table>
         </div>
         <div class="disclaimer">Prototype with sample data. This is HatchHosting's own panel; behind the scenes it drives the server through an automation API, so customers never see the underlying software.</div>
@@ -260,11 +235,7 @@ tbody tr:hover{background:var(--panel-2)}
         <div class="card scroll">
           <table>
             <thead><tr><th>Domain</th><th>SSL</th><th>PHP</th><th>Document root</th><th>Status</th><th></th></tr></thead>
-            <tbody id="ws-sites">
-              <tr><td class="site-name">mysite.com</td><td><span class="chip ok">Active</span></td><td class="mono dim">8.2</td><td class="mono dim">/home/ski/mysite.com</td><td><span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Online</span></td><td><div class="row-act"><span class="ln">SSL</span><span class="ln">Files</span><span class="ln">Delete</span></div></td></tr>
-              <tr><td class="site-name">shop.mysite.com</td><td><span class="chip ok">Active</span></td><td class="mono dim">8.1</td><td class="mono dim">/home/ski/shop</td><td><span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Online</span></td><td><div class="row-act"><span class="ln">SSL</span><span class="ln">Files</span><span class="ln">Delete</span></div></td></tr>
-              <tr><td class="site-name">blog.example.net</td><td><span class="chip warn">Issuing</span></td><td class="mono dim">8.2</td><td class="mono dim">/home/ski/blog</td><td><span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Online</span></td><td><div class="row-act"><span class="ln">SSL</span><span class="ln">Files</span><span class="ln">Delete</span></div></td></tr>
-            </tbody>
+            <tbody id="ws-sites"><tr><td colspan="6" class="dim" style="text-align:center;padding:24px">Loading…</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -275,11 +246,7 @@ tbody tr:hover{background:var(--panel-2)}
         <div class="card scroll">
           <table>
             <thead><tr><th>Database</th><th>User</th><th>Size</th><th>Tables</th><th></th></tr></thead>
-            <tbody>
-              <tr><td class="mono">ski_wp_main</td><td class="mono dim">ski_wp</td><td class="mono dim">142 MB</td><td class="dim">28</td><td><div class="row-act"><span class="ln">Open in phpMyAdmin</span><span class="ln">Delete</span></div></td></tr>
-              <tr><td class="mono">ski_shop</td><td class="mono dim">ski_shop</td><td class="mono dim">318 MB</td><td class="dim">64</td><td><div class="row-act"><span class="ln">Open in phpMyAdmin</span><span class="ln">Delete</span></div></td></tr>
-              <tr><td class="mono">ski_blog</td><td class="mono dim">ski_blog</td><td class="mono dim">54 MB</td><td class="dim">19</td><td><div class="row-act"><span class="ln">Open in phpMyAdmin</span><span class="ln">Delete</span></div></td></tr>
-            </tbody>
+            <tbody><tr><td colspan="5" class="dim" style="text-align:center;padding:24px">Loading…</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -290,30 +257,29 @@ tbody tr:hover{background:var(--panel-2)}
         <div class="card scroll">
           <table>
             <thead><tr><th>Address</th><th>Used</th><th>Quota</th><th></th><th></th></tr></thead>
-            <tbody>
-              <tr><td class="mono">hello@mysite.com</td><td class="dim">1.2 GB</td><td class="dim">5 GB</td><td style="width:180px"><span class="bar" style="margin:0"><i style="width:24%"></i></span></td><td><div class="row-act"><span class="ln">Webmail</span><span class="ln">Password</span><span class="ln">Delete</span></div></td></tr>
-              <tr><td class="mono">support@mysite.com</td><td class="dim">640 MB</td><td class="dim">5 GB</td><td><span class="bar" style="margin:0"><i style="width:13%"></i></span></td><td><div class="row-act"><span class="ln">Webmail</span><span class="ln">Password</span><span class="ln">Delete</span></div></td></tr>
-              <tr><td class="mono">orders@shop.mysite.com</td><td class="dim">1.3 GB</td><td class="dim">10 GB</td><td><span class="bar" style="margin:0"><i style="width:13%"></i></span></td><td><div class="row-act"><span class="ln">Webmail</span><span class="ln">Password</span><span class="ln">Delete</span></div></td></tr>
-            </tbody>
+            <tbody><tr><td colspan="5" class="dim" style="text-align:center;padding:24px">Loading…</td></tr></tbody>
           </table>
         </div>
       </section>
 
       <!-- FILES -->
       <section class="page" data-page="files">
-        <h1 class="page-title">File manager</h1>
-        <p class="page-sub">Browse, upload, and edit your site files.</p>
-        <div class="card scroll" style="margin-top:20px">
+        <div class="sec-h" style="margin-top:0">
+          <div><h1 class="page-title">File manager</h1><p class="page-sub">Upload and manage your website files.</p></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <select id="fm-site" style="padding:8px 10px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:13px"></select>
+            <button class="btn ghost sm" id="fm-mkdir">New folder</button>
+            <button class="btn primary sm" id="fm-up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V6M6 12l6-6 6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>Upload</button>
+          </div>
+        </div>
+        <div id="fm-crumb" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:13px;margin-bottom:12px;color:var(--ink-2)"></div>
+        <div class="card scroll">
           <table>
             <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead>
-            <tbody>
-              <tr><td class="site-name"><span class="fav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M3 7h6l2 2h10v10H3z"/></svg></span>public_html</td><td class="dim">-</td><td class="dim">2 hours ago</td><td><div class="row-act"><span class="ln">Open</span></div></td></tr>
-              <tr><td class="site-name"><span class="fav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M3 7h6l2 2h10v10H3z"/></svg></span>backups</td><td class="dim">-</td><td class="dim">Today, 03:00</td><td><div class="row-act"><span class="ln">Open</span></div></td></tr>
-              <tr><td class="site-name"><span class="fav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M6 3h9l3 3v15H6z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg></span>index.php</td><td class="mono dim">2.4 KB</td><td class="dim">Yesterday</td><td><div class="row-act"><span class="ln">Edit</span><span class="ln">Download</span></div></td></tr>
-              <tr><td class="site-name"><span class="fav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M6 3h9l3 3v15H6z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg></span>wp-config.php</td><td class="mono dim">3.1 KB</td><td class="dim">Aug 20</td><td><div class="row-act"><span class="ln">Edit</span><span class="ln">Download</span></div></td></tr>
-            </tbody>
+            <tbody id="fm-list"><tr><td colspan="4" class="dim" style="text-align:center;padding:26px">Select a website to browse its files.</td></tr></tbody>
           </table>
         </div>
+        <input type="file" id="fm-file" multiple style="display:none">
       </section>
 
       <!-- BACKUPS -->
@@ -322,11 +288,7 @@ tbody tr:hover{background:var(--panel-2)}
         <div class="card scroll">
           <table>
             <thead><tr><th>Snapshot</th><th>Type</th><th>Size</th><th></th></tr></thead>
-            <tbody>
-              <tr><td class="mono">2026-08-28 03:00</td><td><span class="chip mono">daily</span></td><td class="mono dim">8.9 GB</td><td><div class="row-act"><span class="ln">Restore</span><span class="ln">Download</span></div></td></tr>
-              <tr><td class="mono">2026-08-27 03:00</td><td><span class="chip mono">daily</span></td><td class="mono dim">8.7 GB</td><td><div class="row-act"><span class="ln">Restore</span><span class="ln">Download</span></div></td></tr>
-              <tr><td class="mono">2026-08-26 03:00</td><td><span class="chip mono">daily</span></td><td class="mono dim">8.6 GB</td><td><div class="row-act"><span class="ln">Restore</span><span class="ln">Download</span></div></td></tr>
-            </tbody>
+            <tbody><tr><td colspan="4" class="dim" style="text-align:center;padding:24px">Loading…</td></tr></tbody>
           </table>
         </div>
         <div class="callout">Snapshots are kept for 14 days. Restoring rolls the whole account back to that point.</div>
@@ -338,13 +300,7 @@ tbody tr:hover{background:var(--panel-2)}
         <p class="page-sub">Account, plan, and access.</p>
         <div class="card" style="margin-top:20px;max-width:620px">
           <table>
-            <tbody>
-              <tr><td class="rc-label" style="text-transform:none;font-size:13px">Username</td><td class="mono">ski</td></tr>
-              <tr><td class="rc-label" style="text-transform:none;font-size:13px">Plan</td><td>Business <span class="dim">(50 GB disk, unlimited sites)</span></td></tr>
-              <tr><td class="rc-label" style="text-transform:none;font-size:13px">Renews</td><td>28 Sep 2026 <span class="ln" style="margin-left:8px">Renew on Telegram</span></td></tr>
-              <tr><td class="rc-label" style="text-transform:none;font-size:13px">FTP / SFTP</td><td class="mono dim">sftp://mysite.com : 22</td></tr>
-              <tr><td class="rc-label" style="text-transform:none;font-size:13px">Nameservers</td><td class="mono dim">ns1.hatchhosting.app, ns2.hatchhosting.app</td></tr>
-            </tbody>
+            <tbody><tr><td colspan="2" class="dim" style="padding:18px">Loading…</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -396,6 +352,8 @@ tbody tr:hover{background:var(--panel-2)}
   function primaryBtn(page){return document.querySelector('section[data-page="'+page+'"] .btn.primary');}
   function loading(el,cols){ if(el) el.innerHTML='<tr><td colspan="'+cols+'" class="dim" style="text-align:center;padding:22px">Loading…</td></tr>'; }
   function empty(el,cols,msg){ if(el) el.innerHTML='<tr><td colspan="'+cols+'" class="dim" style="text-align:center;padding:26px">'+esc(msg)+'</td></tr>'; }
+  function setTxt(sel,t){ var e=document.querySelector(sel); if(e) e.textContent=t; }
+  var lastSites=[], serverIP='';
 
   // --- toast ---
   function toast(msg,ok){ var t=document.createElement('div'); t.textContent=msg;
@@ -415,9 +373,12 @@ tbody tr:hover{background:var(--panel-2)}
   function openForm(title, fields, submitText, onSubmit){
     var ov=document.createElement('div');
     ov.style.cssText='position:fixed;inset:0;z-index:360;background:rgba(10,12,16,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+    var inputStyle='width:100%;padding:10px 12px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:14px;box-sizing:border-box';
     var inputs=fields.map(function(f){
-      return '<label style="display:block;margin-bottom:12px"><span style="display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:5px">'+esc(f.label)+'</span>'
-        +'<input data-n="'+esc(f.name)+'" type="'+(f.type||'text')+'" value="'+esc(f.value||'')+'" placeholder="'+esc(f.ph||'')+'" autocapitalize="none" spellcheck="false" style="width:100%;padding:10px 12px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:14px;box-sizing:border-box"/></label>';
+      var ctrl;
+      if(f.type==='select'){ ctrl='<select data-n="'+esc(f.name)+'" style="'+inputStyle+'">'+(f.options||[]).map(function(o){return '<option value="'+esc(o)+'">'+esc(o)+'</option>';}).join('')+'</select>'; }
+      else { ctrl='<input data-n="'+esc(f.name)+'" type="'+(f.type||'text')+'" value="'+esc(f.value||'')+'" placeholder="'+esc(f.ph||'')+'" autocapitalize="none" spellcheck="false" style="'+inputStyle+'"/>'; }
+      return '<label style="display:block;margin-bottom:12px"><span style="display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:5px">'+esc(f.label)+'</span>'+ctrl+'</label>';
     }).join('');
     ov.innerHTML='<form style="width:min(420px,94vw);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:var(--shadow)">'
       +'<h3 style="margin:0 0 16px;font-family:Archivo,system-ui,sans-serif;font-size:17px">'+esc(title)+'</h3>'+inputs
@@ -430,7 +391,7 @@ tbody tr:hover{background:var(--panel-2)}
     ov.addEventListener('mousedown',function(e){ if(e.target===ov) close(); });
     var first=ov.querySelector('input'); if(first) first.focus();
     form.onsubmit=async function(e){ e.preventDefault(); err.textContent='';
-      var v={}; ov.querySelectorAll('input[data-n]').forEach(function(i){ v[i.getAttribute('data-n')]=i.value.trim(); });
+      var v={}; ov.querySelectorAll('[data-n]').forEach(function(i){ v[i.getAttribute('data-n')]=(i.value||'').trim(); });
       okb.disabled=true; var lbl=okb.textContent; okb.textContent='Working…';
       try{ await onSubmit(v); close(); }
       catch(ex){ err.textContent=ex.message||'Something went wrong'; okb.disabled=false; okb.textContent=lbl; }
@@ -447,6 +408,10 @@ tbody tr:hover{background:var(--panel-2)}
   var lastAccount=null, sessionUser='';
   function fillAccount(a){
     lastAccount=a;
+    setTxt('.su-name', sessionUser||a.name||'—');
+    setTxt('.su-plan', (a.package||'Hosting')+' plan');
+    setTxt('.plan-chip', a.package||'Hosting');
+    var av=document.querySelector('.avatar'); if(av) av.textContent=(sessionUser||a.name||'?').charAt(0).toUpperCase();
     var g=document.getElementById('usage-grid');
     if(g){
       var dq=a.diskQuotaMB?(gb(a.diskQuotaMB)+' GB'):'unlimited', bq=a.bwQuotaMB?(gb(a.bwQuotaMB)+' GB'):'unlimited';
@@ -472,14 +437,17 @@ tbody tr:hover{background:var(--panel-2)}
   function act(label,a,data){ var d=''; for(var k in data){ d+=' data-'+k+'="'+esc(data[k])+'"'; } return '<span class="ln" data-act="'+a+'"'+d+' style="cursor:pointer">'+esc(label)+'</span>'; }
 
   function fillSites(list){
+    list=list||[]; lastSites=list;
+    var tb=document.querySelector('.tb-domain');
+    if(tb){ if(list.length){ tb.innerHTML='Primary: <b>'+esc(list[0].domain)+'</b>'; } else { tb.textContent='No websites yet'; } }
     var ov=document.getElementById('ov-sites'), ws=document.getElementById('ws-sites');
     if(!list.length){ empty(ov,6,'No websites yet — click "Add website" to create your first one.'); empty(ws,6,'No websites yet — click "Add website" to create your first one.'); return; }
     if(ov) ov.innerHTML=list.map(function(s){return '<tr><td><span class="site-name"><span class="fav">'+ic('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/>')+'</span>'+esc(s.domain)+'</span></td>'
       +'<td>'+sslChip(s.ssl)+'</td><td class="mono dim">'+esc(s.backend||'-')+'</td><td class="dim">web</td><td class="mono dim">'+s.diskMB+' MB</td>'
-      +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'Enable SSL','ssl',{domain:s.domain})+act('Delete','web-del',{domain:s.domain})+'</div></td></tr>';}).join('');
+      +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'SSL','ssl',{domain:s.domain})+act('DNS','dns',{domain:s.domain})+act('Delete','web-del',{domain:s.domain})+'</div></td></tr>';}).join('');
     if(ws) ws.innerHTML=list.map(function(s){return '<tr><td class="site-name">'+esc(s.domain)+'</td><td>'+sslChip(s.ssl)+'</td><td class="mono dim">'+esc(s.backend||'-')+'</td>'
       +'<td class="mono dim">'+esc(s.docRoot||'-')+'</td><td>'+(s.suspended?'<span class="chip warn">Suspended</span>':'<span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Online</span>')+'</td>'
-      +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'Enable SSL','ssl',{domain:s.domain})+act('Files','web-files',{domain:s.domain})+act('Delete','web-del',{domain:s.domain})+'</div></td></tr>';}).join('');
+      +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'Enable SSL','ssl',{domain:s.domain})+act('DNS','dns',{domain:s.domain})+act('WordPress','wp',{domain:s.domain})+act('Delete','web-del',{domain:s.domain})+'</div></td></tr>';}).join('');
   }
   function fillDatabases(list){
     var el=tbody('databases'); if(!el) return;
@@ -500,6 +468,116 @@ tbody tr:hover{background:var(--panel-2)}
     if(!list.length){ empty(el,4,'No backups yet — click "Back up now" to create your first snapshot.'); return; }
     el.innerHTML=list.map(function(b){return '<tr><td class="mono">'+esc(b.date||b.name)+'</td><td><span class="chip mono">'+esc(b.type||'backup')+'</span></td><td class="mono dim">'+(b.sizeMB?(b.sizeMB+' MB'):'—')+'</td><td><div class="row-act"><span class="dim">on server</span></div></td></tr>';}).join('');
   }
+
+  // --- info modal (read-only) ---
+  function openInfo(title, bodyHtml){
+    var ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:360;background:rgba(10,12,16,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+    ov.innerHTML='<div style="width:min(500px,94vw);max-height:88vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:var(--shadow)">'
+      +'<h3 style="margin:0 0 14px;font-family:Archivo,system-ui,sans-serif;font-size:17px">'+esc(title)+'</h3>'
+      +'<div style="font-size:13.5px;line-height:1.55;color:var(--ink)">'+bodyHtml+'</div>'
+      +'<div style="display:flex;justify-content:flex-end;margin-top:18px"><button class="btn primary" data-close>Done</button></div></div>';
+    document.body.appendChild(ov);
+    function close(){ ov.remove(); }
+    ov.querySelector('[data-close]').onclick=close;
+    ov.addEventListener('mousedown',function(e){ if(e.target===ov) close(); });
+    return ov;
+  }
+  function cell(t){ return '<td style="padding:5px 8px;border-bottom:1px solid var(--line)">'+esc(t)+'</td>'; }
+  function showDns(domain){
+    var ip=serverIP||'(your server IP — check the Websites list)';
+    var body='<p>Log in where you bought <b>'+esc(domain)+'</b> (your domain registrar) and add these two DNS records:</p>'
+      +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;margin:12px 0;font-family:ui-monospace,monospace;font-size:13px">'
+      +'<tr style="color:var(--ink-2)"><th style="text-align:left;padding:5px 8px">Type</th><th style="text-align:left;padding:5px 8px">Name / Host</th><th style="text-align:left;padding:5px 8px">Value</th></tr>'
+      +'<tr>'+cell('A')+cell('@')+cell(ip)+'</tr>'
+      +'<tr>'+cell('A')+cell('www')+cell(ip)+'</tr>'
+      +'</table></div>'
+      +'<button class="btn ghost sm" data-copy="'+esc(ip)+'">Copy IP address</button>'
+      +'<p style="margin-top:14px;color:var(--ink-2)">DNS can take from 5 minutes up to a few hours to update. Once it points here, open this site and click <b>SSL</b> to switch it to secure HTTPS. To publish content, use <b>WordPress</b> (one click) or the <b>File manager</b>.</p>';
+    var ov=openInfo('Point '+domain+' to your site', body);
+    var cp=ov.querySelector('[data-copy]');
+    if(cp) cp.onclick=function(){ try{ navigator.clipboard.writeText(cp.getAttribute('data-copy')); toast('IP copied'); }catch(e){ toast('Copy failed — select it manually',false); } };
+  }
+
+  // --- WordPress ---
+  function afterWp(d, domain){
+    var url=(d&&d.adminUrl)||('http://'+domain+'/wp-admin/');
+    openInfo('WordPress installed',
+      '<p>WordPress is set up on <b>'+esc(domain)+'</b> with its own database.</p>'
+      +'<p style="margin-top:12px">Finish the famous 5-minute setup here:</p>'
+      +'<p style="margin-top:6px"><a href="'+esc(url)+'" target="_blank" rel="noopener" class="ln">'+esc(url)+'</a></p>'
+      +'<p style="margin-top:14px;color:var(--ink-2)">If that page does not open yet, the domain DNS is probably still updating — use the <b>DNS</b> button on the site to check the records, then try again.</p>');
+  }
+  async function installWp(domain){
+    if(!confirm('Install WordPress on '+domain+'?\n\nThis creates a fresh WordPress site and its database. It takes about a minute.')) return;
+    toast('Installing WordPress on '+domain+'… about a minute.');
+    try{ var d=await api('/api/website/wordpress',{domain}); afterWp(d,domain); loadWebsites(); if(lastAccount) loadOverview(); }
+    catch(e){ toast(e.message,false); }
+  }
+  function installWpPick(){
+    if(!lastSites.length){ toast('Add a website first, then install WordPress on it.'); return; }
+    openForm('Install WordPress',[{name:'domain',label:'Choose website',type:'select',options:lastSites.map(function(s){return s.domain;})}],'Install',async function(v){
+      var d=await api('/api/website/wordpress',{domain:v.domain}); afterWp(d,v.domain); loadWebsites();
+    });
+  }
+
+  // --- file manager ---
+  var fmSite='', fmPath='';
+  function fmtTime(ms){ if(!ms) return ''; try{ var d=new Date(ms); return d.toLocaleDateString()+' '+d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
+  function fmPopulate(){ var sel=document.getElementById('fm-site'); if(!sel) return;
+    sel.innerHTML=lastSites.length?lastSites.map(function(s){return '<option value="'+esc(s.domain)+'">'+esc(s.domain)+'</option>';}).join(''):'<option value="">No websites yet</option>';
+    if(fmSite && lastSites.some(function(s){return s.domain===fmSite;})) sel.value=fmSite; else { fmSite=sel.value; fmPath=''; }
+  }
+  function fmCrumb(){ var c=document.getElementById('fm-crumb'); if(!c) return;
+    var parts=fmPath?fmPath.split('/').filter(Boolean):[]; var html='<span class="ln" data-fm="root">'+esc(fmSite||'site')+'</span>'; var acc='';
+    parts.forEach(function(p,i){ acc+=(acc?'/':'')+p; html+=' <span style="color:var(--ink-3)">/</span> <span class="ln" data-fm="go" data-path="'+esc(acc)+'">'+esc(p)+'</span>'; });
+    c.innerHTML=html;
+  }
+  async function fmLoad(){
+    var list=document.getElementById('fm-list'); if(!list) return;
+    if(!fmSite){ empty(list,4,'Add a website to manage files.'); fmCrumb(); return; }
+    loading(list,4); fmCrumb();
+    try{
+      var d=await getJSON('/api/files?domain='+encodeURIComponent(fmSite)+'&path='+encodeURIComponent(fmPath));
+      fmPath=d.path||''; fmCrumb();
+      if(!d.items.length){ empty(list,4,'This folder is empty. Use Upload to add files.'); return; }
+      list.innerHTML=d.items.map(function(it){
+        var svg=it.dir?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M3 7h6l2 2h10v10H3z"/></svg>':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M6 3h9l3 3v15H6z"/><path d="M9 8h6M9 12h6"/></svg>';
+        var nm=it.dir?'<span class="ln" data-fm="cd" data-name="'+esc(it.name)+'">'+esc(it.name)+'</span>':esc(it.name);
+        var sz=it.dir?'—':(it.sizeKB>=1024?((it.sizeKB/1024).toFixed(1)+' MB'):(it.sizeKB+' KB'));
+        var acts=(it.dir?'':'<span class="ln" data-fm="dl" data-name="'+esc(it.name)+'">Download</span>')+'<span class="ln" data-fm="rm" data-name="'+esc(it.name)+'">Delete</span>';
+        return '<tr><td class="site-name"><span class="fav">'+svg+'</span>'+nm+'</td><td class="mono dim">'+sz+'</td><td class="dim">'+fmtTime(it.mtime)+'</td><td><div class="row-act">'+acts+'</div></td></tr>';
+      }).join('');
+    }catch(e){ empty(list,4,'Could not load files.'); }
+  }
+  function fmOpen(){ fmPopulate(); fmLoad(); }
+  function wireFm(){
+    var sel=document.getElementById('fm-site'); if(sel) sel.onchange=function(){ fmSite=sel.value; fmPath=''; fmLoad(); };
+    var up=document.getElementById('fm-up'), fileInput=document.getElementById('fm-file');
+    if(up&&fileInput){ up.onclick=function(){ if(!fmSite){ toast('Add a website first.'); return; } fileInput.click(); };
+      fileInput.onchange=async function(){ var files=[].slice.call(fileInput.files); fileInput.value='';
+        if(!files.length) return; toast('Uploading '+files.length+' file'+(files.length>1?'s':'')+'…');
+        for(var i=0;i<files.length;i++){ var f=files[i];
+          try{ var r=await fetch('/api/files/upload?domain='+encodeURIComponent(fmSite)+'&path='+encodeURIComponent(fmPath)+'&name='+encodeURIComponent(f.name),{method:'POST',body:f}); if(!r.ok){ var d=await r.json().catch(function(){return{};}); throw new Error(d.error||'upload failed'); } }
+          catch(e){ toast('Failed: '+f.name+' — '+e.message,false); }
+        }
+        toast('Upload complete'); fmLoad();
+      };
+    }
+    var mk=document.getElementById('fm-mkdir');
+    if(mk) mk.onclick=function(){ if(!fmSite){ toast('Add a website first.'); return; }
+      openForm('New folder',[{name:'name',label:'Folder name',ph:'images'}],'Create',async function(v){ await api('/api/files/mkdir',{domain:fmSite,path:fmPath,name:v.name}); toast('Folder created'); fmLoad(); }); };
+  }
+  // file manager row clicks
+  document.addEventListener('click',async function(e){
+    var el=e.target.closest('[data-fm]'); if(!el) return;
+    var a=el.getAttribute('data-fm'), name=el.getAttribute('data-name');
+    if(a==='root'){ fmPath=''; fmLoad(); }
+    else if(a==='go'){ fmPath=el.getAttribute('data-path')||''; fmLoad(); }
+    else if(a==='cd'){ fmPath=(fmPath?fmPath+'/':'')+name; fmLoad(); }
+    else if(a==='dl'){ window.open('/api/files/download?domain='+encodeURIComponent(fmSite)+'&path='+encodeURIComponent(fmPath)+'&name='+encodeURIComponent(name),'_blank'); }
+    else if(a==='rm'){ if(!confirm('Delete "'+name+'"? This cannot be undone.')) return; try{ await api('/api/files/delete',{domain:fmSite,path:fmPath,name}); toast('Deleted'); fmLoad(); }catch(ex){ toast(ex.message,false); } }
+  });
 
   // --- loaders ---
   async function loadOverview(){ try{ fillAccount(await getJSON('/api/account')); fillSites(await getJSON('/api/websites')); }catch(e){} }
@@ -522,7 +600,9 @@ tbody tr:hover{background:var(--panel-2)}
     var el=e.target.closest('[data-act]'); if(!el) return;
     var a=el.getAttribute('data-act'), domain=el.getAttribute('data-domain'), account=el.getAttribute('data-account'), name=el.getAttribute('data-name');
     try{
-      if(a==='ssl'){ if(!confirm('Issue a free SSL certificate for '+domain+'?\n\nThe domain must already point to this server.')) return; el.textContent='…'; await api('/api/website/ssl',{domain}); toast('SSL enabled for '+domain); loadWebsites(); }
+      if(a==='dns'){ showDns(domain); return; }
+      else if(a==='wp'){ installWp(domain); return; }
+      else if(a==='ssl'){ if(!confirm('Issue a free SSL certificate for '+domain+'?\n\nThe domain must already point to this server.')) return; el.textContent='…'; await api('/api/website/ssl',{domain}); toast('SSL enabled for '+domain); loadWebsites(); }
       else if(a==='web-del'){ if(!confirm('Delete '+domain+'?\n\nThis permanently removes the site and its files. This cannot be undone.')) return; await api('/api/website/delete',{domain}); toast('Website deleted'); loadWebsites(); }
       else if(a==='web-files'){ toast('Connect with SFTP — host: your server, port 22, username & password: your panel login.'); }
       else if(a==='db-del'){ if(!confirm('Delete database '+name+'?\n\nAll data in it is permanently removed.')) return; await api('/api/database/delete',{name}); toast('Database deleted'); loadDatabases(); if(lastAccount) loadOverview(); }
@@ -542,13 +622,13 @@ tbody tr:hover{background:var(--panel-2)}
         if(t.indexOf('website')>=0) addWebsite();
         else if(t.indexOf('email')>=0) addMail();
         else if(t.indexOf('database')>=0) addDatabase();
-        else if(t.indexOf('wordpress')>=0) toast('One-click WordPress is coming soon. For now create a database and upload WordPress via SFTP.');
-        else if(t.indexOf('file')>=0) toast('Connect with SFTP — host: your server, port 22, username & password: your panel login.');
+        else if(t.indexOf('wordpress')>=0) installWpPick();
+        else if(t.indexOf('file')>=0) goTab('files');
       });
     });
-    // File manager section: no browse API yet — show honest guidance instead of demo files.
-    var ft=tbody('files'); if(ft) ft.innerHTML='<tr><td colspan="4" class="dim" style="padding:22px">Browse and upload your files over SFTP — host: your server, port <b>22</b>, using your panel username and password. An in-panel file browser is coming soon.</td></tr>';
+    wireFm();
   }
+  function goTab(p){ var b=document.querySelector('.nav-item[data-p="'+p+'"]'); if(b) b.click(); }
 
   // lazy-load a section when its nav is clicked
   var loaded={};
@@ -556,11 +636,12 @@ tbody tr:hover{background:var(--panel-2)}
     if(p==='databases' && !loaded.db){ loaded.db=1; loadDatabases(); }
     if(p==='email' && !loaded.mail){ loaded.mail=1; loadMail(); }
     if(p==='backups' && !loaded.bk){ loaded.bk=1; loadBackups(); }
+    if(p==='files'){ fmOpen(); }
   }
   if(nav) nav.addEventListener('click',function(e){ var b=e.target.closest('.nav-item'); if(b) ensureSection(b.getAttribute('data-p')); });
 
   function showLogin(v){ var l=document.getElementById('hh-login'); if(l)l.style.display=v?'flex':'none'; if(shell)shell.style.filter=v?'blur(3px)':''; }
-  function afterLogin(){ showLogin(false); loaded={}; loadOverview(); }
+  function afterLogin(){ showLogin(false); loaded={}; loadOverview(); getJSON('/api/server').then(function(d){ serverIP=(d&&d.ip)||''; }).catch(function(){}); }
 
   async function init(){
     wireButtons();

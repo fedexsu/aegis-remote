@@ -483,6 +483,53 @@ const server = http.createServer(async (req, res) => {
           try { await execFileP('chown', [u + ':' + u, file]); } catch {}
           return json(res, 200, { ok: true });
         }
+        if (url === '/api/files/newfile') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const base = await ensureSite(u, domain);
+          const name = path.basename(String(b.name || ''));
+          if (!name || name === '.' || name === '..' || /[\/]/.test(String(b.name || ''))) return json(res, 400, { error: 'Invalid file name' });
+          const file = safeJoin(base, (b.path || '') + '/' + name);
+          if (fs.existsSync(file)) return json(res, 200, { ok: false, error: 'A file with that name already exists' });
+          await fsp.writeFile(file, '');
+          try { await execFileP('chown', [u + ':' + u, file]); } catch {}
+          return json(res, 200, { ok: true });
+        }
+        if (url === '/api/files/rename') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const base = await ensureSite(u, domain);
+          const from = safeJoin(base, (b.path || '') + '/' + path.basename(String(b.name || '')));
+          const newName = path.basename(String(b.newName || ''));
+          if (!newName || newName === '.' || newName === '..' || /[\/]/.test(String(b.newName || ''))) return json(res, 400, { error: 'Invalid new name' });
+          if (from === base) return json(res, 400, { error: 'Cannot rename the site root' });
+          const to = safeJoin(base, (b.path || '') + '/' + newName);
+          if (fs.existsSync(to)) return json(res, 200, { ok: false, error: 'Something with that name already exists' });
+          try { await fsp.rename(from, to); } catch { return json(res, 200, { ok: false, error: 'Could not rename' }); }
+          return json(res, 200, { ok: true });
+        }
+        if (url === '/api/files/extract') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const base = await ensureSite(u, domain);
+          const name = path.basename(String(b.name || ''));
+          if (!/\.zip$/i.test(name)) return json(res, 400, { error: 'Only .zip files can be extracted' });
+          const zipPath = safeJoin(base, (b.path || '') + '/' + name);
+          const dir = safeJoin(base, (b.path || ''));
+          try { await execFileP('unzip', ['-o', zipPath, '-d', dir], { timeout: 120000 }); await execFileP('chown', ['-R', u + ':' + u, dir]); }
+          catch (e) { return json(res, 200, { ok: false, error: /not found|ENOENT/.test(e.message) ? 'The unzip tool is not installed on the server' : 'Could not extract the zip' }); }
+          return json(res, 200, { ok: true });
+        }
+        if (url === '/api/files/compress') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const base = await ensureSite(u, domain);
+          const name = path.basename(String(b.name || ''));
+          if (!name || name === '.' || name === '..') return json(res, 400, { error: 'Invalid name' });
+          const dir = safeJoin(base, (b.path || ''));
+          const src = safeJoin(dir, name);
+          if (!fs.existsSync(src)) return json(res, 200, { ok: false, error: 'That item no longer exists' });
+          const outName = name.replace(/\.[^.]+$/, '') + '.zip';
+          try { await execFileP('zip', ['-r', outName, name], { cwd: dir, timeout: 120000 }); await execFileP('chown', [u + ':' + u, path.join(dir, outName)]); }
+          catch (e) { return json(res, 200, { ok: false, error: /not found|ENOENT/.test(e.message) ? 'The zip tool is not installed on the server' : 'Could not compress' }); }
+          return json(res, 200, { ok: true, name: outName });
+        }
         if (url === '/api/files/mkdir') {
           const domain = String(b.domain || '').trim().toLowerCase();
           const base = await ensureSite(u, domain);

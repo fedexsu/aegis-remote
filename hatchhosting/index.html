@@ -138,6 +138,8 @@ tbody tr:hover{background:var(--panel-2)}
 .an-bar span{font-size:10px;color:var(--ink-3);white-space:nowrap}
 .an-mini{height:6px;border-radius:4px;background:var(--panel-3);overflow:hidden;margin-top:5px}
 .an-mini > i{display:block;height:100%;background:var(--accent)}
+.ctx-item{padding:8px 11px;border-radius:7px;cursor:pointer;white-space:nowrap}
+.ctx-item:hover{background:var(--panel-2)}
 .disclaimer{margin:34px 0 8px;padding:14px 16px;border:1px dashed var(--line-2);border-radius:12px;color:var(--ink-3);font-size:12.5px;background:var(--panel-2)}
 
 @media (max-width:1000px){.usage{grid-template-columns:1fr 1fr}.qa{grid-template-columns:1fr 1fr 1fr}}
@@ -278,6 +280,7 @@ tbody tr:hover{background:var(--panel-2)}
           <div><h1 class="page-title">File manager</h1><p class="page-sub">Upload and manage your website files.</p></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <select id="fm-site" style="padding:8px 10px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:13px"></select>
+            <button class="btn ghost sm" id="fm-newfile">New file</button>
             <button class="btn ghost sm" id="fm-mkdir">New folder</button>
             <button class="btn primary sm" id="fm-up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V6M6 12l6-6 6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>Upload</button>
           </div>
@@ -631,6 +634,44 @@ tbody tr:hover{background:var(--panel-2)}
       else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){ e.preventDefault(); save(); }
     });
   }
+  // file actions (shared by row buttons + right-click menu)
+  async function fmDelete(name){ if(!(await confirmDialog('Delete','Delete "'+name+'"? This cannot be undone.','Delete',true))) return; try{ await api('/api/files/delete',{domain:fmSite,path:fmPath,name:name}); toast('Deleted'); fmLoad(); }catch(e){ toast(e.message,false); } }
+  async function extractZip(name){ toast('Extracting '+name+'…'); try{ await api('/api/files/extract',{domain:fmSite,path:fmPath,name:name}); toast('Extracted'); fmLoad(); }catch(e){ toast(e.message,false); } }
+  async function compressItem(name){ toast('Compressing '+name+'…'); try{ var d=await api('/api/files/compress',{domain:fmSite,path:fmPath,name:name}); toast('Created '+(d.name||name+'.zip')); fmLoad(); }catch(e){ toast(e.message,false); } }
+  function renameItem(name){ openForm('Rename',[{name:'newName',label:'New name',value:name}],'Rename',async function(v){ await api('/api/files/rename',{domain:fmSite,path:fmPath,name:name,newName:v.newName}); toast('Renamed'); fmLoad(); }); }
+  function newFileAction(){ if(!fmSite){ toast('Add a website first.'); return; } openForm('New file',[{name:'name',label:'File name',ph:'page.html'}],'Create',async function(v){ await api('/api/files/newfile',{domain:fmSite,path:fmPath,name:v.name}); toast('File created'); fmLoad(); openEditor(v.name); }); }
+  function copyLink(name){ var url='https://'+fmSite+'/'+(fmPath?fmPath+'/':'')+name; try{ navigator.clipboard.writeText(url); toast('Link copied'); }catch(e){ toast(url); } }
+  // context menu
+  var fmMenu=null;
+  function closeMenu(){ if(fmMenu){ fmMenu.remove(); fmMenu=null; } }
+  document.addEventListener('click',closeMenu);
+  window.addEventListener('resize',closeMenu);
+  function showMenu(x,y,items){
+    closeMenu();
+    var m=document.createElement('div'); fmMenu=m;
+    m.style.cssText='position:fixed;z-index:390;min-width:186px;background:var(--panel);border:1px solid var(--line-2);border-radius:10px;box-shadow:var(--shadow);padding:6px;font-size:13px';
+    m.innerHTML=items.map(function(it,i){ return it.sep?'<div style="height:1px;background:var(--line);margin:5px 6px"></div>':'<div class="ctx-item" data-i="'+i+'"'+(it.danger?' style="color:var(--crit)"':'')+'>'+esc(it.label)+'</div>'; }).join('');
+    document.body.appendChild(m);
+    var r=m.getBoundingClientRect();
+    m.style.left=Math.min(x,window.innerWidth-r.width-8)+'px';
+    m.style.top=Math.min(y,window.innerHeight-r.height-8)+'px';
+    m.addEventListener('click',function(e){ var d=e.target.closest('[data-i]'); if(!d) return; e.stopPropagation(); var it=items[+d.getAttribute('data-i')]; closeMenu(); if(it.fn) it.fn(); });
+  }
+  function fmContext(e){
+    var tr=e.target.closest('tr[data-name]'); if(!tr) return; e.preventDefault();
+    var name=tr.getAttribute('data-name'), dir=tr.getAttribute('data-dir')==='1', canEdit=tr.getAttribute('data-edit')==='1', isZip=tr.getAttribute('data-zip')==='1';
+    var items=[];
+    if(dir) items.push({label:'Open',fn:function(){ fmPath=(fmPath?fmPath+'/':'')+name; fmLoad(); }});
+    if(canEdit) items.push({label:'Edit',fn:function(){ openEditor(name); }});
+    if(!dir) items.push({label:'Download',fn:function(){ window.open('/api/files/download?domain='+encodeURIComponent(fmSite)+'&path='+encodeURIComponent(fmPath)+'&name='+encodeURIComponent(name),'_blank'); }});
+    if(isZip) items.push({label:'Extract here',fn:function(){ extractZip(name); }});
+    items.push({label:'Compress to .zip',fn:function(){ compressItem(name); }});
+    items.push({label:'Rename',fn:function(){ renameItem(name); }});
+    if(!dir) items.push({label:'Copy public link',fn:function(){ copyLink(name); }});
+    items.push({sep:true});
+    items.push({label:'Delete',danger:true,fn:function(){ fmDelete(name); }});
+    showMenu(e.clientX,e.clientY,items);
+  }
   function fmPopulate(){ var sel=document.getElementById('fm-site'); if(!sel) return;
     sel.innerHTML=lastSites.length?lastSites.map(function(s){return '<option value="'+esc(s.domain)+'">'+esc(s.domain)+'</option>';}).join(''):'<option value="">No websites yet</option>';
     if(fmSite && lastSites.some(function(s){return s.domain===fmSite;})) sel.value=fmSite; else { fmSite=sel.value; fmPath=''; }
@@ -654,7 +695,7 @@ tbody tr:hover{background:var(--panel-2)}
         var sz=it.dir?'—':(it.sizeKB>=1024?((it.sizeKB/1024).toFixed(1)+' MB'):(it.sizeKB+' KB'));
         var editBtn=(!it.dir && isEditable(it.name))?'<span class="ln" data-fm="edit" data-name="'+esc(it.name)+'">Edit</span>':'';
         var acts=editBtn+(it.dir?'':'<span class="ln" data-fm="dl" data-name="'+esc(it.name)+'">Download</span>')+'<span class="ln danger" data-fm="rm" data-name="'+esc(it.name)+'">Delete</span>';
-        return '<tr><td class="site-name"><span class="fav">'+svg+'</span>'+nm+'</td><td class="mono dim">'+sz+'</td><td class="dim">'+fmtTime(it.mtime)+'</td><td><div class="row-act">'+acts+'</div></td></tr>';
+        return '<tr data-name="'+esc(it.name)+'" data-dir="'+(it.dir?1:0)+'" data-edit="'+((!it.dir&&isEditable(it.name))?1:0)+'" data-zip="'+(/\.zip$/i.test(it.name)?1:0)+'"><td class="site-name"><span class="fav">'+svg+'</span>'+nm+'</td><td class="mono dim">'+sz+'</td><td class="dim">'+fmtTime(it.mtime)+'</td><td><div class="row-act">'+acts+'</div></td></tr>';
       }).join('');
     }catch(e){ empty(list,4,'Could not load files.'); }
   }
@@ -675,6 +716,8 @@ tbody tr:hover{background:var(--panel-2)}
     var mk=document.getElementById('fm-mkdir');
     if(mk) mk.onclick=function(){ if(!fmSite){ toast('Add a website first.'); return; }
       openForm('New folder',[{name:'name',label:'Folder name',ph:'images'}],'Create',async function(v){ await api('/api/files/mkdir',{domain:fmSite,path:fmPath,name:v.name}); toast('Folder created'); fmLoad(); }); };
+    var nf=document.getElementById('fm-newfile'); if(nf) nf.onclick=newFileAction;
+    var flist=document.getElementById('fm-list'); if(flist) flist.addEventListener('contextmenu',fmContext);
   }
   // file manager row clicks
   document.addEventListener('click',async function(e){
@@ -685,7 +728,7 @@ tbody tr:hover{background:var(--panel-2)}
     else if(a==='cd'){ fmPath=(fmPath?fmPath+'/':'')+name; fmLoad(); }
     else if(a==='edit'){ openEditor(name); }
     else if(a==='dl'){ window.open('/api/files/download?domain='+encodeURIComponent(fmSite)+'&path='+encodeURIComponent(fmPath)+'&name='+encodeURIComponent(name),'_blank'); }
-    else if(a==='rm'){ if(!(await confirmDialog('Delete','Delete "'+name+'"? This cannot be undone.','Delete',true))) return; try{ await api('/api/files/delete',{domain:fmSite,path:fmPath,name}); toast('Deleted'); fmLoad(); }catch(ex){ toast(ex.message,false); } }
+    else if(a==='rm'){ fmDelete(name); }
   });
 
   // --- analytics ---

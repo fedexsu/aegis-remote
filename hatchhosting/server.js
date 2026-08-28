@@ -1,11 +1,16 @@
 'use strict';
-// HatchHosting backend. Serves the panel and exposes a small API that talks to
-// HestiaCP over localhost using an admin access key. Each customer is a Hestia
-// user: they log in with their own Hestia username + password (validated via
-// v-check-user-password) and the panel shows only their own account and sites.
+// HatchHosting backend. Two roles, chosen by env:
+//   - APP   (default, runs on the VPS): serves the branded panel and talks to
+//     HestiaCP over localhost with an admin access key. Each customer is a Hestia
+//     user and logs in with their own Hestia username + password (validated via
+//     v-check-user-password); the panel shows only their own account and sites.
+//   - PROXY (PROXY_TARGET set, runs on Railway): transparently reverse-proxies
+//     every request to the VPS app, so a pretty public HTTPS URL fronts the panel
+//     while HestiaCP stays locked to localhost on the VPS.
 //
-// Env: PORT, HESTIA_URL (https://127.0.0.1:8083), HESTIA_KEY ("ID:SECRET")
-// Requires the server to be connected (HESTIA_URL + HESTIA_KEY) to function.
+// Env: PORT
+//   APP mode:   HESTIA_URL (https://127.0.0.1:8083), HESTIA_KEY ("ID:SECRET")
+//   PROXY mode: PROXY_TARGET (e.g. http://147.93.180.138:3000)
 
 const http = require('http');
 const https = require('https');
@@ -14,6 +19,29 @@ const path = require('path');
 const crypto = require('crypto');
 
 const PORT = process.env.PORT || 8080;
+const PROXY_TARGET = process.env.PROXY_TARGET || '';
+
+// ---- PROXY mode (Railway) -----------------------------------------------
+// Forwards everything (headers, body, cookies, status) to the VPS app.
+if (PROXY_TARGET) {
+  const t = new URL(PROXY_TARGET);
+  const mod = t.protocol === 'https:' ? https : http;
+  http.createServer((req, res) => {
+    const opts = {
+      hostname: t.hostname, port: t.port || (t.protocol === 'https:' ? 443 : 80),
+      path: req.url, method: req.method,
+      headers: Object.assign({}, req.headers, { host: t.host }),
+      rejectUnauthorized: false, timeout: 25000,
+    };
+    const up = mod.request(opts, (r) => { res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); });
+    up.on('error', (e) => { if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'text/plain' }); res.end('HatchHosting server is unreachable right now. (' + e.message + ')'); });
+    up.on('timeout', () => up.destroy(new Error('upstream timeout')));
+    req.pipe(up);
+  }).listen(PORT, () => console.log('HatchHosting PROXY on :' + PORT + ' -> ' + PROXY_TARGET));
+  return; // Node wraps CommonJS modules in a function, so top-level return is valid.
+}
+
+// ---- APP mode (VPS) ------------------------------------------------------
 const HESTIA_URL = process.env.HESTIA_URL || '';
 const HESTIA_KEY = process.env.HESTIA_KEY || '';
 const LIVE = !!(HESTIA_URL && HESTIA_KEY);

@@ -161,6 +161,7 @@ function showApp(a) {
   loadKeys();
   loadStats();
   loadAlerts();
+  loadSubscription();
   checkInstaller();
   loadBlankImage();
   connectWS();
@@ -177,6 +178,15 @@ document.addEventListener('click', (e) => { const g = e.target.closest('[data-go
 
 (async function init() {
   showSoloLoader(); // cover the dashboard until we attach (app/solo windows only)
+  // Magic login from the Telegram bot: one tap signs the buyer in, no password typed.
+  const magic = urlParams.get('login');
+  if (magic) {
+    try {
+      const r = await fetch('/api/magic-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: magic }) });
+      try { history.replaceState(null, '', location.pathname); } catch {}
+      if (r.ok) { const { admin: a } = await api('/api/me'); return showApp(a); }
+    } catch {}
+  }
   // Already signed in (browser, or the app's own persisted login)? Go straight in.
   try { const { admin: a } = await api('/api/me'); return showApp(a); } catch {}
   // Desktop-app handoff: exchange the one-time token for a session, then continue.
@@ -563,6 +573,23 @@ async function renameDevice(d) {
   if (!vals || !vals[0].trim()) return;
   try { await api('/api/devices/rename', 'POST', { id: d.id, name: vals[0].trim() }); toast('Renamed', 'ok'); }
   catch (e) { toast(e.message, 'err'); }
+}
+// Subscription card in Settings (customer accounts only; hidden for the owner).
+async function loadSubscription() {
+  const card = $('#sub-card'); if (!card) return;
+  try {
+    const { subscription: s } = await api('/api/subscription');
+    if (!s || s.owner || !s.plan) { card.hidden = true; return; }
+    card.hidden = false;
+    $('#sub-plan').textContent = s.planLabel || s.plan;
+    const expired = !s.active;
+    $('#sub-status').textContent = expired ? 'Expired' : ('Active' + (s.daysLeft != null ? ' · ' + s.daysLeft + ' day' + (s.daysLeft === 1 ? '' : 's') + ' left' : ''));
+    $('#sub-status').style.color = expired ? 'var(--danger, #e5484d)' : 'var(--ok, #1e8f5c)';
+    $('#sub-until').textContent = s.subExpires ? new Date(s.subExpires).toLocaleDateString() : '-';
+    const renew = $('#sub-renew');
+    renew.href = s.botUrl || 'https://t.me/hatchconnect';
+    renew.textContent = expired ? 'Reactivate in the bot' : 'Renew or extend';
+  } catch { card.hidden = true; }
 }
 async function removeDevice(d) {
   const ok = await modal({

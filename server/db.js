@@ -404,22 +404,55 @@ function markTxProcessed(txid) {
   if (!Array.isArray(db.processedTx)) db.processedTx = [];
   if (!db.processedTx.includes(txid)) { db.processedTx.push(txid); if (db.processedTx.length > 5000) db.processedTx = db.processedTx.slice(-3000); save(); }
 }
-// On a confirmed payment: create a customer account + its enrollment key, stamp the
-// subscription, mark the invoice paid, and return the credentials to DM the buyer.
+// On a confirmed payment: if the buyer (by Telegram id) already has an account it's
+// a RENEWAL - extend the subscription and keep their existing login. Otherwise create
+// a new customer account + enrollment key. Returns what the bot needs to DM them.
 function provisionFromInvoice(inv) {
   const p = PLANS[inv.plan] || PLANS.monthly;
-  let username, tries = 0;
-  do { username = 'hc-' + crypto.randomBytes(3).toString('hex'); tries++; } while (findAdminByEmail(username) && tries < 50);
-  const password = crypto.randomBytes(6).toString('base64url'); // ~8 chars
-  const { admin, key } = createAdmin(username, password, username, 'admin');
-  admin.plan = inv.plan;
-  admin.subStart = Date.now();
-  admin.subExpires = Date.now() + p.days * 86400000;
-  admin.tgUserId = inv.tgUserId;
+  const addMs = p.days * 86400000;
+  let admin = db.admins.find((a) => a.tgUserId === inv.tgUserId && (a.role || 'admin') !== 'owner');
+  let username, password, isNew = false;
+  if (admin) {
+    // RENEWAL: add the term onto whichever is later - now or the current expiry.
+    const base = Math.max(Date.now(), admin.subExpires || 0);
+    admin.subExpires = base + addMs;
+    admin.plan = inv.plan;
+    username = admin.email; password = null; // login unchanged
+  } else {
+    let tries = 0;
+    do { username = 'hc-' + crypto.randomBytes(3).toString('hex'); tries++; } while (findAdminByEmail(username) && tries < 50);
+    password = crypto.randomBytes(6).toString('base64url'); // ~8 chars
+    const created = createAdmin(username, password, username, 'admin');
+    admin = created.admin;
+    admin.tgUserId = inv.tgUserId;
+    admin.plan = inv.plan;
+    admin.subStart = Date.now();
+    admin.subExpires = Date.now() + addMs;
+    isNew = true;
+  }
   inv.status = 'paid'; inv.adminId = admin.id; inv.paidAt = Date.now();
   save();
-  return { username, password, key: key.key, plan: p };
+  const key = keysForAdmin(admin.id)[0];
+  return { username, password, isNew, key: key ? key.key : null, plan: p, subExpires: admin.subExpires, adminId: admin.id };
 }
+
+// Subscription enforcement + display.
+function isExpired(admin) { return !!(admin && (admin.role || 'admin') !== 'owner' && admin.subExpires && admin.subExpires <= Date.now()); }
+function subscriptionOf(adminId) {
+  const a = findAdminById(adminId); if (!a) return null;
+  const owner = (a.role || 'admin') === 'owner';
+  return {
+    owner, plan: a.plan || null, subStart: a.subStart || null, subExpires: a.subExpires || null,
+    active: owner || !a.subExpires || a.subExpires > Date.now(),
+    daysLeft: a.subExpires ? Math.max(0, Math.ceil((a.subExpires - Date.now()) / 86400000)) : null,
+    planLabel: a.plan && PLANS[a.plan] ? PLANS[a.plan].label : null,
+  };
+}
+
+// One-time magic-login tokens (bot -> dashboard auto sign-in). In-memory, 10 min.
+const _magic = new Map();
+function createMagicToken(adminId) { const t = genToken(); _magic.set(t, { adminId, exp: Date.now() + 600000 }); return t; }
+function consumeMagicToken(t) { const e = _magic.get(t); _magic.delete(t); if (!e || e.exp < Date.now()) return null; return e.adminId; }
 
 module.exports = {
   DATA_DIR,
@@ -432,4 +465,5 @@ module.exports = {
   setDeviceProtection, allowUninstall, uninstallAllowed,
   getCredentials, addCredential, removeCredential,
   plans, createInvoice, getInvoice, accountByTg, expireInvoices, matchPendingInvoiceByAmount, isTxProcessed, markTxProcessed, provisionFromInvoice,
+  isExpired, subscriptionOf, createMagicToken, consumeMagicToken,
 };

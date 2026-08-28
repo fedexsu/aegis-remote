@@ -253,6 +253,7 @@ async function handleApi(req, res, urlPath) {
         return json(res, 401, { error: 'invalid email or password' });
       }
       loginOk(lk);
+      if (db.isExpired(admin)) return json(res, 403, { error: 'Your subscription has expired. Renew in the Telegram bot to sign in again.', expired: true });
       const token = db.createSession(admin.id);
       return json(res, 200, { admin: db.publicAdmin(admin) }, { 'Set-Cookie': sessionCookie(token) });
     }
@@ -308,11 +309,30 @@ async function handleApi(req, res, urlPath) {
       return json(res, 200, { admin: db.publicAdmin(adm) }, { 'Set-Cookie': sessionCookie(token) });
     }
 
+    // Public: one-time magic-login token from the Telegram bot -> a real session, so
+    // buyers are signed in with one tap (no typing the generated password).
+    if (urlPath === '/api/magic-login' && m === 'POST') {
+      const b = await readBody(req);
+      const adminId = db.consumeMagicToken(b.token);
+      const adm = adminId && db.findAdminById(adminId);
+      if (!adm) return json(res, 401, { error: 'expired login link' });
+      if (db.isExpired(adm)) return json(res, 403, { error: 'subscription expired', expired: true });
+      const token = db.createSession(adm.id);
+      return json(res, 200, { admin: db.publicAdmin(adm) }, { 'Set-Cookie': sessionCookie(token) });
+    }
+
     // everything below requires auth
     const admin = adminFromReq(req);
     if (!admin) return json(res, 401, { error: 'not signed in' });
 
     if (urlPath === '/api/me' && m === 'GET') return json(res, 200, { admin: db.publicAdmin(admin) });
+
+    // Subscription status for the dashboard Account section (+ renew link to the bot).
+    if (urlPath === '/api/subscription' && m === 'GET') {
+      const sub = db.subscriptionOf(admin.id) || {};
+      sub.botUrl = 'https://t.me/' + (process.env.BOT_USERNAME || 'hatchconnect');
+      return json(res, 200, { subscription: sub });
+    }
 
     // Mint a short-lived, single-use handoff token so the desktop app can adopt this
     // browser's login (see /api/app-login). Bound to this admin, expires in 2 minutes.
@@ -781,6 +801,7 @@ wss.on('connection', (ws, req) => {
         }
         const s = ws.session || db.getSession(msg.token);
         if (!s) { send(ws, { type: 'denied', reason: 'not signed in' }); return ws.close(); }
+        if (db.isExpired(db.findAdminById(s.adminId))) { send(ws, { type: 'denied', reason: 'subscription expired' }); return ws.close(); }
         const id = 'console-' + seq++;
         ws.meta = { role: 'console', id, adminId: s.adminId };
         consoles.set(id, { ws, adminId: s.adminId, agentId: null });

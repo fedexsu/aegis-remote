@@ -110,7 +110,8 @@ async function handleUpdate(u, onCheck) {
         if (!a) return send(chat, '🤷 No subscription yet. Tap <b>Get Started</b> to pick a plan. 👇', mainMenuKeyboard());
         const until = a.subExpires ? new Date(a.subExpires).toISOString().slice(0, 10) : 'n/a';
         const P = db.plans()[a.plan];
-        return send(chat, `📊 <b>Your subscription</b>\n\n📦 Plan: <b>${esc(P ? P.label : a.plan || 'n/a')}</b>\n⏳ Active until: <b>${until}</b>\n👤 Username: <code>${esc(a.username)}</code>\n🔗 Sign in: ${APP_URL}`, mainMenuKeyboard());
+        const expired = a.subExpires && a.subExpires <= Date.now();
+        return send(chat, `📊 <b>Your subscription</b>\n\n📦 Plan: <b>${esc(P ? P.label : a.plan || 'n/a')}</b>\n${expired ? '⛔ <b>Expired</b>' : '⏳ Active until'}: <b>${until}</b>\n👤 Username: <code>${esc(a.username)}</code>\n🔗 Sign in: ${APP_URL}\n\n🔄 To ${expired ? 'reactivate' : 'renew or extend'}, tap <b>Get Started</b> and pick a plan. Time is added on top of what you have.`, mainMenuKeyboard());
       }
       if (/^\/help\b/i.test(t) || /help/i.test(t)) return send(chat, '❓ <b>How it works</b>\n\n1️⃣ Tap <b>Get Started</b> and choose a plan.\n2️⃣ Send the exact USDT (TRC-20) amount shown.\n3️⃣ Your login arrives here automatically in about a minute. 🎉\n\n📊 <b>My Account</b> shows your plan. 🔄 /start reopens the menu.', mainMenuKeyboard());
       const planKey = planFromText(t);
@@ -140,19 +141,30 @@ async function handleUpdate(u, onCheck) {
   } catch (e) { console.error('[bot] update error:', e.message); }
 }
 
-// DM the buyer their credentials once a payment is confirmed.
+// DM the buyer once a payment is confirmed (new account or renewal), including a
+// one-tap magic-login link so they don't have to type the generated password.
 function notifyPaid(inv, creds) {
   const p = creds.plan;
-  const until = new Date(Date.now() + p.days * 86400000).toISOString().slice(0, 10);
-  // Owner sale alert (optional).
+  const until = new Date(creds.subExpires).toISOString().slice(0, 10);
+  const loginUrl = `${APP_URL}/?login=${db.createMagicToken(creds.adminId)}`;
   if (process.env.OWNER_TG_CHAT) {
-    send(process.env.OWNER_TG_CHAT, `💰 <b>New sale</b>\nPlan: ${esc(p.label)} (${p.usdt} USDT)\nAccount: <code>${esc(creds.username)}</code>`);
+    send(process.env.OWNER_TG_CHAT, `💰 <b>${creds.isNew ? 'New sale' : 'Renewal'}</b>\nPlan: ${esc(p.label)} (${p.usdt} USDT)\nAccount: <code>${esc(creds.username)}</code>`);
   }
-  send(inv.tgChat,
-    `🎉 <b>Payment confirmed! Your HatchConnect account is live.</b> 🚀\n\n` +
-    `🔗 Sign in: ${APP_URL}\n👤 Username: <code>${esc(creds.username)}</code>\n🔑 Password: <code>${esc(creds.password)}</code>\n\n` +
-    `📦 Plan: <b>${esc(p.label)}</b> · active until ${until} ✅\n\n` +
-    `👉 <b>Next steps</b>\n1️⃣ Sign in and change your password 🔒\n2️⃣ Open Enrollment and copy your install link 🔗\n3️⃣ Grab the desktop app: ${APP_URL}/app 💻`);
+  if (creds.isNew) {
+    send(inv.tgChat,
+      `🎉 <b>Payment confirmed! Your HatchConnect account is live.</b> 🚀\n\n` +
+      `🔐 <b>Tap here to open your dashboard</b> (one tap, no password to type):\n${loginUrl}\n\n` +
+      `Prefer to sign in manually? ${APP_URL}\n👤 Username: <code>${esc(creds.username)}</code>\n🔑 Password: <code>${esc(creds.password)}</code>\n\n` +
+      `📦 Plan: <b>${esc(p.label)}</b> · active until ${until} ✅\n\n` +
+      `👉 <b>Next steps</b>\n1️⃣ Tap the link above 🔓\n2️⃣ Open Enrollment and copy your install link 🔗\n3️⃣ Grab the desktop app: ${APP_URL}/app 💻`,
+      { inline_keyboard: [[{ text: '🔓 Open my dashboard', url: loginUrl }]] });
+  } else {
+    send(inv.tgChat,
+      `🔄 <b>Renewal confirmed!</b> Your subscription is extended. 🎉\n\n` +
+      `📦 Plan: <b>${esc(p.label)}</b> · now active until <b>${until}</b> ✅\n\n` +
+      `Your username and password are unchanged.`,
+      { inline_keyboard: [[{ text: '🔓 Open my dashboard', url: loginUrl }]] });
+  }
 }
 
 let running = false;

@@ -129,6 +129,32 @@ function wpConfig(dbName, dbUser, dbPass) {
     + "require_once ABSPATH . 'wp-settings.php';\n";
 }
 
+// ---- bot protection (.htaccess, apache backend) ----
+const BOT_BAD = 'scrapy|curl|wget|python-requests|python-urllib|libwww-perl|libwww|go-http-client|java/|httrack|masscan|nmap|nikto|sqlmap|semrushbot|ahrefsbot|mj12bot|dotbot|petalbot|bytespider|gptbot|chatgpt|ccbot|claudebot|anthropic|amazonbot|dataforseo|blexbot|megaindex|serpstatbot|zoominfobot|dnyzbot|barkrowler|headlesschrome|phantomjs|selenium|python';
+const BOT_SEARCH = 'googlebot|bingbot|yandex|baiduspider|duckduckbot|slurp|sogou|exabot|facebookexternalhit|ia_archiver|applebot';
+const BOT_MARK_A = '# >>> HatchHosting bot protection';
+const BOT_MARK_Z = '# <<< HatchHosting bot protection';
+function botBlock(mode) {
+  const pat = mode === 'all' ? (BOT_BAD + '|' + BOT_SEARCH) : BOT_BAD;
+  const lines = [
+    BOT_MARK_A + ' (' + mode + ') — managed by HatchHosting, do not edit',
+    '<IfModule mod_rewrite.c>',
+    'RewriteEngine On',
+    'RewriteCond %{HTTP_USER_AGENT} "(' + pat + ')" [NC]',
+    'RewriteRule .* - [F,L]',
+    'RewriteCond %{HTTP_USER_AGENT} ^$',
+    'RewriteRule .* - [F,L]',
+  ];
+  if (mode === 'all') { lines.push('RewriteCond %{HTTP_USER_AGENT} !(Mozilla|Opera) [NC]', 'RewriteRule .* - [F,L]'); }
+  lines.push('</IfModule>', BOT_MARK_Z, '');
+  return lines.join('\n');
+}
+function stripBotBlock(txt) {
+  const re = new RegExp(BOT_MARK_A + '[\\s\\S]*?' + BOT_MARK_Z + '\\n?', 'g');
+  return String(txt || '').replace(re, '');
+}
+const apacheStack = () => fs.existsSync('/etc/apache2') || fs.existsSync('/etc/httpd');
+
 function accountFrom(u) {
   return {
     name: u.NAME || '', email: u.CONTACT || '', package: u.PACKAGE || '', ns: u.NS || '',
@@ -222,6 +248,13 @@ const server = http.createServer(async (req, res) => {
         if (!ip) { try { const ips = await hestiaJson('v-list-sys-ips', []); ip = Object.keys(ips)[0] || ''; } catch { ip = ''; } }
         return json(res, 200, { ip, hostname: HOSTNAME });
       }
+      if (url === '/api/website/botshield' && req.method === 'GET') {
+        const domain = String(qp.get('domain') || '').trim().toLowerCase();
+        const base = await ensureSite(u, domain);
+        let mode = 'off';
+        try { const h = await fsp.readFile(path.join(base, '.htaccess'), 'utf8'); const m = h.match(/HatchHosting bot protection \((\w+)\)/); if (m) mode = m[1]; } catch {}
+        return json(res, 200, { mode, enabled: mode !== 'off', supported: apacheStack() });
+      }
 
       // ---- file manager (scoped to the user's own site folders) ----
       if (url === '/api/files') {
@@ -280,6 +313,18 @@ const server = http.createServer(async (req, res) => {
           catch (e) { return json(res, 200, { ok: false, error: 'The certificate request is taking too long.' + hint }); }
           if (!r.ok) r.error = 'Could not issue the certificate.' + hint;
           return json(res, 200, r);
+        }
+        if (url === '/api/website/botshield') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const base = await ensureSite(u, domain);
+          const mode = ['off', 'bad', 'all'].includes(b.mode) ? b.mode : 'off';
+          if (!apacheStack()) return json(res, 200, { ok: false, error: 'This server serves sites with Nginx only, where bot rules are applied differently. Not enabling it here to avoid a false sense of protection — contact support to switch on the Nginx version.' });
+          const file = path.join(base, '.htaccess');
+          let cur = ''; try { cur = await fsp.readFile(file, 'utf8'); } catch {}
+          const next = (mode === 'off' ? '' : botBlock(mode)) + stripBotBlock(cur);
+          if (next.trim() === '') { try { await fsp.unlink(file); } catch {} }
+          else { await fsp.writeFile(file, next); try { await execFileP('chown', [u + ':' + u, file]); } catch {} }
+          return json(res, 200, { ok: true, mode, enabled: mode !== 'off' });
         }
         if (url === '/api/website/wordpress') {
           const domain = String(b.domain || '').trim().toLowerCase();

@@ -753,7 +753,11 @@ tbody tr:hover{background:var(--panel-2)}
     try{
       var d=await getJSON('/api/analytics?domain='+encodeURIComponent(anSite));
       if(cards) cards.innerHTML=anCard('Visitors',(d.visitors||0).toLocaleString(),'unique people')+anCard('Page views',(d.pageViews||0).toLocaleString(),'pages served')+anCard('Bot visits',(d.botRequests||0).toLocaleString(),(d.botVisitors||0).toLocaleString()+' bot IPs')+anCard('Countries',(d.countries||[]).length.toLocaleString(),d.geoReady?'seen':'geo loading…');
-      if(chart){ if(!d.daily||!d.daily.length){ chart.innerHTML='<div class="dim" style="text-align:center;padding:20px">'+(d.hasLogs?'No human visits recorded yet.':'No traffic logs for this site yet — analytics fills in once people visit.')+'</div>'; }
+      if(chart){ if(!d.daily||!d.daily.length){ var dbg=d.debug||{}; var diag;
+          if(!d.hasLogs){ diag='No access-log file was found for this site yet. Make sure you are visiting the site through its <b>domain name</b> (not the server IP or a different domain), then reload this page.'; }
+          else if(dbg.parsed===0 && dbg.totalLines>0){ diag='Found the log file ('+dbg.totalLines+' lines) but could not read its format. Please send this sample line to support:<br><code style="font-size:11px;word-break:break-all;color:var(--ink-2)">'+esc(dbg.sample||'')+'</code>'; }
+          else { diag='No human visits recorded yet'+(d.botRequests?(' (so far only '+d.botRequests+' bot hits, which are not counted as visitors)'):'')+'.'; }
+          chart.innerHTML='<div class="dim" style="padding:16px;line-height:1.55">'+diag+'</div>'; }
         else { var maxd=Math.max.apply(null,d.daily.map(function(x){return x.count;}))||1;
           chart.innerHTML='<div style="font-weight:700;font-size:13.5px;margin-bottom:4px">Visits per day</div><div class="an-bars">'+d.daily.map(function(x){var h=Math.round((x.count/maxd)*100); var lbl=(x.day||'').replace(/\/\d{4}$/,''); return '<div class="an-bar" title="'+esc(x.day)+': '+x.count+' visits"><i style="height:'+h+'%"></i><span>'+esc(lbl)+'</span></div>';}).join('')+'</div>'; }
       }

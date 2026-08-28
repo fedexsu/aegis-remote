@@ -208,7 +208,7 @@ function geoLookup(g, ip) {
   if (ans >= 0 && g.ends[ans] >= v) return g.codes[g.idx[ans]];
   return null;
 }
-const LOG_RE = /^(\S+) \S+ \S+ \[([^\]]+)\] "([A-Z]+) ([^ "]*)[^"]*" (\d{3}) \S+ "([^"]*)" "([^"]*)"/;
+const LOG_RE = /^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S*)[^"]*" (\d{3}) (\S+) "([^"]*)" "([^"]*)"/;
 async function readLog(file) {
   const gz = file.endsWith('.gz');
   const st = await fsp.stat(file);
@@ -219,23 +219,34 @@ async function readLog(file) {
   if (gz) { try { buf = zlib.gunzipSync(buf); } catch { return ''; } }
   return buf.toString('utf8');
 }
-async function logFiles(domain) {
-  const dir = '/var/log/nginx/domains';
-  const all = await fsp.readdir(dir).catch(() => []);
-  const base = domain + '.log';
-  return all.filter((f) => f === base || f.startsWith(base + '.')).sort().slice(0, 12).map((f) => path.join(dir, f));
+async function logFiles(domain, u) {
+  const dirs = ['/var/log/nginx/domains', '/var/log/apache2/domains', '/var/log/httpd/domains'];
+  if (u) dirs.push('/home/' + u + '/web/' + domain + '/logs');
+  for (const dir of dirs) {
+    const all = await fsp.readdir(dir).catch(() => null);
+    if (!all) continue;
+    const base = domain + '.log';
+    const files = all.filter((f) => (f === base || f.startsWith(base + '.')) && !f.includes('error')).sort().slice(0, 12).map((f) => path.join(dir, f));
+    if (files.length) return { dir, files };
+  }
+  return { dir: null, files: [] };
 }
-async function analytics(domain) {
-  const files = await logFiles(domain);
+async function analytics(domain, u) {
+  const found = await logFiles(domain, u);
+  const files = found.files;
   const g = await ensureGeo();
-  let totalReq = 0, humanReq = 0, botReq = 0;
+  let totalReq = 0, humanReq = 0, botReq = 0, totalLines = 0, parsed = 0, firstLine = '';
   const humanIps = new Set(), botIps = new Set();
   const pages = new Map(), refs = new Map(), countries = new Map(), days = new Map(), status = { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0 };
   const inc = (m, k) => m.set(k, (m.get(k) || 0) + 1);
   for (const f of files) {
     let data; try { data = await readLog(f); } catch { continue; }
     for (const line of data.split('\n')) {
+      if (!line) continue;
+      totalLines++;
+      if (!firstLine) firstLine = line.slice(0, 300);
       const m = LOG_RE.exec(line); if (!m) continue;
+      parsed++;
       const ip = m[1], time = m[2], pathReq = m[4].split('?')[0], stcode = +m[5], ref = m[6], ua = m[7];
       totalReq++;
       const sc = Math.floor(stcode / 100) + 'xx'; if (status[sc] !== undefined) status[sc]++;
@@ -256,6 +267,7 @@ async function analytics(domain) {
     botRequests: botReq, botVisitors: botIps.size,
     pages: top(pages, 15), referrers: top(refs, 10), countries: top(countries, 12),
     status, daily: [...days.entries()].slice(-14).map(([day, count]) => ({ day, count })),
+    debug: { dir: found.dir, fileCount: files.length, totalLines, parsed, sample: parsed === 0 ? firstLine : '' },
   };
 }
 
@@ -355,7 +367,7 @@ const server = http.createServer(async (req, res) => {
       if (url === '/api/analytics' && req.method === 'GET') {
         const domain = String(qp.get('domain') || '').trim().toLowerCase();
         await ensureSite(u, domain);
-        return json(res, 200, await analytics(domain));
+        return json(res, 200, await analytics(domain, u));
       }
       if (url === '/api/website/botshield' && req.method === 'GET') {
         const domain = String(qp.get('domain') || '').trim().toLowerCase();

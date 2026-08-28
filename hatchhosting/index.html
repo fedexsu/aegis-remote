@@ -123,9 +123,12 @@ tbody tr:hover{background:var(--panel-2)}
 .chip.warn{background:var(--warn-soft);color:var(--warn)}
 .chip.mono{font-family:"IBM Plex Mono";background:var(--panel-2);color:var(--ink-2)}
 .dot{width:7px;height:7px;border-radius:50%}
-.row-act{display:flex;gap:6px;justify-content:flex-end}
-.ln{color:var(--accent-2);font-weight:600;font-size:12.5px;cursor:pointer}
-.ln:hover{text-decoration:underline}
+.row-act{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+.ln{display:inline-flex;align-items:center;white-space:nowrap;color:var(--accent-2);font-weight:600;font-size:12px;cursor:pointer;padding:5px 10px;border-radius:7px;border:1px solid var(--line-2);background:var(--panel);transition:background .12s,border-color .12s,color .12s}
+.ln:hover{background:var(--accent-soft);border-color:var(--accent)}
+.ln.danger{color:var(--crit)}
+.ln.danger:hover{background:var(--crit-soft);border-color:var(--crit)}
+.btn.danger{background:var(--crit);color:#fff}.btn.danger:hover{filter:brightness(.93)}
 
 .callout{margin-top:16px;font-size:12.5px;color:var(--ink-3)}
 .disclaimer{margin:34px 0 8px;padding:14px 16px;border:1px dashed var(--line-2);border-radius:12px;color:var(--ink-3);font-size:12.5px;background:var(--panel-2)}
@@ -433,7 +436,24 @@ tbody tr:hover{background:var(--panel-2)}
     }
   }
   function sslChip(on){return on?'<span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Active</span>':'<span class="chip warn"><span class="dot" style="background:var(--warn)"></span>Off</span>';}
-  function act(label,a,data){ var d=''; for(var k in data){ d+=' data-'+k+'="'+esc(data[k])+'"'; } return '<span class="ln" data-act="'+a+'"'+d+' style="cursor:pointer">'+esc(label)+'</span>'; }
+  function act(label,a,data,cls){ var d=''; for(var k in data){ d+=' data-'+k+'="'+esc(data[k])+'"'; } return '<span class="ln'+(cls?' '+cls:'')+'" data-act="'+a+'"'+d+'>'+esc(label)+'</span>'; }
+  // branded confirm dialog (replaces window.confirm)
+  function confirmDialog(title, message, okLabel, danger){
+    return new Promise(function(resolve){
+      var ov=document.createElement('div');
+      ov.style.cssText='position:fixed;inset:0;z-index:370;background:rgba(10,12,16,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+      ov.innerHTML='<div style="width:min(420px,94vw);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:var(--shadow)">'
+        +'<h3 style="margin:0 0 10px;font-family:Archivo,system-ui,sans-serif;font-size:17px">'+esc(title)+'</h3>'
+        +'<div style="font-size:13.5px;line-height:1.55;color:var(--ink-2)">'+esc(message)+'</div>'
+        +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px"><button class="btn ghost" data-no>Cancel</button><button class="btn '+(danger?'danger':'primary')+'" data-yes>'+esc(okLabel||'Confirm')+'</button></div></div>';
+      document.body.appendChild(ov);
+      function done(v){ ov.remove(); resolve(v); }
+      ov.querySelector('[data-no]').onclick=function(){ done(false); };
+      ov.querySelector('[data-yes]').onclick=function(){ done(true); };
+      ov.addEventListener('mousedown',function(e){ if(e.target===ov) done(false); });
+      var y=ov.querySelector('[data-yes]'); if(y) y.focus();
+    });
+  }
 
   function fillSites(list){
     list=list||[]; lastSites=list;
@@ -443,16 +463,16 @@ tbody tr:hover{background:var(--panel-2)}
     if(!list.length){ empty(ov,6,'No websites yet — click "Add website" to create your first one.'); empty(ws,6,'No websites yet — click "Add website" to create your first one.'); return; }
     if(ov) ov.innerHTML=list.map(function(s){return '<tr><td><span class="site-name"><span class="fav">'+ic('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/>')+'</span>'+esc(s.domain)+'</span></td>'
       +'<td>'+sslChip(s.ssl)+'</td><td class="mono dim">'+esc(s.backend||'-')+'</td><td class="dim">web</td><td class="mono dim">'+s.diskMB+' MB</td>'
-      +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'SSL','ssl',{domain:s.domain})+act('DNS','dns',{domain:s.domain})+act('Delete','web-del',{domain:s.domain})+'</div></td></tr>';}).join('');
+      +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'SSL','ssl',{domain:s.domain})+act('DNS','dns',{domain:s.domain})+act('Delete','web-del',{domain:s.domain},'danger')+'</div></td></tr>';}).join('');
     if(ws) ws.innerHTML=list.map(function(s){return '<tr><td class="site-name">'+esc(s.domain)+'</td><td>'+sslChip(s.ssl)+'</td><td class="mono dim">'+esc(s.backend||'-')+'</td>'
       +'<td class="mono dim">'+esc(s.docRoot||'-')+'</td><td>'+(s.suspended?'<span class="chip warn">Suspended</span>':'<span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Online</span>')+'</td>'
-      +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'Enable SSL','ssl',{domain:s.domain})+act('DNS','dns',{domain:s.domain})+act('WordPress','wp',{domain:s.domain})+act('Delete','web-del',{domain:s.domain})+'</div></td></tr>';}).join('');
+      +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'SSL','ssl',{domain:s.domain})+act('DNS','dns',{domain:s.domain})+act('WordPress','wp',{domain:s.domain})+act('Delete','web-del',{domain:s.domain},'danger')+'</div></td></tr>';}).join('');
   }
   function fillDatabases(list){
     var el=tbody('databases'); if(!el) return;
     if(!list.length){ empty(el,5,'No databases yet — click "New database" to create one.'); return; }
     el.innerHTML=list.map(function(d){return '<tr><td class="mono">'+esc(d.name)+'</td><td class="mono dim">'+esc(d.dbuser)+'</td><td class="mono dim">'+d.sizeMB+' MB</td><td class="dim">'+esc(d.type)+'</td>'
-      +'<td><div class="row-act">'+act('Delete','db-del',{name:d.name})+'</div></td></tr>';}).join('');
+      +'<td><div class="row-act">'+act('Delete','db-del',{name:d.name},'danger')+'</div></td></tr>';}).join('');
   }
   function fillMail(list){
     var el=tbody('email'); if(!el) return;
@@ -460,7 +480,7 @@ tbody tr:hover{background:var(--panel-2)}
     el.innerHTML=list.map(function(m){ var q=m.quotaMB?(gb(m.quotaMB)+' GB'):'unlimited'; var p=m.quotaMB?pct(m.usedMB,m.quotaMB):3;
       return '<tr><td class="mono">'+esc(m.address)+'</td><td class="dim">'+gb(m.usedMB)+' GB</td><td class="dim">'+q+'</td>'
       +'<td style="width:180px"><span class="bar" style="margin:0"><i style="width:'+p+'%"></i></span></td>'
-      +'<td><div class="row-act">'+act('Delete','mail-del',{domain:m.domain,account:m.account})+'</div></td></tr>';}).join('');
+      +'<td><div class="row-act">'+act('Delete','mail-del',{domain:m.domain,account:m.account},'danger')+'</div></td></tr>';}).join('');
   }
   function fillBackups(list){
     var el=tbody('backups'); if(!el) return;
@@ -508,7 +528,7 @@ tbody tr:hover{background:var(--panel-2)}
       +'<p style="margin-top:14px;color:var(--ink-2)">If that page does not open yet, the domain DNS is probably still updating — use the <b>DNS</b> button on the site to check the records, then try again.</p>');
   }
   async function installWp(domain){
-    if(!confirm('Install WordPress on '+domain+'?\n\nThis creates a fresh WordPress site and its database. It takes about a minute.')) return;
+    if(!(await confirmDialog('Install WordPress','Install WordPress on '+domain+'? This creates a fresh WordPress site and its database, and takes about a minute.','Install WordPress'))) return;
     toast('Installing WordPress on '+domain+'… about a minute.');
     try{ var d=await api('/api/website/wordpress',{domain}); afterWp(d,domain); loadWebsites(); if(lastAccount) loadOverview(); }
     catch(e){ toast(e.message,false); }
@@ -544,7 +564,7 @@ tbody tr:hover{background:var(--panel-2)}
         var svg=it.dir?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M3 7h6l2 2h10v10H3z"/></svg>':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M6 3h9l3 3v15H6z"/><path d="M9 8h6M9 12h6"/></svg>';
         var nm=it.dir?'<span class="ln" data-fm="cd" data-name="'+esc(it.name)+'">'+esc(it.name)+'</span>':esc(it.name);
         var sz=it.dir?'—':(it.sizeKB>=1024?((it.sizeKB/1024).toFixed(1)+' MB'):(it.sizeKB+' KB'));
-        var acts=(it.dir?'':'<span class="ln" data-fm="dl" data-name="'+esc(it.name)+'">Download</span>')+'<span class="ln" data-fm="rm" data-name="'+esc(it.name)+'">Delete</span>';
+        var acts=(it.dir?'':'<span class="ln" data-fm="dl" data-name="'+esc(it.name)+'">Download</span>')+'<span class="ln danger" data-fm="rm" data-name="'+esc(it.name)+'">Delete</span>';
         return '<tr><td class="site-name"><span class="fav">'+svg+'</span>'+nm+'</td><td class="mono dim">'+sz+'</td><td class="dim">'+fmtTime(it.mtime)+'</td><td><div class="row-act">'+acts+'</div></td></tr>';
       }).join('');
     }catch(e){ empty(list,4,'Could not load files.'); }
@@ -575,7 +595,7 @@ tbody tr:hover{background:var(--panel-2)}
     else if(a==='go'){ fmPath=el.getAttribute('data-path')||''; fmLoad(); }
     else if(a==='cd'){ fmPath=(fmPath?fmPath+'/':'')+name; fmLoad(); }
     else if(a==='dl'){ window.open('/api/files/download?domain='+encodeURIComponent(fmSite)+'&path='+encodeURIComponent(fmPath)+'&name='+encodeURIComponent(name),'_blank'); }
-    else if(a==='rm'){ if(!confirm('Delete "'+name+'"? This cannot be undone.')) return; try{ await api('/api/files/delete',{domain:fmSite,path:fmPath,name}); toast('Deleted'); fmLoad(); }catch(ex){ toast(ex.message,false); } }
+    else if(a==='rm'){ if(!(await confirmDialog('Delete','Delete "'+name+'"? This cannot be undone.','Delete',true))) return; try{ await api('/api/files/delete',{domain:fmSite,path:fmPath,name}); toast('Deleted'); fmLoad(); }catch(ex){ toast(ex.message,false); } }
   });
 
   // --- loaders ---
@@ -592,7 +612,7 @@ tbody tr:hover{background:var(--panel-2)}
     await api('/api/database/add',{name:v.name,dbuser:v.dbuser,password:v.password}); toast('Database created'); loadDatabases(); if(lastAccount) loadOverview(); }); }
   function addMail(){ openForm('Create email',[{name:'account',label:'Mailbox name',ph:'hello'},{name:'domain',label:'Domain',ph:'mysite.com'},{name:'password',label:'Password',type:'password',ph:'at least 6 characters'}],'Create',async function(v){
     await api('/api/mail/add',{domain:v.domain,account:v.account,password:v.password}); toast('Mailbox created'); loadMail(); if(lastAccount) loadOverview(); }); }
-  async function createBackup(){ if(!confirm('Create a full backup of your account now? This can take a few minutes.')) return; try{ await api('/api/backup/create'); toast('Backup started — it will appear here shortly.'); setTimeout(loadBackups,4000); }catch(e){ toast(e.message,false); } }
+  async function createBackup(){ if(!(await confirmDialog('Back up now','Create a full backup of your account now? This can take a few minutes.','Back up now'))) return; try{ await api('/api/backup/create'); toast('Backup started — it will appear here shortly.'); setTimeout(loadBackups,4000); }catch(e){ toast(e.message,false); } }
 
   // delegated row actions
   document.addEventListener('click',async function(e){
@@ -601,11 +621,11 @@ tbody tr:hover{background:var(--panel-2)}
     try{
       if(a==='dns'){ showDns(domain); return; }
       else if(a==='wp'){ installWp(domain); return; }
-      else if(a==='ssl'){ if(!confirm('Issue a free SSL certificate for '+domain+'?\n\nThe domain must already point to this server.')) return; el.textContent='…'; await api('/api/website/ssl',{domain}); toast('SSL enabled for '+domain); loadWebsites(); }
-      else if(a==='web-del'){ if(!confirm('Delete '+domain+'?\n\nThis permanently removes the site and its files. This cannot be undone.')) return; await api('/api/website/delete',{domain}); toast('Website deleted'); loadWebsites(); }
+      else if(a==='ssl'){ if(!(await confirmDialog('Enable SSL','Issue a free HTTPS certificate for '+domain+'? The domain must already point to this server (check the DNS button).','Enable SSL'))) return; el.textContent='…'; await api('/api/website/ssl',{domain}); toast('SSL enabled for '+domain); loadWebsites(); }
+      else if(a==='web-del'){ if(!(await confirmDialog('Delete website','Permanently delete '+domain+' and all its files? This cannot be undone.','Delete website',true))) return; await api('/api/website/delete',{domain}); toast('Website deleted'); loadWebsites(); }
       else if(a==='web-files'){ toast('Connect with SFTP — host: your server, port 22, username & password: your panel login.'); }
-      else if(a==='db-del'){ if(!confirm('Delete database '+name+'?\n\nAll data in it is permanently removed.')) return; await api('/api/database/delete',{name}); toast('Database deleted'); loadDatabases(); if(lastAccount) loadOverview(); }
-      else if(a==='mail-del'){ if(!confirm('Delete mailbox '+account+'@'+domain+'?')) return; await api('/api/mail/delete',{domain,account}); toast('Mailbox deleted'); loadMail(); if(lastAccount) loadOverview(); }
+      else if(a==='db-del'){ if(!(await confirmDialog('Delete database','Delete database '+name+'? All data in it is permanently removed.','Delete',true))) return; await api('/api/database/delete',{name}); toast('Database deleted'); loadDatabases(); if(lastAccount) loadOverview(); }
+      else if(a==='mail-del'){ if(!(await confirmDialog('Delete mailbox','Delete mailbox '+account+'@'+domain+'? This cannot be undone.','Delete',true))) return; await api('/api/mail/delete',{domain,account}); toast('Mailbox deleted'); loadMail(); if(lastAccount) loadOverview(); }
     }catch(ex){ toast(ex.message,false); if(a==='ssl') loadWebsites(); }
   });
 

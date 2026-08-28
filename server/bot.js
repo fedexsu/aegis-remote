@@ -52,7 +52,7 @@ function planFromText(t) {
 }
 function showStart(chat) {
   send(chat,
-    '🖥️ <b>HatchConnect</b> — control any PC from anywhere, in seconds. ⚡\n\n' +
+    '🖥️ <b>HatchConnect</b>\nControl any PC from anywhere, in seconds. ⚡\n\n' +
     '💳 Tap a plan below, pay in <b>USDT (TRC-20)</b>, and your login drops right here the moment it confirms. No calls. No waiting. 🚀\n\n' +
     '✅ Unattended access  •  🎧 On-demand support  •  📁 File transfer  •  💻 Backstage command line  •  🛡️ Uninstall protection',
     menuKeyboard());

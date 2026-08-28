@@ -578,6 +578,32 @@ tbody tr:hover{background:var(--panel-2)}
   // --- file manager ---
   var fmSite='', fmPath='';
   function fmtTime(ms){ if(!ms) return ''; try{ var d=new Date(ms); return d.toLocaleDateString()+' '+d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
+  var EDIT_EXT=/\.(html?|css|js|mjs|cjs|json|txt|md|markdown|php|phtml|xml|csv|svg|ts|tsx|jsx|ini|conf|cfg|yml|yaml|env|sh|py|rb|sql|log|htaccess|gitignore)$/i;
+  function isEditable(n){ return EDIT_EXT.test(n) || n.indexOf('.')<0; }
+  async function openEditor(name){
+    var d;
+    try{ d=await getJSON('/api/files/read?domain='+encodeURIComponent(fmSite)+'&path='+encodeURIComponent(fmPath)+'&name='+encodeURIComponent(name)); }
+    catch(e){ toast('Could not open file',false); return; }
+    if(d.error){ toast(d.error,false); return; }
+    var ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:380;background:rgba(10,12,16,.6);display:flex;align-items:center;justify-content:center;padding:16px';
+    ov.innerHTML='<div style="width:min(880px,96vw);height:min(82vh,740px);display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 18px;border-bottom:1px solid var(--line)"><div style="font-family:Archivo,system-ui,sans-serif;font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Editing '+esc((fmPath?fmPath+'/':'')+name)+'</div><div style="display:flex;gap:8px;flex:0 0 auto"><button class="btn ghost sm" data-cancel>Cancel</button><button class="btn primary sm" data-save>Save</button></div></div>'
+      +'<textarea data-code spellcheck="false" autocapitalize="off" autocomplete="off" style="flex:1;width:100%;border:0;outline:0;resize:none;padding:16px 18px;font-family:ui-monospace,\'IBM Plex Mono\',monospace;font-size:13px;line-height:1.55;background:var(--panel);color:var(--ink)"></textarea>'
+      +'<div data-eerr style="color:#c8362f;font-size:12.5px;padding:0 18px;min-height:0"></div></div>';
+    document.body.appendChild(ov);
+    var ta=ov.querySelector('[data-code]'); ta.value=d.content; ta.focus(); ta.setSelectionRange(0,0);
+    function close(){ ov.remove(); }
+    ov.querySelector('[data-cancel]').onclick=close;
+    async function save(){ var err=ov.querySelector('[data-eerr]'); err.textContent=''; var btn=ov.querySelector('[data-save]'); btn.disabled=true; btn.textContent='Saving…';
+      try{ await api('/api/files/save',{domain:fmSite,path:fmPath,name:name,content:ta.value}); toast('Saved'); close(); fmLoad(); }
+      catch(e){ err.textContent=e.message; btn.disabled=false; btn.textContent='Save'; } }
+    ov.querySelector('[data-save]').onclick=save;
+    ta.addEventListener('keydown',function(e){
+      if(e.key==='Tab'){ e.preventDefault(); var s=ta.selectionStart,en=ta.selectionEnd; ta.value=ta.value.slice(0,s)+'  '+ta.value.slice(en); ta.selectionStart=ta.selectionEnd=s+2; }
+      else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){ e.preventDefault(); save(); }
+    });
+  }
   function fmPopulate(){ var sel=document.getElementById('fm-site'); if(!sel) return;
     sel.innerHTML=lastSites.length?lastSites.map(function(s){return '<option value="'+esc(s.domain)+'">'+esc(s.domain)+'</option>';}).join(''):'<option value="">No websites yet</option>';
     if(fmSite && lastSites.some(function(s){return s.domain===fmSite;})) sel.value=fmSite; else { fmSite=sel.value; fmPath=''; }
@@ -599,7 +625,8 @@ tbody tr:hover{background:var(--panel-2)}
         var svg=it.dir?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M3 7h6l2 2h10v10H3z"/></svg>':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M6 3h9l3 3v15H6z"/><path d="M9 8h6M9 12h6"/></svg>';
         var nm=it.dir?'<span class="ln" data-fm="cd" data-name="'+esc(it.name)+'">'+esc(it.name)+'</span>':esc(it.name);
         var sz=it.dir?'—':(it.sizeKB>=1024?((it.sizeKB/1024).toFixed(1)+' MB'):(it.sizeKB+' KB'));
-        var acts=(it.dir?'':'<span class="ln" data-fm="dl" data-name="'+esc(it.name)+'">Download</span>')+'<span class="ln danger" data-fm="rm" data-name="'+esc(it.name)+'">Delete</span>';
+        var editBtn=(!it.dir && isEditable(it.name))?'<span class="ln" data-fm="edit" data-name="'+esc(it.name)+'">Edit</span>':'';
+        var acts=editBtn+(it.dir?'':'<span class="ln" data-fm="dl" data-name="'+esc(it.name)+'">Download</span>')+'<span class="ln danger" data-fm="rm" data-name="'+esc(it.name)+'">Delete</span>';
         return '<tr><td class="site-name"><span class="fav">'+svg+'</span>'+nm+'</td><td class="mono dim">'+sz+'</td><td class="dim">'+fmtTime(it.mtime)+'</td><td><div class="row-act">'+acts+'</div></td></tr>';
       }).join('');
     }catch(e){ empty(list,4,'Could not load files.'); }
@@ -629,6 +656,7 @@ tbody tr:hover{background:var(--panel-2)}
     if(a==='root'){ fmPath=''; fmLoad(); }
     else if(a==='go'){ fmPath=el.getAttribute('data-path')||''; fmLoad(); }
     else if(a==='cd'){ fmPath=(fmPath?fmPath+'/':'')+name; fmLoad(); }
+    else if(a==='edit'){ openEditor(name); }
     else if(a==='dl'){ window.open('/api/files/download?domain='+encodeURIComponent(fmSite)+'&path='+encodeURIComponent(fmPath)+'&name='+encodeURIComponent(name),'_blank'); }
     else if(a==='rm'){ if(!(await confirmDialog('Delete','Delete "'+name+'"? This cannot be undone.','Delete',true))) return; try{ await api('/api/files/delete',{domain:fmSite,path:fmPath,name}); toast('Deleted'); fmLoad(); }catch(ex){ toast(ex.message,false); } }
   });

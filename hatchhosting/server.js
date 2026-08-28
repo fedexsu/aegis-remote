@@ -280,6 +280,17 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="' + path.basename(file).replace(/"/g, '') + '"', 'Content-Length': st.size });
         return fs.createReadStream(file).pipe(res);
       }
+      if (url === '/api/files/read' && req.method === 'GET') {
+        const domain = String(qp.get('domain') || '').trim().toLowerCase();
+        const base = await ensureSite(u, domain);
+        const file = safeJoin(base, (qp.get('path') || '') + '/' + (qp.get('name') || ''));
+        const st = await fsp.stat(file).catch(() => null);
+        if (!st || st.isDirectory()) return json(res, 404, { error: 'File not found' });
+        if (st.size > 3 * 1024 * 1024) return json(res, 200, { error: 'This file is too large to edit here (over 3 MB). Use SFTP for large files.' });
+        const buf = await fsp.readFile(file);
+        if (buf.includes(0)) return json(res, 200, { error: 'This looks like a binary file (image, archive, etc.) and cannot be edited as text.' });
+        return json(res, 200, { content: buf.toString('utf8'), name: path.basename(file) });
+      }
       if (url === '/api/files/upload' && req.method === 'POST') {
         const domain = String(qp.get('domain') || '').trim().toLowerCase();
         const base = await ensureSite(u, domain);
@@ -348,6 +359,20 @@ const server = http.createServer(async (req, res) => {
             return json(res, 200, { ok: false, error: 'Install failed: ' + (e.message || e) });
           } finally { try { await execFileP('rm', ['-rf', tmp]); } catch {} }
           return json(res, 200, { ok: true, adminUrl: 'http://' + domain + '/wp-admin/' });
+        }
+        if (url === '/api/files/save') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const base = await ensureSite(u, domain);
+          const name = path.basename(String(b.name || ''));
+          if (!name || name === '.' || name === '..') return json(res, 400, { error: 'Invalid file name' });
+          const content = typeof b.content === 'string' ? b.content : '';
+          if (content.length > 3 * 1024 * 1024) return json(res, 400, { error: 'File is too large to save here (over 3 MB)' });
+          const file = safeJoin(base, (b.path || '') + '/' + name);
+          const st = await fsp.stat(file).catch(() => null);
+          if (st && st.isDirectory()) return json(res, 400, { error: 'That is a folder' });
+          await fsp.writeFile(file, content, 'utf8');
+          try { await execFileP('chown', [u + ':' + u, file]); } catch {}
+          return json(res, 200, { ok: true });
         }
         if (url === '/api/files/mkdir') {
           const domain = String(b.domain || '').trim().toLowerCase();

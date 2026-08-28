@@ -35,7 +35,7 @@ if (PROXY_TARGET) {
       hostname: t.hostname, port: t.port || (t.protocol === 'https:' ? 443 : 80),
       path: req.url, method: req.method,
       headers: Object.assign({}, req.headers, { host: t.host }),
-      rejectUnauthorized: false, timeout: 25000,
+      rejectUnauthorized: false, timeout: 200000,
     };
     const up = mod.request(opts, (r) => { res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); });
     up.on('error', (e) => { if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'text/plain' }); res.end('HatchHosting server is unreachable right now. (' + e.message + ')'); });
@@ -61,7 +61,7 @@ const nowSec = () => clock;
 const bumpAttempt = (ip) => { const a = attempts.get(ip); if (a && (nowSec() - a.ts) < 600) { a.n++; a.ts = nowSec(); } else { attempts.set(ip, { n: 1, ts: nowSec() }); } };
 
 // ---- Hestia API ----------------------------------------------------------
-function hestia(cmd, args) {
+function hestia(cmd, args, opts) {
   return new Promise((resolve, reject) => {
     const p = new URLSearchParams();
     p.append('hash', HESTIA_KEY);
@@ -71,11 +71,11 @@ function hestia(cmd, args) {
     const u = new URL(HESTIA_URL);
     const req = https.request({
       hostname: u.hostname, port: u.port || 8083, path: '/api/', method: 'POST',
-      rejectUnauthorized: false, timeout: 20000,
+      rejectUnauthorized: false, timeout: (opts && opts.timeout) || 25000,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) },
     }, (res) => { let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => resolve(b)); });
     req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('hestia timeout')); });
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
     req.end(body);
   });
 }
@@ -85,8 +85,8 @@ async function hestiaJson(cmd, args) {
 }
 // Hestia action commands return an empty body on success, or a numeric exit code on error.
 const HESTIA_ERR = { 1: 'Wrong arguments', 2: 'That value is not valid', 3: 'It does not exist', 4: 'It already exists', 5: 'Account is suspended', 6: 'This feature is disabled', 7: 'Password is not valid', 8: 'Not allowed', 12: 'You have reached your plan limit', 13: 'Try again later' };
-async function hestiaDo(cmd, args) {
-  const raw = String(await hestia(cmd, args || [])).trim();
+async function hestiaDo(cmd, args, timeout) {
+  const raw = String(await hestia(cmd, args || [], timeout ? { timeout } : undefined)).trim();
   if (raw === '' || raw === '0') return { ok: true };
   const code = parseInt(raw, 10);
   return { ok: false, error: HESTIA_ERR[code] || ('Server error (' + raw.slice(0, 80) + ')') };
@@ -274,7 +274,12 @@ const server = http.createServer(async (req, res) => {
         if (url === '/api/website/ssl') {
           const domain = String(b.domain || '').trim().toLowerCase();
           if (!okDomain(domain)) return json(res, 400, { error: 'Invalid domain' });
-          return json(res, 200, await hestiaDo('v-add-letsencrypt-domain', [u, domain]));
+          const hint = ' Make sure ' + domain + ' points to this server (check the DNS button) and give DNS time to update, then try again.';
+          let r;
+          try { r = await hestiaDo('v-add-letsencrypt-domain', [u, domain], 160000); }
+          catch (e) { return json(res, 200, { ok: false, error: 'The certificate request is taking too long.' + hint }); }
+          if (!r.ok) r.error = 'Could not issue the certificate.' + hint;
+          return json(res, 200, r);
         }
         if (url === '/api/website/wordpress') {
           const domain = String(b.domain || '').trim().toLowerCase();

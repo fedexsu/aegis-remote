@@ -34,25 +34,27 @@ function api(method, params) {
 const send = (chat, text, markup) => api('sendMessage', { chat_id: chat, text, parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: markup });
 
 // Reply keyboard (buttons live in the keyboard area; tapping one sends its text).
+const PLAN_EMOJI = { monthly: '🗓️', quarterly: '📆', biannual: '📅', annual: '⭐' };
+const PLAN_TAG = { biannual: '  🔥', annual: '  💎 best value' };
 function menuKeyboard() {
   const P = db.plans();
-  const rows = Object.values(P).map((p) => [{ text: `${p.label} - ${p.usdt} USDT` }]);
-  rows.push([{ text: 'Help' }]);
-  return { keyboard: rows, resize_keyboard: true, is_persistent: true, input_field_placeholder: 'Choose a plan' };
+  const rows = Object.values(P).map((p) => [{ text: `${PLAN_EMOJI[p.key] || '💳'} ${p.label} - ${p.usdt} USDT${PLAN_TAG[p.key] || ''}` }]);
+  rows.push([{ text: '📊 Status' }, { text: '❓ Help' }]);
+  return { keyboard: rows, resize_keyboard: true, is_persistent: true, input_field_placeholder: '💳 Tap a plan to start' };
 }
 function planFromText(t) {
-  const P = db.plans();
   const s = String(t).trim().toLowerCase();
-  for (const p of Object.values(P)) {
-    if (s === `${p.label} - ${p.usdt} usdt`.toLowerCase()) return p.key;      // exact button text
-    if (s === p.key || s === p.label.toLowerCase()) return p.key;             // typed name
-    if (s.startsWith(p.label.split(' ')[0].toLowerCase())) return p.key;      // first word (Monthly/Quarterly/...)
+  for (const p of Object.values(db.plans())) {
+    const first = p.label.split(' ')[0].toLowerCase(); // monthly / quarterly / biannual / annual
+    if (s === p.key || s.includes(first)) return p.key; // robust to emoji + amount suffix
   }
   return null;
 }
 function showStart(chat) {
   send(chat,
-    '<b>HatchConnect</b>\nSecure remote support and access for your PCs.\n\nTap a plan below. You pay in <b>USDT (TRC-20)</b> and your login is created and sent here automatically the moment the payment confirms.',
+    '🖥️ <b>HatchConnect</b> — control any PC from anywhere, in seconds. ⚡\n\n' +
+    '💳 Tap a plan below, pay in <b>USDT (TRC-20)</b>, and your login drops right here the moment it confirms. No calls. No waiting. 🚀\n\n' +
+    '✅ Unattended access  •  🎧 On-demand support  •  📁 File transfer  •  💻 Backstage command line  •  🛡️ Uninstall protection',
     menuKeyboard());
 }
 function showInvoice(chat, inv) {
@@ -60,13 +62,16 @@ function showInvoice(chat, inv) {
   const p = db.plans()[inv.plan];
   const amt = (inv.amountMicro / 1e6).toFixed(6);
   const text =
-    `<b>${esc(p.label)}</b>\n\nSend <b>exactly</b> this amount of <b>USDT (TRC-20 / Tron)</b>:\n\n` +
-    `Amount: <code>${amt}</code> USDT\nAddress: <code>${esc(addr)}</code>\n\n` +
-    `Send the EXACT amount (the last digits identify your order). Your account is created and sent here automatically once it confirms, usually within a few minutes. This invoice expires in 60 minutes.\n\n` +
-    `Network: <b>Tron (TRC-20)</b> only. Do not send from another network.`;
+    `🧾 <b>${esc(p.label)}</b>\n\n` +
+    `💸 Send <b>exactly</b>:\n<code>${amt}</code> <b>USDT</b>\n\n` +
+    `📥 To this address (Tron / TRC-20):\n<code>${esc(addr)}</code>\n\n` +
+    `⚠️ Send the EXACT amount. The last digits are your order tag.\n` +
+    `🌐 Network: <b>Tron (TRC-20)</b> only. Nothing else.\n` +
+    `⏳ Expires in 60 minutes.\n\n` +
+    `Your login arrives here automatically the moment it confirms. 🚀`;
   send(chat, text, { inline_keyboard: [
-    [{ text: 'I have paid — check now', callback_data: 'check:' + inv.id }],
-    [{ text: 'Back to plans', callback_data: 'start' }],
+    [{ text: '✅ I have paid - check now', callback_data: 'check:' + inv.id }],
+    [{ text: '⬅️ Back to plans', callback_data: 'start' }],
   ] });
 }
 
@@ -76,14 +81,14 @@ async function handleUpdate(u, onCheck) {
       const t = u.message.text.trim();
       const chat = u.message.chat.id;
       if (/^\/(start|plans|menu)\b/.test(t)) return showStart(chat);
-      if (/^\/status\b/i.test(t)) {
+      if (/^\/status\b/i.test(t) || /status/i.test(t)) {
         const a = db.accountByTg(u.message.from.id);
-        if (!a) return send(chat, 'No subscription found for your account yet. Tap a plan to get started.', menuKeyboard());
+        if (!a) return send(chat, '🤷 No subscription yet. Tap a plan on the keyboard to get started. 👇', menuKeyboard());
         const until = a.subExpires ? new Date(a.subExpires).toISOString().slice(0, 10) : 'n/a';
         const P = db.plans()[a.plan];
-        return send(chat, `<b>Your subscription</b>\nPlan: <b>${esc(P ? P.label : a.plan || 'n/a')}</b>\nActive until: <b>${until}</b>\nUsername: <code>${esc(a.username)}</code>\nSign in: ${APP_URL}`, menuKeyboard());
+        return send(chat, `📊 <b>Your subscription</b>\n\n📦 Plan: <b>${esc(P ? P.label : a.plan || 'n/a')}</b>\n⏳ Active until: <b>${until}</b>\n👤 Username: <code>${esc(a.username)}</code>\n🔗 Sign in: ${APP_URL}`, menuKeyboard());
       }
-      if (/^\/help\b/i.test(t) || /^help$/i.test(t)) return send(chat, 'Tap a plan on the keyboard to buy. You pay in USDT (TRC-20) and your login is sent here automatically once payment confirms. /status shows your plan. Send /start to show the menu.', menuKeyboard());
+      if (/^\/help\b/i.test(t) || /help/i.test(t)) return send(chat, '❓ <b>How it works</b>\n\n1️⃣ Tap a plan on the keyboard.\n2️⃣ Send the exact USDT (TRC-20) amount shown.\n3️⃣ Your login arrives here automatically in about a minute. 🎉\n\n📊 /status shows your plan. 🔄 /start reopens the menu.', menuKeyboard());
       const planKey = planFromText(t);
       if (planKey) {
         if (!process.env.USDT_ADDRESS) return send(chat, 'Payments are not configured yet. Please try again shortly.');
@@ -119,10 +124,10 @@ function notifyPaid(inv, creds) {
     send(process.env.OWNER_TG_CHAT, `💰 <b>New sale</b>\nPlan: ${esc(p.label)} (${p.usdt} USDT)\nAccount: <code>${esc(creds.username)}</code>`);
   }
   send(inv.tgChat,
-    `✅ <b>Payment confirmed.</b> Your HatchConnect account is ready.\n\n` +
-    `Sign in: ${APP_URL}\nUsername: <code>${esc(creds.username)}</code>\nPassword: <code>${esc(creds.password)}</code>\n\n` +
-    `Plan: <b>${esc(p.label)}</b> (active until ${until})\n\n` +
-    `Next steps:\n1. Sign in and change your password.\n2. Go to Enrollment and copy your install link.\n3. Get the desktop app: ${APP_URL}/app`);
+    `🎉 <b>Payment confirmed! Your HatchConnect account is live.</b> 🚀\n\n` +
+    `🔗 Sign in: ${APP_URL}\n👤 Username: <code>${esc(creds.username)}</code>\n🔑 Password: <code>${esc(creds.password)}</code>\n\n` +
+    `📦 Plan: <b>${esc(p.label)}</b> · active until ${until} ✅\n\n` +
+    `👉 <b>Next steps</b>\n1️⃣ Sign in and change your password 🔒\n2️⃣ Open Enrollment and copy your install link 🔗\n3️⃣ Grab the desktop app: ${APP_URL}/app 💻`);
 }
 
 let running = false;

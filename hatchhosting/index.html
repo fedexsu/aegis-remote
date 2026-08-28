@@ -183,7 +183,7 @@ tbody tr:hover{background:var(--panel-2)}
         <h1 class="page-title">Overview</h1>
         <p class="page-sub">Everything on your hosting account, at a glance.</p>
 
-        <div class="grid usage">
+        <div class="grid usage" id="usage-grid">
           <div class="rc">
             <div class="rc-top"><span class="rc-label">Disk</span><span class="rc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6"/></svg></span></div>
             <div class="rc-num">12.4<span> / 50 GB</span></div>
@@ -223,7 +223,7 @@ tbody tr:hover{background:var(--panel-2)}
         <div class="card scroll">
           <table>
             <thead><tr><th>Website</th><th>SSL</th><th>PHP</th><th>App</th><th>Disk</th><th></th></tr></thead>
-            <tbody>
+            <tbody id="ov-sites">
               <tr>
                 <td><span class="site-name"><span class="fav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/></svg></span>mysite.com</span></td>
                 <td><span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Active</span></td>
@@ -260,7 +260,7 @@ tbody tr:hover{background:var(--panel-2)}
         <div class="card scroll">
           <table>
             <thead><tr><th>Domain</th><th>SSL</th><th>PHP</th><th>Document root</th><th>Status</th><th></th></tr></thead>
-            <tbody>
+            <tbody id="ws-sites">
               <tr><td class="site-name">mysite.com</td><td><span class="chip ok">Active</span></td><td class="mono dim">8.2</td><td class="mono dim">/home/ski/mysite.com</td><td><span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Online</span></td><td><div class="row-act"><span class="ln">SSL</span><span class="ln">Files</span><span class="ln">Delete</span></div></td></tr>
               <tr><td class="site-name">shop.mysite.com</td><td><span class="chip ok">Active</span></td><td class="mono dim">8.1</td><td class="mono dim">/home/ski/shop</td><td><span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Online</span></td><td><div class="row-act"><span class="ln">SSL</span><span class="ln">Files</span><span class="ln">Delete</span></div></td></tr>
               <tr><td class="site-name">blog.example.net</td><td><span class="chip warn">Issuing</span></td><td class="mono dim">8.2</td><td class="mono dim">/home/ski/blog</td><td><span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Online</span></td><td><div class="row-act"><span class="ln">SSL</span><span class="ln">Files</span><span class="ln">Delete</span></div></td></tr>
@@ -371,5 +371,76 @@ tbody tr:hover{background:var(--panel-2)}
     document.querySelectorAll(".page").forEach(function(x){x.classList.toggle("on",x.getAttribute("data-page")===p);});
     document.querySelector(".content").scrollTop=0;
   });
+})();
+</script>
+
+<div id="hh-login" style="position:fixed;inset:0;z-index:300;background:var(--bg);display:none;align-items:center;justify-content:center">
+  <form id="hh-login-form" style="width:min(360px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:28px;box-shadow:var(--shadow)">
+    <div style="display:flex;align-items:center;gap:10px;font-family:'Archivo';font-weight:800;font-size:18px;margin-bottom:6px"><svg viewBox="0 0 32 32" width="26" height="26"><rect x="1.2" y="1.2" width="29.6" height="29.6" rx="8" fill="#2f6bff"/><circle cx="10" cy="16" r="3.1" fill="#fff"/><circle cx="22" cy="16" r="3.1" fill="#fff"/><path d="M12.6 16h6.8" stroke="#fff" stroke-width="2.1" stroke-linecap="round"/></svg>HatchHosting</div>
+    <p style="color:var(--ink-2);font-size:13px;margin:0 0 18px">Sign in to your hosting panel.</p>
+    <input id="hh-pass" type="password" placeholder="Password" autocomplete="current-password" style="width:100%;padding:11px 13px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:14px;margin-bottom:12px;box-sizing:border-box"/>
+    <button class="btn primary" style="width:100%;justify-content:center" type="submit">Sign in</button>
+    <div id="hh-login-err" style="color:var(--crit);font-size:12.5px;margin-top:10px;min-height:16px"></div>
+  </form>
+</div>
+<script>
+(function(){
+  var shell=document.querySelector('.shell');
+  function ic(p){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'+p+'</svg>';}
+  function gb(mb){return (mb/1024).toFixed(mb>=10240?0:1);}
+  function pct(u,q){return q?Math.min(100,Math.round(u/q*100)):(u?12:2);}
+  function esc(s){return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+  function card(label,i,num,unit,p,cls,sub){
+    return '<div class="rc"><div class="rc-top"><span class="rc-label">'+label+'</span><span class="rc-ic">'+i+'</span></div>'
+      +'<div class="rc-num">'+num+'<span> '+unit+'</span></div>'
+      +'<div class="bar'+(cls?' '+cls:'')+'"><i style="width:'+p+'%"></i></div>'
+      +'<div class="rc-sub">'+(sub||'')+'</div></div>';
+  }
+  function fillAccount(a){
+    var g=document.getElementById('usage-grid'); if(!g)return;
+    var dq=a.diskQuotaMB?(gb(a.diskQuotaMB)+' GB'):'unlimited', bq=a.bwQuotaMB?(gb(a.bwQuotaMB)+' GB'):'unlimited';
+    var dp=pct(a.diskUsedMB,a.diskQuotaMB), bp=pct(a.bwUsedMB,a.bwQuotaMB);
+    g.innerHTML=
+      card('Disk',ic('<ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6"/>'),gb(a.diskUsedMB),'/ '+dq,dp,dp>90?'crit':(dp>75?'warn':''),a.diskQuotaMB?(gb(a.diskQuotaMB-a.diskUsedMB)+' GB free'):'unlimited')
+      +card('Bandwidth',ic('<path d="M3 17l5-6 4 4 5-7 4 5" stroke-linecap="round" stroke-linejoin="round"/>'),gb(a.bwUsedMB),'/ '+bq,bp,'','This month')
+      +card('Websites',ic('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/>'),a.webDomains,'/ '+(a.webLimit||'unlimited'),a.webLimit?pct(a.webDomains,a.webLimit):(a.webDomains?40:2),'',a.webSsl+' with SSL')
+      +card('Email accounts',ic('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5 12 13l8.5-6.5"/>'),a.mailAccounts,'/ '+(a.mailLimit||'unlimited'),a.mailLimit?pct(a.mailAccounts,a.mailLimit):(a.mailAccounts?10:2),a.databases+' databases');
+  }
+  function sslChip(on){return on?'<span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Active</span>':'<span class="chip warn"><span class="dot" style="background:var(--warn)"></span>Off</span>';}
+  function fillSites(list){
+    var ov=document.getElementById('ov-sites'), ws=document.getElementById('ws-sites');
+    if(!list.length){ if(ov)ov.innerHTML='<tr><td colspan="6" class="dim" style="text-align:center;padding:26px">No websites yet. Click "New website" to add one.</td></tr>'; if(ws)ws.innerHTML='<tr><td colspan="6" class="dim" style="text-align:center;padding:26px">No websites yet.</td></tr>'; return; }
+    if(ov) ov.innerHTML=list.map(function(s){return '<tr><td><span class="site-name"><span class="fav">'+ic('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/>')+'</span>'+esc(s.domain)+'</span></td>'
+      +'<td>'+sslChip(s.ssl)+'</td><td class="mono dim">'+esc(s.backend||'-')+'</td><td class="dim">web</td><td class="mono dim">'+s.diskMB+' MB</td>'
+      +'<td><div class="row-act"><span class="ln">Open</span><span class="ln">Manage</span></div></td></tr>';}).join('');
+    if(ws) ws.innerHTML=list.map(function(s){return '<tr><td class="site-name">'+esc(s.domain)+'</td><td>'+sslChip(s.ssl)+'</td><td class="mono dim">'+esc(s.backend||'-')+'</td>'
+      +'<td class="mono dim">'+esc(s.docRoot||'-')+'</td><td>'+(s.suspended?'<span class="chip warn">Suspended</span>':'<span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Online</span>')+'</td>'
+      +'<td><div class="row-act"><span class="ln">SSL</span><span class="ln">Files</span><span class="ln">Delete</span></div></td></tr>';}).join('');
+  }
+  function showLogin(v){ var l=document.getElementById('hh-login'); if(l)l.style.display=v?'flex':'none'; if(shell)shell.style.filter=v?'blur(3px)':''; }
+  async function loadData(){
+    try{
+      var a=await (await fetch('/api/account')).json();
+      var s=await (await fetch('/api/websites')).json();
+      if(a && !a.error) fillAccount(a);
+      if(Array.isArray(s)) fillSites(s);
+    }catch(e){}
+  }
+  async function init(){
+    var sess;
+    try{ sess=await (await fetch('/api/session')).json(); }catch(e){ return; } // static/demo host: keep sample content
+    if(sess.live && !sess.authed){ showLogin(true); }
+    else { showLogin(false); loadData(); }
+  }
+  var form=document.getElementById('hh-login-form');
+  if(form) form.addEventListener('submit', async function(e){
+    e.preventDefault();
+    var err=document.getElementById('hh-login-err'); err.textContent='';
+    try{
+      var r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('hh-pass').value})});
+      if(r.ok){ showLogin(false); loadData(); } else { var d=await r.json().catch(function(){return{};}); err.textContent=d.error||'Login failed'; }
+    }catch(e){ err.textContent='Network error'; }
+  });
+  init();
 })();
 </script>

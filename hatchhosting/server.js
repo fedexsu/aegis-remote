@@ -1,11 +1,11 @@
 'use strict';
 // HatchHosting backend. Serves the panel and exposes a small API that talks to
-// HestiaCP over localhost using an access key. Two modes:
-//   - LIVE  (HESTIA_URL + HESTIA_KEY set)  -> real data, login required
-//   - DEMO  (not set, e.g. on Railway)     -> sample data, open, for showing the UI
+// HestiaCP over localhost using an admin access key. Each customer is a Hestia
+// user: they log in with their own Hestia username + password (validated via
+// v-check-user-password) and the panel shows only their own account and sites.
 //
-// Env: PORT, HESTIA_URL (https://127.0.0.1:8083), HESTIA_KEY ("ID:SECRET"),
-//      HESTIA_USER (default "user"), HATCHHOSTING_PASSWORD (login password, live mode)
+// Env: PORT, HESTIA_URL (https://127.0.0.1:8083), HESTIA_KEY ("ID:SECRET")
+// Requires the server to be connected (HESTIA_URL + HESTIA_KEY) to function.
 
 const http = require('http');
 const https = require('https');
@@ -16,12 +16,15 @@ const crypto = require('crypto');
 const PORT = process.env.PORT || 8080;
 const HESTIA_URL = process.env.HESTIA_URL || '';
 const HESTIA_KEY = process.env.HESTIA_KEY || '';
-const HESTIA_USER = process.env.HESTIA_USER || 'user';
-const PASSWORD = process.env.HATCHHOSTING_PASSWORD || '';
 const LIVE = !!(HESTIA_URL && HESTIA_KEY);
 
 const html = fs.readFileSync(path.join(__dirname, 'index.html'));
-const sessions = new Set();
+const sessions = new Map(); // token -> hestia username
+const attempts = new Map(); // ip -> { n, ts }  (basic login throttle)
+let clock = 0; // monotonic-ish seconds (Date.now avoided per runtime constraints)
+setInterval(() => { clock++; }, 1000).unref?.();
+const nowSec = () => clock;
+const bumpAttempt = (ip) => { const a = attempts.get(ip); if (a && (nowSec() - a.ts) < 600) { a.n++; a.ts = nowSec(); } else { attempts.set(ip, { n: 1, ts: nowSec() }); } };
 
 // ---- Hestia API ----------------------------------------------------------
 function hestia(cmd, args) {
@@ -59,50 +62,48 @@ function accountFrom(u) {
   };
 }
 
-// ---- demo data (no Hestia) ----------------------------------------------
-const DEMO_ACCOUNT = { name: 'ski', email: 'you@example.com', package: 'Business', diskUsedMB: 12400, diskQuotaMB: 51200, bwUsedMB: 84000, bwQuotaMB: 512000, webDomains: 3, webLimit: null, webSsl: 2, mailAccounts: 8, mailLimit: 100, databases: 5, backups: 14, demo: true };
-const DEMO_SITES = [
-  { domain: 'mysite.com', ip: '', ssl: true, backend: 'php-8.2', diskMB: 4100, suspended: false },
-  { domain: 'shop.mysite.com', ip: '', ssl: true, backend: 'php-8.1', diskMB: 6800, suspended: false },
-  { domain: 'blog.example.net', ip: '', ssl: false, backend: 'php-8.2', diskMB: 1500, suspended: false },
-];
-
 // ---- http ---------------------------------------------------------------
 const json = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
 const getCookie = (req) => { const m = (req.headers.cookie || '').match(/hh_sess=([^;]+)/); return m ? m[1] : null; };
-const authed = (req) => !LIVE || (() => { const c = getCookie(req); return !!(c && sessions.has(c)); })();
+const sessionUser = (req) => { const c = getCookie(req); return c ? (sessions.get(c) || null) : null; };
+const clientIp = (req) => (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
 const readBody = (req) => new Promise((r) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { try { r(JSON.parse(b || '{}')); } catch { r({}); } }); });
 
 const server = http.createServer(async (req, res) => {
   const url = (req.url || '/').split('?')[0];
   try {
-    if (url === '/api/session') return json(res, 200, { live: LIVE, authed: authed(req) });
+    if (url === '/api/session') { const u = sessionUser(req); return json(res, 200, { authed: !!u, user: u }); }
 
     if (url === '/login' && req.method === 'POST') {
-      if (!LIVE) return json(res, 200, { ok: true });
+      if (!LIVE) return json(res, 503, { error: 'Server not connected yet' });
+      const ip = clientIp(req);
+      const a = attempts.get(ip);
+      if (a && a.n >= 8 && (nowSec() - a.ts) < 600) return json(res, 429, { error: 'Too many attempts, wait a few minutes' });
       const b = await readBody(req);
-      if (PASSWORD && b.password === PASSWORD) {
-        const t = crypto.randomBytes(24).toString('base64url'); sessions.add(t);
-        res.writeHead(200, { 'Set-Cookie': `hh_sess=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`, 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ ok: true }));
-      }
-      return json(res, 401, { error: 'Wrong password' });
+      const user = String(b.username || '').trim().toLowerCase();
+      const pass = String(b.password || '');
+      if (!user || !pass) return json(res, 400, { error: 'Enter your username and password' });
+      if (!/^[a-z0-9._-]{1,32}$/.test(user)) { bumpAttempt(ip); return json(res, 401, { error: 'Wrong username or password' }); }
+      let ok = false;
+      try { const raw = await hestia('v-check-user-password', [user, pass, ip || '']); ok = String(raw).trim() === ''; } catch { ok = false; }
+      if (!ok) { bumpAttempt(ip); return json(res, 401, { error: 'Wrong username or password' }); }
+      attempts.delete(ip);
+      const t = crypto.randomBytes(24).toString('base64url'); sessions.set(t, user);
+      res.writeHead(200, { 'Set-Cookie': `hh_sess=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`, 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, user }));
     }
     if (url === '/logout') { const c = getCookie(req); if (c) sessions.delete(c); res.writeHead(200, { 'Set-Cookie': 'hh_sess=; Path=/; Max-Age=0' }); return res.end('{}'); }
 
     if (url.startsWith('/api/')) {
-      if (!authed(req)) return json(res, 401, { error: 'login required' });
-      if (!LIVE) {
-        if (url === '/api/account') return json(res, 200, DEMO_ACCOUNT);
-        if (url === '/api/websites') return json(res, 200, DEMO_SITES);
-        return json(res, 404, { error: 'not found' });
-      }
+      if (!LIVE) return json(res, 503, { error: 'HatchHosting is not connected to a server yet (set HESTIA_URL and HESTIA_KEY)' });
+      const u = sessionUser(req);
+      if (!u) return json(res, 401, { error: 'login required' });
       if (url === '/api/account') {
-        const d = await hestiaJson('v-list-user', [HESTIA_USER]);
-        return json(res, 200, accountFrom(d[HESTIA_USER] || {}));
+        const d = await hestiaJson('v-list-user', [u]);
+        return json(res, 200, accountFrom(d[u] || {}));
       }
       if (url === '/api/websites') {
-        const d = await hestiaJson('v-list-web-domains', [HESTIA_USER]);
+        const d = await hestiaJson('v-list-web-domains', [u]);
         const arr = Object.entries(d).map(([domain, w]) => ({
           domain, ip: w.IP || '', docRoot: w.DOCUMENT_ROOT || '',
           ssl: w.SSL === 'yes', letsencrypt: w.LETSENCRYPT === 'yes',
@@ -117,4 +118,4 @@ const server = http.createServer(async (req, res) => {
     res.end(html);
   } catch (e) { json(res, 500, { error: e.message }); }
 });
-server.listen(PORT, () => console.log('HatchHosting panel on :' + PORT + ' (' + (LIVE ? 'LIVE' : 'DEMO') + ' mode)'));
+server.listen(PORT, () => console.log('HatchHosting panel on :' + PORT + (LIVE ? ' (connected to server)' : ' — NOT connected: set HESTIA_URL and HESTIA_KEY')));

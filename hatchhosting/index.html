@@ -378,6 +378,7 @@ tbody tr:hover{background:var(--panel-2)}
   <form id="hh-login-form" style="width:min(360px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:28px;box-shadow:var(--shadow)">
     <div style="display:flex;align-items:center;gap:10px;font-family:'Archivo';font-weight:800;font-size:18px;margin-bottom:6px"><svg viewBox="0 0 32 32" width="26" height="26"><rect x="1.2" y="1.2" width="29.6" height="29.6" rx="8" fill="#2f6bff"/><circle cx="10" cy="16" r="3.1" fill="#fff"/><circle cx="22" cy="16" r="3.1" fill="#fff"/><path d="M12.6 16h6.8" stroke="#fff" stroke-width="2.1" stroke-linecap="round"/></svg>HatchHosting</div>
     <p style="color:var(--ink-2);font-size:13px;margin:0 0 18px">Sign in to your hosting panel.</p>
+    <input id="hh-user" type="text" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false" style="width:100%;padding:11px 13px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:14px;margin-bottom:10px;box-sizing:border-box"/>
     <input id="hh-pass" type="password" placeholder="Password" autocomplete="current-password" style="width:100%;padding:11px 13px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:14px;margin-bottom:12px;box-sizing:border-box"/>
     <button class="btn primary" style="width:100%;justify-content:center" type="submit">Sign in</button>
     <div id="hh-login-err" style="color:var(--crit);font-size:12.5px;margin-top:10px;min-height:16px"></div>
@@ -428,8 +429,8 @@ tbody tr:hover{background:var(--panel-2)}
   }
   async function init(){
     var sess;
-    try{ sess=await (await fetch('/api/session')).json(); }catch(e){ return; } // static/demo host: keep sample content
-    if(sess.live && !sess.authed){ showLogin(true); }
+    try{ sess=await (await fetch('/api/session')).json(); }catch(e){ showLogin(true); return; }
+    if(!sess.authed){ showLogin(true); }
     else { showLogin(false); loadData(); }
   }
   var form=document.getElementById('hh-login-form');
@@ -437,7 +438,7 @@ tbody tr:hover{background:var(--panel-2)}
     e.preventDefault();
     var err=document.getElementById('hh-login-err'); err.textContent='';
     try{
-      var r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('hh-pass').value})});
+      var r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('hh-user').value,password:document.getElementById('hh-pass').value})});
       if(r.ok){ showLogin(false); loadData(); } else { var d=await r.json().catch(function(){return{};}); err.textContent=d.error||'Login failed'; }
     }catch(e){ err.textContent='Network error'; }
   });

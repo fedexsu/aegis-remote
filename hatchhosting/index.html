@@ -131,6 +131,13 @@ tbody tr:hover{background:var(--panel-2)}
 .btn.danger{background:var(--crit);color:#fff}.btn.danger:hover{filter:brightness(.93)}
 
 .callout{margin-top:16px;font-size:12.5px;color:var(--ink-3)}
+.an-h{padding:14px 18px;font-weight:700;font-size:13.5px;border-bottom:1px solid var(--line)}
+.an-bars{display:flex;align-items:flex-end;gap:6px;height:120px;margin-top:6px}
+.an-bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px;min-width:0}
+.an-bar i{display:block;width:70%;max-width:26px;background:var(--accent);border-radius:4px 4px 0 0;min-height:2px}
+.an-bar span{font-size:10px;color:var(--ink-3);white-space:nowrap}
+.an-mini{height:6px;border-radius:4px;background:var(--panel-3);overflow:hidden;margin-top:5px}
+.an-mini > i{display:block;height:100%;background:var(--accent)}
 .disclaimer{margin:34px 0 8px;padding:14px 16px;border:1px dashed var(--line-2);border-radius:12px;color:var(--ink-3);font-size:12.5px;background:var(--panel-2)}
 
 @media (max-width:1000px){.usage{grid-template-columns:1fr 1fr}.qa{grid-template-columns:1fr 1fr 1fr}}
@@ -159,6 +166,7 @@ tbody tr:hover{background:var(--panel-2)}
       <button class="nav-item" data-p="databases"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5.5" rx="7.5" ry="3"/><path d="M4.5 5.5v13c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-13M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/></svg>Databases</button>
       <button class="nav-item" data-p="email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5 12 13l8.5-6.5"/></svg>Email</button>
       <button class="nav-item" data-p="backups"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4a8 8 0 1 0 8 8"/><path d="M12 4v5l3 2"/><path d="M20 4v5h-5"/></svg>Backups</button>
+      <button class="nav-item" data-p="analytics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke-linecap="round"/></svg>Analytics</button>
       <button class="nav-item" data-p="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.5 12a7.5 7.5 0 0 0-.1-1.3l1.9-1.4-1.9-3.3-2.2 1a7.5 7.5 0 0 0-2.2-1.3L14.4 2h-3.8l-.3 2.4a7.5 7.5 0 0 0-2.2 1.3l-2.2-1L2 8l1.9 1.4a7.5 7.5 0 0 0 0 2.6L2 13.4l1.9 3.3 2.2-1a7.5 7.5 0 0 0 2.2 1.3l.3 2.4h3.8l.3-2.4a7.5 7.5 0 0 0 2.2-1.3l2.2 1 1.9-3.3-1.9-1.4c.1-.4.1-.8.1-1.3z"/></svg>Settings</button>
     </nav>
     <div class="side-foot">
@@ -294,6 +302,25 @@ tbody tr:hover{background:var(--panel-2)}
           </table>
         </div>
         <div class="callout">Snapshots are kept for 14 days. Restoring rolls the whole account back to that point.</div>
+      </section>
+
+      <!-- ANALYTICS -->
+      <section class="page" data-page="analytics">
+        <div class="sec-h" style="margin-top:0">
+          <div><h1 class="page-title">Analytics</h1><p class="page-sub">Who is visiting your site, and where from.</p></div>
+          <select id="an-site" style="padding:8px 10px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:13px"></select>
+        </div>
+        <div class="grid usage" id="an-cards" style="grid-template-columns:repeat(4,1fr)"></div>
+        <div class="card" id="an-chart" style="padding:18px;margin-top:16px"></div>
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+          <div class="card scroll"><div class="an-h">Top pages</div><table><tbody id="an-pages"></tbody></table></div>
+          <div class="card scroll"><div class="an-h">Top countries</div><table><tbody id="an-countries"></tbody></table></div>
+        </div>
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+          <div class="card scroll"><div class="an-h">Where visitors came from</div><table><tbody id="an-refs"></tbody></table></div>
+          <div class="card scroll"><div class="an-h">Response status</div><table><tbody id="an-status"></tbody></table></div>
+        </div>
+        <div class="callout">Data is read live from your web-server logs (typically the last few weeks). Visits from known bots and crawlers are separated out and not counted as visitors.</div>
       </section>
 
       <!-- SETTINGS -->
@@ -661,6 +688,42 @@ tbody tr:hover{background:var(--panel-2)}
     else if(a==='rm'){ if(!(await confirmDialog('Delete','Delete "'+name+'"? This cannot be undone.','Delete',true))) return; try{ await api('/api/files/delete',{domain:fmSite,path:fmPath,name}); toast('Deleted'); fmLoad(); }catch(ex){ toast(ex.message,false); } }
   });
 
+  // --- analytics ---
+  var anSite='';
+  var CC_NAMES={US:'United States',GB:'United Kingdom',NG:'Nigeria',GH:'Ghana',KE:'Kenya',ZA:'South Africa',CA:'Canada',AU:'Australia',IN:'India',DE:'Germany',FR:'France',NL:'Netherlands',ES:'Spain',IT:'Italy',BR:'Brazil',MX:'Mexico',AR:'Argentina',RU:'Russia',UA:'Ukraine',CN:'China',JP:'Japan',KR:'South Korea',SG:'Singapore',AE:'UAE',SA:'Saudi Arabia',EG:'Egypt',TR:'Turkey',PL:'Poland',SE:'Sweden',NO:'Norway',FI:'Finland',DK:'Denmark',IE:'Ireland',PT:'Portugal',BE:'Belgium',CH:'Switzerland',AT:'Austria',GR:'Greece',RO:'Romania',CZ:'Czechia',HU:'Hungary',ID:'Indonesia',PH:'Philippines',MY:'Malaysia',TH:'Thailand',VN:'Vietnam',PK:'Pakistan',BD:'Bangladesh',NZ:'New Zealand',IL:'Israel',TZ:'Tanzania',UG:'Uganda',ET:'Ethiopia',MA:'Morocco',DZ:'Algeria',CI:'Ivory Coast',CM:'Cameroon',SN:'Senegal',CO:'Colombia',CL:'Chile',PE:'Peru'};
+  function flag(cc){ if(!cc||cc.length!==2) return '🌐'; try{ return cc.toUpperCase().replace(/./g,function(c){return String.fromCodePoint(127397+c.charCodeAt(0));}); }catch(e){ return '🌐'; } }
+  function ccName(cc){ return CC_NAMES[cc]||cc; }
+  function anPopulate(){ var sel=document.getElementById('an-site'); if(!sel) return;
+    sel.innerHTML=lastSites.length?lastSites.map(function(s){return '<option value="'+esc(s.domain)+'">'+esc(s.domain)+'</option>';}).join(''):'<option value="">No websites yet</option>';
+    if(anSite && lastSites.some(function(s){return s.domain===anSite;})) sel.value=anSite; else anSite=sel.value;
+  }
+  function anCard(label,num,sub){ return '<div class="rc"><div class="rc-top"><span class="rc-label">'+label+'</span></div><div class="rc-num">'+num+'</div><div class="rc-sub">'+(sub||'')+'</div></div>'; }
+  function anRows(el, list, fmt){ if(!el) return; if(!list||!list.length){ empty(el,2,'No data yet.'); return; }
+    var max=list[0].count||1;
+    el.innerHTML=list.map(function(it){ var w=Math.round((it.count/max)*100);
+      return '<tr><td style="max-width:0;overflow:hidden"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+fmt(it.name)+'</div><div class="an-mini"><i style="width:'+w+'%"></i></div></td><td class="mono dim" style="text-align:right;white-space:nowrap;vertical-align:top">'+it.count.toLocaleString()+'</td></tr>'; }).join('');
+  }
+  async function loadAnalytics(){
+    var cards=document.getElementById('an-cards'), chart=document.getElementById('an-chart');
+    if(!anSite){ if(cards) cards.innerHTML=''; if(chart) chart.innerHTML='<div class="dim" style="text-align:center;padding:20px">Add a website to see analytics.</div>'; return; }
+    if(cards) cards.innerHTML=anCard('Loading…','…','');
+    try{
+      var d=await getJSON('/api/analytics?domain='+encodeURIComponent(anSite));
+      if(cards) cards.innerHTML=anCard('Visitors',(d.visitors||0).toLocaleString(),'unique people')+anCard('Page views',(d.pageViews||0).toLocaleString(),'pages served')+anCard('Bot visits',(d.botRequests||0).toLocaleString(),(d.botVisitors||0).toLocaleString()+' bot IPs')+anCard('Countries',(d.countries||[]).length.toLocaleString(),d.geoReady?'seen':'geo loading…');
+      if(chart){ if(!d.daily||!d.daily.length){ chart.innerHTML='<div class="dim" style="text-align:center;padding:20px">'+(d.hasLogs?'No human visits recorded yet.':'No traffic logs for this site yet — analytics fills in once people visit.')+'</div>'; }
+        else { var maxd=Math.max.apply(null,d.daily.map(function(x){return x.count;}))||1;
+          chart.innerHTML='<div style="font-weight:700;font-size:13.5px;margin-bottom:4px">Visits per day</div><div class="an-bars">'+d.daily.map(function(x){var h=Math.round((x.count/maxd)*100); var lbl=(x.day||'').replace(/\/\d{4}$/,''); return '<div class="an-bar" title="'+esc(x.day)+': '+x.count+' visits"><i style="height:'+h+'%"></i><span>'+esc(lbl)+'</span></div>';}).join('')+'</div>'; }
+      }
+      anRows(document.getElementById('an-pages'), d.pages, function(n){ return esc(n); });
+      var cEl=document.getElementById('an-countries');
+      if(!d.geoReady && (!d.countries||!d.countries.length)){ empty(cEl,2,'Country data is still downloading — refresh in a minute.'); }
+      else anRows(cEl, d.countries, function(n){ return flag(n)+' '+esc(ccName(n)); });
+      anRows(document.getElementById('an-refs'), d.referrers, function(n){ return esc(n); });
+      var stEl=document.getElementById('an-status'); if(stEl){ var s=d.status||{}; stEl.innerHTML=[['2xx — OK',s['2xx']],['3xx — Redirect',s['3xx']],['4xx — Not found / error',s['4xx']],['5xx — Server error',s['5xx']]].map(function(r){return '<tr><td>'+r[0]+'</td><td class="mono dim" style="text-align:right">'+(r[1]||0).toLocaleString()+'</td></tr>';}).join(''); }
+    }catch(e){ if(cards) cards.innerHTML=anCard('—','—','could not load analytics'); }
+  }
+  function anOpen(){ anPopulate(); loadAnalytics(); }
+
   // --- loaders ---
   async function loadOverview(){ try{ fillAccount(await getJSON('/api/account')); fillSites(await getJSON('/api/websites')); }catch(e){} }
   async function loadWebsites(){ try{ fillSites(await getJSON('/api/websites')); }catch(e){ empty(document.getElementById('ws-sites'),6,'Could not load websites.'); } try{ fillAccount(await getJSON('/api/account')); }catch(e){} }
@@ -710,6 +773,7 @@ tbody tr:hover{background:var(--panel-2)}
       });
     });
     wireFm();
+    var an=document.getElementById('an-site'); if(an) an.onchange=function(){ anSite=an.value; loadAnalytics(); };
   }
   function goTab(p){ var b=document.querySelector('.nav-item[data-p="'+p+'"]'); if(b) b.click(); }
 
@@ -720,6 +784,7 @@ tbody tr:hover{background:var(--panel-2)}
     if(p==='email' && !loaded.mail){ loaded.mail=1; loadMail(); }
     if(p==='backups' && !loaded.bk){ loaded.bk=1; loadBackups(); }
     if(p==='files'){ fmOpen(); }
+    if(p==='analytics'){ anOpen(); }
   }
   if(nav) nav.addEventListener('click',function(e){ var b=e.target.closest('.nav-item'); if(b) ensureSection(b.getAttribute('data-p')); });
 

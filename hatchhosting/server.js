@@ -18,6 +18,7 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const execFileP = promisify(execFile);
@@ -155,6 +156,109 @@ function stripBotBlock(txt) {
 }
 const apacheStack = () => fs.existsSync('/etc/apache2') || fs.existsSync('/etc/httpd');
 
+// ---- analytics (parse nginx access logs) --------------------------------
+const DATA_DIR = process.env.DATA_DIR || '/var/tmp/hatchhosting';
+const GEO_URL = process.env.GEO_URL || 'https://cdn.jsdelivr.net/npm/@ip-location-db/geo-whois-asn-country/geo-whois-asn-country-ipv4-num.csv';
+const BOT_RE = /(bot|crawl|spider|slurp|scrape|curl|wget|python|java|go-http|libwww|headless|phantom|semrush|ahrefs|mj12|dotbot|petalbot|bytespider|gptbot|chatgpt|ccbot|claudebot|anthropic|amazonbot|facebookexternalhit|monitor|uptime|pingdom|dataforseo|bingpreview|yandex|baidu|sogou)/i;
+
+function downloadText(url, redirects) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { timeout: 60000, headers: { 'User-Agent': 'HatchHosting' } }, (r) => {
+      if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location && (redirects || 0) < 5) { r.resume(); return resolve(downloadText(new URL(r.headers.location, url).toString(), (redirects || 0) + 1)); }
+      if (r.statusCode !== 200) { r.resume(); return reject(new Error('HTTP ' + r.statusCode)); }
+      let b = ''; r.setEncoding('utf8'); r.on('data', (c) => (b += c)); r.on('end', () => resolve(b));
+    }).on('error', reject).on('timeout', function () { this.destroy(new Error('timeout')); });
+  });
+}
+function ipToInt(ip) { const p = ip.split('.'); if (p.length !== 4) return null; let n = 0; for (let i = 0; i < 4; i++) { const o = +p[i]; if (!(o >= 0 && o <= 255)) return null; n = (n * 256) + o; } return n; }
+let geo = null, geoLoading = null;
+function parseGeo(csv) {
+  const lines = csv.split('\n');
+  const starts = new Uint32Array(lines.length), ends = new Uint32Array(lines.length), idx = new Uint16Array(lines.length);
+  const codes = [], codeMap = new Map(); let n = 0;
+  for (const line of lines) {
+    if (!line) continue;
+    const c1 = line.indexOf(','), c2 = line.indexOf(',', c1 + 1); if (c1 < 0 || c2 < 0) continue;
+    const s = +line.slice(0, c1), e = +line.slice(c1 + 1, c2), cc = line.slice(c2 + 1).trim();
+    if (!Number.isFinite(s) || !Number.isFinite(e) || !cc) continue;
+    let ci = codeMap.get(cc); if (ci === undefined) { ci = codes.length; codeMap.set(cc, ci); codes.push(cc); }
+    starts[n] = s; ends[n] = e; idx[n] = ci; n++;
+  }
+  return { starts: starts.subarray(0, n), ends: ends.subarray(0, n), idx: idx.subarray(0, n), codes, n, ok: true };
+}
+async function ensureGeo() {
+  if (geo) return geo;
+  if (geoLoading) return geoLoading;
+  geoLoading = (async () => {
+    try {
+      await fsp.mkdir(DATA_DIR, { recursive: true });
+      const file = path.join(DATA_DIR, 'ip-country-v4.csv');
+      let csv; try { csv = await fsp.readFile(file, 'utf8'); } catch { csv = await downloadText(GEO_URL); await fsp.writeFile(file, csv).catch(() => {}); }
+      geo = parseGeo(csv);
+    } catch (e) { geo = { n: 0, ok: false, err: e.message, codes: [] }; }
+    return geo;
+  })();
+  return geoLoading;
+}
+function geoLookup(g, ip) {
+  if (!g || !g.ok || !g.n) return null;
+  const v = ipToInt(ip); if (v === null) return null;
+  let lo = 0, hi = g.n - 1, ans = -1;
+  while (lo <= hi) { const mid = (lo + hi) >> 1; if (g.starts[mid] <= v) { ans = mid; lo = mid + 1; } else hi = mid - 1; }
+  if (ans >= 0 && g.ends[ans] >= v) return g.codes[g.idx[ans]];
+  return null;
+}
+const LOG_RE = /^(\S+) \S+ \S+ \[([^\]]+)\] "([A-Z]+) ([^ "]*)[^"]*" (\d{3}) \S+ "([^"]*)" "([^"]*)"/;
+async function readLog(file) {
+  const gz = file.endsWith('.gz');
+  const st = await fsp.stat(file);
+  const CAP = 30 * 1024 * 1024;
+  let buf;
+  if (!gz && st.size > CAP) { const fd = await fsp.open(file, 'r'); try { const b = Buffer.alloc(CAP); await fd.read(b, 0, CAP, st.size - CAP); buf = b; } finally { await fd.close(); } }
+  else { buf = await fsp.readFile(file); }
+  if (gz) { try { buf = zlib.gunzipSync(buf); } catch { return ''; } }
+  return buf.toString('utf8');
+}
+async function logFiles(domain) {
+  const dir = '/var/log/nginx/domains';
+  const all = await fsp.readdir(dir).catch(() => []);
+  const base = domain + '.log';
+  return all.filter((f) => f === base || f.startsWith(base + '.')).sort().slice(0, 12).map((f) => path.join(dir, f));
+}
+async function analytics(domain) {
+  const files = await logFiles(domain);
+  const g = await ensureGeo();
+  let totalReq = 0, humanReq = 0, botReq = 0;
+  const humanIps = new Set(), botIps = new Set();
+  const pages = new Map(), refs = new Map(), countries = new Map(), days = new Map(), status = { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0 };
+  const inc = (m, k) => m.set(k, (m.get(k) || 0) + 1);
+  for (const f of files) {
+    let data; try { data = await readLog(f); } catch { continue; }
+    for (const line of data.split('\n')) {
+      const m = LOG_RE.exec(line); if (!m) continue;
+      const ip = m[1], time = m[2], pathReq = m[4].split('?')[0], stcode = +m[5], ref = m[6], ua = m[7];
+      totalReq++;
+      const sc = Math.floor(stcode / 100) + 'xx'; if (status[sc] !== undefined) status[sc]++;
+      const isBot = !ua || ua === '-' || BOT_RE.test(ua);
+      if (isBot) { botReq++; botIps.add(ip); continue; }
+      humanReq++; humanIps.add(ip);
+      inc(pages, pathReq || '/');
+      if (ref && ref !== '-' && ref.indexOf(domain) < 0) { try { inc(refs, new URL(ref).hostname); } catch {} }
+      const cc = geoLookup(g, ip); if (cc) inc(countries, cc);
+      inc(days, (time.split(':')[0] || '').split(' ')[0]);
+    }
+  }
+  const top = (m, k) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, k).map(([name, count]) => ({ name, count }));
+  return {
+    hasLogs: files.length > 0,
+    geoReady: !!(g && g.ok && g.n),
+    totalRequests: totalReq, pageViews: humanReq, visitors: humanIps.size,
+    botRequests: botReq, botVisitors: botIps.size,
+    pages: top(pages, 15), referrers: top(refs, 10), countries: top(countries, 12),
+    status, daily: [...days.entries()].slice(-14).map(([day, count]) => ({ day, count })),
+  };
+}
+
 function accountFrom(u) {
   return {
     name: u.NAME || '', email: u.CONTACT || '', package: u.PACKAGE || '', ns: u.NS || '',
@@ -247,6 +351,11 @@ const server = http.createServer(async (req, res) => {
         let ip = SERVER_IP;
         if (!ip) { try { const ips = await hestiaJson('v-list-sys-ips', []); ip = Object.keys(ips)[0] || ''; } catch { ip = ''; } }
         return json(res, 200, { ip, hostname: HOSTNAME });
+      }
+      if (url === '/api/analytics' && req.method === 'GET') {
+        const domain = String(qp.get('domain') || '').trim().toLowerCase();
+        await ensureSite(u, domain);
+        return json(res, 200, await analytics(domain));
       }
       if (url === '/api/website/botshield' && req.method === 'GET') {
         const domain = String(qp.get('domain') || '').trim().toLowerCase();

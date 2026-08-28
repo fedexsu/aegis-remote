@@ -678,6 +678,17 @@ async function loadKeys() {
         raw.title = 'Direct installer download. Windows shows a SmartScreen warning on this one — use only if the install link does not suit.';
         raw.addEventListener('click', () => navigator.clipboard.writeText(k.downloadUrl).then(() => { raw.textContent = 'Copied ✓'; toast('.exe link copied', 'ok'); setTimeout(() => (raw.textContent = 'Copy .exe (fallback)'), 1500); }));
         acts.appendChild(raw);
+        // Direct file downloads (grab the actual file to send to a customer).
+        const dlCmd = document.createElement('a');
+        dlCmd.className = 'btn small'; dlCmd.textContent = 'Download .cmd';
+        dlCmd.href = launchUrl; dlCmd.setAttribute('download', 'HatchConnect-Setup.cmd');
+        dlCmd.title = 'Download the launcher file (no SmartScreen — the customer runs this).';
+        acts.appendChild(dlCmd);
+        const dlExe = document.createElement('a');
+        dlExe.className = 'btn ghost small'; dlExe.textContent = 'Download .exe';
+        dlExe.href = k.downloadUrl; dlExe.setAttribute('download', '');
+        dlExe.title = 'Download the raw installer (Windows shows a SmartScreen warning on this one).';
+        acts.appendChild(dlExe);
       } else {
         acts.innerHTML = '<span class="tag revoked">Revoked</span>';
       }

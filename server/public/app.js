@@ -662,13 +662,22 @@ async function loadKeys() {
         b.title = 'Installs as a SYSTEM service (one-time UAC on the remote)';
         row.querySelector('.link-label').appendChild(b);
       }
-      row.querySelector('.link-url').textContent = k.downloadUrl;
+      const launchUrl = k.downloadUrl.replace('/dl/', '/launch/');
+      row.querySelector('.link-url').textContent = launchUrl;
       const acts = row.querySelector('.link-actions');
       if (!k.revoked) {
+        // Primary: the launcher link (no SmartScreen). This is what you give customers.
         const copy = document.createElement('button');
-        copy.className = 'btn ghost small'; copy.textContent = 'Copy link';
-        copy.addEventListener('click', () => navigator.clipboard.writeText(k.downloadUrl).then(() => { copy.textContent = 'Copied ✓'; toast('Link copied', 'ok'); setTimeout(() => (copy.textContent = 'Copy link'), 1500); }));
+        copy.className = 'btn small'; copy.textContent = 'Copy install link';
+        copy.title = 'Recommended — no SmartScreen warning. The customer opens this, runs the small file, and it installs silently.';
+        copy.addEventListener('click', () => navigator.clipboard.writeText(launchUrl).then(() => { copy.textContent = 'Copied ✓'; toast('Install link copied', 'ok'); setTimeout(() => (copy.textContent = 'Copy install link'), 1500); }));
         acts.appendChild(copy);
+        // Fallback: the raw .exe link (shows SmartScreen; "Run anyway" still works).
+        const raw = document.createElement('button');
+        raw.className = 'btn ghost small'; raw.textContent = 'Copy .exe (fallback)';
+        raw.title = 'Direct installer download. Windows shows a SmartScreen warning on this one — use only if the install link does not suit.';
+        raw.addEventListener('click', () => navigator.clipboard.writeText(k.downloadUrl).then(() => { raw.textContent = 'Copied ✓'; toast('.exe link copied', 'ok'); setTimeout(() => (raw.textContent = 'Copy .exe (fallback)'), 1500); }));
+        acts.appendChild(raw);
       } else {
         acts.innerHTML = '<span class="tag revoked">Revoked</span>';
       }
@@ -759,9 +768,12 @@ $('#build-create').addEventListener('click', async () => {
     const method = buildMethod();
     const r = await api('/api/keys', 'POST', { label, meta, method });
     const url = r.downloadUrl; // server already includes ?type=service for the service build
-    $('#build-link').value = url;
-    $('#build-download').href = url;
-    $('#build-download').textContent = method === 'service' ? 'Download service installer' : 'Download installer';
+    const launchUrl = url.replace('/dl/', '/launch/'); // curl-based launcher, no SmartScreen
+    $('#build-link').value = launchUrl;
+    $('#build-download').href = launchUrl;
+    $('#build-download').setAttribute('download', 'HatchConnect-Setup.cmd');
+    $('#build-download').textContent = 'Download launcher (.cmd)';
+    const exe = $('#build-download-exe'); if (exe) exe.href = url;
     $('#build-result').hidden = false;
     toast('Installer built', 'ok');
   } catch (e) { $('#build-create').disabled = false; toast(e.message || 'failed', 'err'); }

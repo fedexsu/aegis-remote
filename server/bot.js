@@ -33,14 +33,21 @@ function api(method, params) {
 }
 const send = (chat, text, markup) => api('sendMessage', { chat_id: chat, text, parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: markup });
 
-// Reply keyboard (buttons live in the keyboard area; tapping one sends its text).
+// Reply keyboards (buttons live in the keyboard area; tapping one sends its text).
 const PLAN_EMOJI = { monthly: '🗓️', quarterly: '📆', biannual: '📅', annual: '⭐' };
 const PLAN_TAG = { biannual: '  🔥', annual: '  💎 best value' };
-function menuKeyboard() {
+function mainMenuKeyboard() {
+  return { keyboard: [
+    [{ text: '🚀 Get Started' }],
+    [{ text: 'ℹ️ About' }, { text: '📊 My Account' }],
+    [{ text: '❓ Help' }],
+  ], resize_keyboard: true, is_persistent: true, input_field_placeholder: '👇 Tap to begin' };
+}
+function plansKeyboard() {
   const P = db.plans();
   const rows = Object.values(P).map((p) => [{ text: `${PLAN_EMOJI[p.key] || '💳'} ${p.label} - ${p.usdt} USDT${PLAN_TAG[p.key] || ''}` }]);
-  rows.push([{ text: '📊 Status' }, { text: '❓ Help' }]);
-  return { keyboard: rows, resize_keyboard: true, is_persistent: true, input_field_placeholder: '💳 Tap a plan to start' };
+  rows.push([{ text: '⬅️ Back' }]);
+  return { keyboard: rows, resize_keyboard: true, is_persistent: true, input_field_placeholder: '💳 Tap a plan' };
 }
 function planFromText(t) {
   const s = String(t).trim().toLowerCase();
@@ -50,12 +57,27 @@ function planFromText(t) {
   }
   return null;
 }
+// /start: a welcome + menu, NOT the payment list.
 function showStart(chat) {
   send(chat,
-    '🖥️ <b>HatchConnect</b>\nControl any PC from anywhere, in seconds. ⚡\n\n' +
-    '💳 Tap a plan below, pay in <b>USDT (TRC-20)</b>, and your login drops right here the moment it confirms. No calls. No waiting. 🚀\n\n' +
-    '✅ Unattended access  •  🎧 On-demand support  •  📁 File transfer  •  💻 Backstage command line  •  🛡️ Uninstall protection',
-    menuKeyboard());
+    '🖥️ <b>HatchConnect</b>\nControl any Windows PC from anywhere, in seconds. ⚡\n\n' +
+    '🔓 Unattended access  •  🎧 On-demand support  •  📁 File transfer  •  💻 Backstage  •  🛡️ Uninstall protection\n\n' +
+    '👉 Tap <b>Get Started</b> to see plans, or <b>About</b> to learn more.',
+    mainMenuKeyboard());
+}
+function showAbout(chat) {
+  send(chat,
+    'ℹ️ <b>About HatchConnect</b>\n\n' +
+    'Secure remote support and unattended access for your PCs. 🖥️\n\n' +
+    '✅ Control any Windows machine through any firewall\n🔐 AES-256 encrypted, end to end\n💻 One-click silent install\n📁 File transfer, recording, background command line, and more\n\n' +
+    '💳 You pay in <b>USDT (TRC-20)</b> and your login is created and sent here automatically. 🚀\n\n' +
+    '👉 Tap <b>Get Started</b> to choose a plan.',
+    mainMenuKeyboard());
+}
+function showPlans(chat) {
+  send(chat,
+    '💳 <b>Choose your plan</b>\nEvery plan is full-featured. Longer terms cost less per month. Pay in <b>USDT (TRC-20)</b> and your login arrives here automatically. 🚀',
+    plansKeyboard());
 }
 function showInvoice(chat, inv) {
   const addr = process.env.USDT_ADDRESS;
@@ -71,7 +93,7 @@ function showInvoice(chat, inv) {
     `Your login arrives here automatically the moment it confirms. 🚀`;
   send(chat, text, { inline_keyboard: [
     [{ text: '✅ I have paid - check now', callback_data: 'check:' + inv.id }],
-    [{ text: '⬅️ Back to plans', callback_data: 'start' }],
+    [{ text: '⬅️ Back to plans', callback_data: 'plans' }],
   ] });
 }
 
@@ -80,15 +102,17 @@ async function handleUpdate(u, onCheck) {
     if (u.message && u.message.text) {
       const t = u.message.text.trim();
       const chat = u.message.chat.id;
-      if (/^\/(start|plans|menu)\b/.test(t)) return showStart(chat);
-      if (/^\/status\b/i.test(t) || /status/i.test(t)) {
+      if (/^\/(start|menu)\b/.test(t) || /^⬅️|back$/i.test(t)) return showStart(chat);
+      if (/^\/(plans|buy)\b/i.test(t) || /get started|^plans$|^buy$/i.test(t)) return showPlans(chat);
+      if (/^\/about\b/i.test(t) || /about/i.test(t)) return showAbout(chat);
+      if (/^\/status\b/i.test(t) || /account|status/i.test(t)) {
         const a = db.accountByTg(u.message.from.id);
-        if (!a) return send(chat, '🤷 No subscription yet. Tap a plan on the keyboard to get started. 👇', menuKeyboard());
+        if (!a) return send(chat, '🤷 No subscription yet. Tap <b>Get Started</b> to pick a plan. 👇', mainMenuKeyboard());
         const until = a.subExpires ? new Date(a.subExpires).toISOString().slice(0, 10) : 'n/a';
         const P = db.plans()[a.plan];
-        return send(chat, `📊 <b>Your subscription</b>\n\n📦 Plan: <b>${esc(P ? P.label : a.plan || 'n/a')}</b>\n⏳ Active until: <b>${until}</b>\n👤 Username: <code>${esc(a.username)}</code>\n🔗 Sign in: ${APP_URL}`, menuKeyboard());
+        return send(chat, `📊 <b>Your subscription</b>\n\n📦 Plan: <b>${esc(P ? P.label : a.plan || 'n/a')}</b>\n⏳ Active until: <b>${until}</b>\n👤 Username: <code>${esc(a.username)}</code>\n🔗 Sign in: ${APP_URL}`, mainMenuKeyboard());
       }
-      if (/^\/help\b/i.test(t) || /help/i.test(t)) return send(chat, '❓ <b>How it works</b>\n\n1️⃣ Tap a plan on the keyboard.\n2️⃣ Send the exact USDT (TRC-20) amount shown.\n3️⃣ Your login arrives here automatically in about a minute. 🎉\n\n📊 /status shows your plan. 🔄 /start reopens the menu.', menuKeyboard());
+      if (/^\/help\b/i.test(t) || /help/i.test(t)) return send(chat, '❓ <b>How it works</b>\n\n1️⃣ Tap <b>Get Started</b> and choose a plan.\n2️⃣ Send the exact USDT (TRC-20) amount shown.\n3️⃣ Your login arrives here automatically in about a minute. 🎉\n\n📊 <b>My Account</b> shows your plan. 🔄 /start reopens the menu.', mainMenuKeyboard());
       const planKey = planFromText(t);
       if (planKey) {
         if (!process.env.USDT_ADDRESS) return send(chat, 'Payments are not configured yet. Please try again shortly.');
@@ -96,7 +120,7 @@ async function handleUpdate(u, onCheck) {
         if (!inv) return send(chat, 'That plan is not available. Send /start to try again.');
         return showInvoice(chat, inv);
       }
-      return send(chat, 'Send /start to show the plans, then tap one to pay.', menuKeyboard());
+      return showStart(chat);
     }
     if (u.callback_query) {
       const cq = u.callback_query;
@@ -104,6 +128,7 @@ async function handleUpdate(u, onCheck) {
       const data = cq.data || '';
       api('answerCallbackQuery', { callback_query_id: cq.id });
       if (data === 'start') return showStart(chat);
+      if (data === 'plans') return showPlans(chat);
       if (data.startsWith('check:')) {
         const inv = db.getInvoice(data.slice(6));
         if (inv && inv.status === 'paid') return; // already handled -> credentials already sent

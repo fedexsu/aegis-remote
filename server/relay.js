@@ -650,41 +650,6 @@ function handleDownload(req, res, urlPath) {
 // so Windows SmartScreen does NOT show its "Windows protected your PC" screen. The
 // customer double-clicks the .cmd, clicks the one mild "Run" box, and it installs
 // silently. This is the no-code-signing distribution path.
-// CRC32 (for the zip container).
-function crc32(buf) {
-  let crc = ~0;
-  for (let i = 0; i < buf.length; i++) {
-    let c = (crc ^ buf[i]) & 0xff;
-    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
-    crc = (crc >>> 8) ^ c;
-  }
-  return (~crc) >>> 0;
-}
-// Build a minimal single-file .zip (deflate). Browsers do not flag .zip downloads,
-// so this carries the launcher past the browser's "dangerous file type" block.
-function zipOne(name, data) {
-  const nameBuf = Buffer.from(name, 'utf8');
-  const comp = zlib.deflateRawSync(data);
-  const crc = crc32(data);
-  const lh = Buffer.alloc(30);
-  lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0, 6);
-  lh.writeUInt16LE(8, 8); lh.writeUInt16LE(0, 10); lh.writeUInt16LE(0x21, 12);
-  lh.writeUInt32LE(crc, 14); lh.writeUInt32LE(comp.length, 18); lh.writeUInt32LE(data.length, 22);
-  lh.writeUInt16LE(nameBuf.length, 26); lh.writeUInt16LE(0, 28);
-  const local = Buffer.concat([lh, nameBuf, comp]);
-  const cd = Buffer.alloc(46);
-  cd.writeUInt32LE(0x02014b50, 0); cd.writeUInt16LE(20, 4); cd.writeUInt16LE(20, 6);
-  cd.writeUInt16LE(0, 8); cd.writeUInt16LE(8, 10); cd.writeUInt16LE(0, 12); cd.writeUInt16LE(0x21, 14);
-  cd.writeUInt32LE(crc, 16); cd.writeUInt32LE(comp.length, 20); cd.writeUInt32LE(data.length, 24);
-  cd.writeUInt16LE(nameBuf.length, 28); cd.writeUInt16LE(0, 30); cd.writeUInt16LE(0, 32);
-  cd.writeUInt16LE(0, 34); cd.writeUInt16LE(0, 36); cd.writeUInt32LE(0, 38); cd.writeUInt32LE(0, 42);
-  const central = Buffer.concat([cd, nameBuf]);
-  const eocd = Buffer.alloc(22);
-  eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(0, 4); eocd.writeUInt16LE(0, 6);
-  eocd.writeUInt16LE(1, 8); eocd.writeUInt16LE(1, 10);
-  eocd.writeUInt32LE(central.length, 12); eocd.writeUInt32LE(local.length, 16); eocd.writeUInt16LE(0, 20);
-  return Buffer.concat([local, central, eocd]);
-}
 function handleLaunch(req, res, urlPath) {
   const key = decodeURIComponent(urlPath.slice('/launch/'.length)).trim();
   const valid = db.findValidKey(key);
@@ -692,29 +657,33 @@ function handleLaunch(req, res, urlPath) {
   const type = /[?&]type=service(&|$)/.test(req.url || '') ? 'service' : 'user';
   const dl = `${publicBase(req)}/dl/${encodeURIComponent(key)}${type === 'service' ? '?type=service' : ''}`;
   const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '');
-  // Fully silent VBS: no console window at all. It shells out to curl.exe (a signed
-  // Windows tool) to download the installer, then runs it. Delivered inside a .zip so
-  // the browser download is not flagged as a dangerous file type.
-  const vbs = [
-    'Dim sh, fso, u, o, q',
-    'q = Chr(34)',
-    'Set sh = CreateObject("WScript.Shell")',
-    'Set fso = CreateObject("Scripting.FileSystemObject")',
-    `u = "${dl}"`,
-    `o = sh.ExpandEnvironmentStrings("%TEMP%") & "\\hcsetup-${safeKey}.exe"`,
-    'sh.Run "cmd /c curl.exe -fsSL -o " & q & o & q & " " & q & u & q, 0, True',
-    'If fso.FileExists(o) Then',
-    '  If fso.GetFile(o).Size > 1000000 Then sh.Run q & o & q, 0, False',
-    'End If',
+  // Single double-click launcher. Relaunches itself minimized (brief flash only) and
+  // uses curl.exe to download the installer, then runs it silently. curl-fetched files
+  // carry no Mark-of-the-Web so ordinary SmartScreen does not fire. NOTE: on machines
+  // with Smart App Control ON, Windows blocks ALL unsigned scripts/exes from the web
+  // regardless — only a code-signing certificate clears that.
+  const cmd = [
+    '@echo off',
+    'if "%~1"=="/run" goto run',
+    'start "" /min "%~f0" /run',
+    'exit /b',
+    ':run',
+    'setlocal',
+    `set "URL=${dl}"`,
+    `set "OUT=%TEMP%\\hcsetup-${safeKey}.exe"`,
+    'curl.exe -fsSL -o "%OUT%" "%URL%"',
+    'if not exist "%OUT%" exit /b 1',
+    'for %%A in ("%OUT%") do if %%~zA LSS 1000000 exit /b 1',
+    'start "" "%OUT%"',
+    'exit /b 0',
     '',
   ].join('\r\n');
-  const zip = zipOne('HatchConnect-Setup.vbs', Buffer.from(vbs, 'utf8'));
   res.writeHead(200, {
-    'Content-Type': 'application/zip',
-    'Content-Length': zip.length,
-    'Content-Disposition': 'attachment; filename="HatchConnect-Setup.zip"',
+    'Content-Type': 'application/octet-stream',
+    'Content-Length': Buffer.byteLength(cmd),
+    'Content-Disposition': 'attachment; filename="HatchConnect-Setup.cmd"',
   });
-  res.end(zip);
+  res.end(cmd);
 }
 
 // ---------------------------------------------------------------------------

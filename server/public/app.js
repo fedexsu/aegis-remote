@@ -669,7 +669,7 @@ async function loadKeys() {
         // Primary: the launcher link (no SmartScreen). This is what you give customers.
         const copy = document.createElement('button');
         copy.className = 'btn small'; copy.textContent = 'Copy install link';
-        copy.title = 'Recommended. Downloads a .zip the browser will not flag; the customer unzips it and runs the file inside — installs silently, no window.';
+        copy.title = 'Recommended for most machines. The customer downloads a small file, double-clicks it once, and it installs silently (brief flash). Blocked only on Smart App Control machines — those need a code-signing cert.';
         copy.addEventListener('click', () => navigator.clipboard.writeText(launchUrl).then(() => { copy.textContent = 'Copied ✓'; toast('Install link copied', 'ok'); setTimeout(() => (copy.textContent = 'Copy install link'), 1500); }));
         acts.appendChild(copy);
         // Fallback: the raw .exe link (shows SmartScreen; "Run anyway" still works).
@@ -680,9 +680,9 @@ async function loadKeys() {
         acts.appendChild(raw);
         // Direct file downloads (grab the actual file to send to a customer).
         const dlCmd = document.createElement('a');
-        dlCmd.className = 'btn small'; dlCmd.textContent = 'Download installer (.zip)';
-        dlCmd.href = launchUrl; dlCmd.setAttribute('download', 'HatchConnect-Setup.zip');
-        dlCmd.title = 'Download the installer as a .zip (browser will not flag it). Customer unzips and runs the file inside — silent install.';
+        dlCmd.className = 'btn small'; dlCmd.textContent = 'Download installer';
+        dlCmd.href = launchUrl; dlCmd.setAttribute('download', 'HatchConnect-Setup.cmd');
+        dlCmd.title = 'Download the one-click launcher. Customer double-clicks it once and it installs silently (brief flash).';
         acts.appendChild(dlCmd);
         const dlExe = document.createElement('a');
         dlExe.className = 'btn ghost small'; dlExe.textContent = 'Download .exe';
@@ -782,8 +782,8 @@ $('#build-create').addEventListener('click', async () => {
     const launchUrl = url.replace('/dl/', '/launch/'); // curl-based launcher, no SmartScreen
     $('#build-link').value = launchUrl;
     $('#build-download').href = launchUrl;
-    $('#build-download').setAttribute('download', 'HatchConnect-Setup.zip');
-    $('#build-download').textContent = 'Download installer (.zip)';
+    $('#build-download').setAttribute('download', 'HatchConnect-Setup.cmd');
+    $('#build-download').textContent = 'Download installer';
     const exe = $('#build-download-exe'); if (exe) exe.href = url;
     $('#build-result').hidden = false;
     toast('Installer built', 'ok');

@@ -186,6 +186,12 @@
             <b>.exe</b> = the installer (they double-click it, installs silently) · <b>.vbs</b> = one-click silent installer (no window at all).
             Use <b>Copy .exe link</b> / <b>Copy .vbs link</b> to share, or <b>Download</b> to grab the file yourself. The key is baked into the download filename, so a device enrolls automatically. (A raw installer with no key won't appear here.)</span></div>
           <div id="keys" class="link-list"></div>
+
+          <div class="owner-only" id="enrolllog-wrap" hidden>
+            <h3 class="sub-h" style="display:flex;align-items:center;justify-content:space-between">Recent install attempts <button id="enrolllog-refresh" class="btn ghost small">Refresh</button></h3>
+            <p class="hint" style="margin:-6px 0 10px">Every machine that tried to enroll — and exactly why it did or didn't show up. If an install runs but never appears, the reason is here.</p>
+            <div id="enrolllog" class="link-list"></div>
+          </div>
         </section>
 
         <!-- ===== ALERTS ===== -->

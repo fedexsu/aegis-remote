@@ -164,6 +164,7 @@ function showApp(a) {
   deviceCards.clear(); $('#devices').innerHTML = ''; // fresh card set for this account
   if (owner) loadAccounts();
   loadKeys();
+  if (owner) loadEnrollLog();
   loadStats();
   loadAlerts();
   loadSubscription();
@@ -634,6 +635,28 @@ $$('#dev-filter .seg-btn').forEach((b) => b.addEventListener('click', () => {
 // Enrollment keys / links
 // ---------------------------------------------------------------------------
 const LINK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1"/><path d="M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1"/></svg>';
+
+// Owner-only: recent enrollment attempts + the exact reason each did/didn't show.
+async function loadEnrollLog() {
+  const wrap = $('#enrolllog-wrap'); if (!wrap) return;
+  try {
+    const { log } = await api('/api/enroll-log');
+    const el = $('#enrolllog'); el.innerHTML = '';
+    if (!log || !log.length) { el.innerHTML = '<div class="hint" style="padding:10px 0">No install attempts recorded yet. Install an agent, then click Refresh.</div>'; return; }
+    for (const e of log) {
+      const ok = e.result === 'ok';
+      const row = document.createElement('div'); row.className = 'linkrow';
+      const main = document.createElement('div'); main.className = 'link-main';
+      const label = document.createElement('div'); label.className = 'link-label';
+      label.innerHTML = '<span class="tag" style="' + (ok ? 'background:var(--ok-soft,#e1f3ea);color:var(--ok,#1e8f5c)' : 'background:var(--crit-soft,#fbe7e6);color:var(--crit,#d0433f)') + '">' + (ok ? 'Enrolled ✓' : 'Blocked') + '</span>';
+      const nm = document.createElement('b'); nm.textContent = ' ' + (e.name || e.device || 'unknown machine'); label.appendChild(nm);
+      const detail = document.createElement('div'); detail.className = 'link-url';
+      detail.textContent = (ok ? 'showed up in your dashboard' : (e.reason || 'denied')) + (e.key ? (' · key ' + e.key + '…') : '') + ' · ' + new Date(e.t).toLocaleString();
+      main.appendChild(label); main.appendChild(detail); row.appendChild(main); el.appendChild(row);
+    }
+  } catch (e) { /* non-owner or offline; panel stays hidden by .owner-only */ }
+}
+const _elr = $('#enrolllog-refresh'); if (_elr) _elr.addEventListener('click', loadEnrollLog);
 
 async function loadKeys() {
   try {

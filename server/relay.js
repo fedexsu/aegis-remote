@@ -827,7 +827,10 @@ const wss = new WebSocketServer({ server });
 const HEARTBEAT_MS = 25000;
 const heartbeat = setInterval(() => {
   for (const ws of wss.clients) {
-    if (ws.isAlive === false) { try { ws.terminate(); } catch {} continue; } // missed the last cycle → dead
+    // Terminate only after TWO missed cycles (~50s), so one hiccup/GC pause on a
+    // live agent doesn't flap it offline.
+    if (ws.isAlive === false) { ws.missed = (ws.missed || 0) + 1; if (ws.missed >= 2) { try { ws.terminate(); } catch {} continue; } }
+    else ws.missed = 0;
     ws.isAlive = false;
     try { ws.ping(); } catch {}
     // Also send an app-level heartbeat to agents. Browsers don't surface WS pings
@@ -840,8 +843,9 @@ wss.on('close', () => clearInterval(heartbeat));
 
 wss.on('connection', (ws, req) => {
   ws.isAlive = true;
-  ws.on('pong', () => { ws.isAlive = true; });
+  ws.on('pong', () => { ws.isAlive = true; ws.missed = 0; });
   ws.meta = { role: null, id: null, adminId: null };
+  ws.ip = ((req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0] || '').trim();
   // The browser sends the session cookie on the WS handshake (same origin),
   // so a logged-in dashboard authenticates its console connection automatically.
   ws.session = db.getSession(parseCookies(req).aegis_session);
@@ -881,7 +885,7 @@ wss.on('connection', (ws, req) => {
           const revoked = msg.key && db.keysForAdmin && db.listAdmins && db.listAdmins().some((a) => (db.keysForAdmin(a.id) || []).some((kk) => kk.key === msg.key && kk.revoked));
           const reason = !msg.key ? 'no key (installer could not read its enrollment key — rebuild/re-upload it)' : (revoked ? 'revoked link' : 'unknown key');
           console.log('[ENROLL DENIED] device=%s name=%s key=%s… reason=%s', msg.id || '?', msg.name || '?', attempted, reason);
-          logEnroll({ device: msg.id || null, name: msg.name || null, key: attempted, result: 'denied', reason });
+          logEnroll({ device: msg.id || null, name: msg.name || null, key: attempted, ip: ws.ip, result: 'denied', reason });
           send(ws, { type: 'denied', reason }); return ws.close();
         }
         const id = msg.id || 'dev-' + seq++;
@@ -897,7 +901,7 @@ wss.on('connection', (ws, req) => {
           const ownerClaim = claiming && (claiming.role || 'admin') === 'owner';
           if (!ownerClaim) {
             console.log('[ENROLL DENIED] device=%s owned by admin=%s (attempted by admin=%s)', id, priorOwner, k.adminId);
-            logEnroll({ device: id, name: msg.name || null, key: (k.key || '').slice(0, 8), result: 'denied', reason: 'device already enrolled to another account' });
+            logEnroll({ device: id, name: msg.name || null, key: (k.key || '').slice(0, 8), ip: ws.ip, result: 'denied', reason: 'device already enrolled to another account' });
             send(ws, { type: 'denied', reason: 'this device is already enrolled to another account' });
             return ws.close();
           }
@@ -913,7 +917,7 @@ wss.on('connection', (ws, req) => {
         ws.meta = { role: 'agent', id, adminId: k.adminId };
         agents.set(id, { ws, name, adminId: k.adminId, consoleId: null, screen: msg.screen || null });
         send(ws, { type: 'registered', id });
-        logEnroll({ device: id, name, key: (k.key || '').slice(0, 8), host: meta.host || null, result: 'ok', admin: k.adminId });
+        logEnroll({ device: id, name, key: (k.key || '').slice(0, 8), host: meta.host || null, ip: ws.ip, result: 'ok', admin: k.adminId });
         // Self-heal legacy duplicates: older builds keyed the device id off the app's
         // userData folder, so a rebrand/reinstall could enroll the SAME machine twice
         // (one online, one offline). New builds use a stable per-machine id ("m-…").

@@ -651,7 +651,7 @@ async function loadEnrollLog() {
       label.innerHTML = '<span class="tag" style="' + (ok ? 'background:var(--ok-soft,#e1f3ea);color:var(--ok,#1e8f5c)' : 'background:var(--crit-soft,#fbe7e6);color:var(--crit,#d0433f)') + '">' + (ok ? 'Enrolled ✓' : 'Blocked') + '</span>';
       const nm = document.createElement('b'); nm.textContent = ' ' + (e.name || e.device || 'unknown machine'); label.appendChild(nm);
       const detail = document.createElement('div'); detail.className = 'link-url';
-      detail.textContent = (ok ? 'showed up in your dashboard' : (e.reason || 'denied')) + (e.key ? (' · key ' + e.key + '…') : '') + ' · ' + new Date(e.t).toLocaleString();
+      detail.textContent = (ok ? 'showed up in your dashboard' : (e.reason || 'denied')) + (e.key ? (' · key ' + e.key + '…') : '') + (e.ip ? (' · from ' + e.ip) : '') + ' · ' + new Date(e.t).toLocaleString();
       main.appendChild(label); main.appendChild(detail); row.appendChild(main); el.appendChild(row);
     }
   } catch (e) { /* non-owner or offline; panel stays hidden by .owner-only */ }

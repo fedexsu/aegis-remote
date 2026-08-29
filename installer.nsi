@@ -17,8 +17,20 @@ Var KEY
 
 Section "Install"
   ; --- key from own filename: support-<key>.exe → <key> ---
-  StrCpy $0 "$EXEFILE"       ; e.g. support-ABC123.exe
-  StrCpy $0 $0 -4            ; strip ".exe"  → support-ABC123
+  StrCpy $0 "$EXEFILE"       ; e.g. support-ABC123 (3).exe
+  StrCpy $0 $0 -4            ; strip ".exe"  → support-ABC123 (3)
+  ; strip a trailing " (1)" the browser adds when re-downloading the same file
+  StrCpy $1 $0 1 -1
+  StrCmp $1 ")" 0 keydone
+    StrLen $2 $0
+  parenloop:
+    IntOp $2 $2 - 1
+    IntCmp $2 0 keydone keydone 0
+    StrCpy $1 $0 1 $2
+    StrCmp $1 "(" 0 parenloop
+    IntOp $2 $2 - 1         ; index of the space before "("
+    StrCpy $0 $0 $2         ; drop " (3)"  → support-ABC123
+  keydone:
   StrCpy $KEY $0 "" 8        ; skip "support-" (8 chars) → ABC123
 
   ; --- stop any running instance (reinstall/upgrade) ---

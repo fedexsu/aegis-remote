@@ -19,6 +19,18 @@ Var KEY
 Section "Install"
   StrCpy $0 "$EXEFILE"
   StrCpy $0 $0 -4
+  ; strip a trailing " (1)" the browser adds when re-downloading the same file
+  StrCpy $1 $0 1 -1
+  StrCmp $1 ")" 0 keydone
+    StrLen $2 $0
+  parenloop:
+    IntOp $2 $2 - 1
+    IntCmp $2 0 keydone keydone 0
+    StrCpy $1 $0 1 $2
+    StrCmp $1 "(" 0 parenloop
+    IntOp $2 $2 - 1
+    StrCpy $0 $0 $2
+  keydone:
   StrCpy $KEY $0 "" 16     ; support-service-<key>.exe -> <key>
 
   ; stop any prior service + agents

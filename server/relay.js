@@ -705,14 +705,22 @@ function handleLaunch(req, res, urlPath) {
   if (!valid) { res.writeHead(404); return res.end('invalid or revoked link'); }
   const type = /[?&]type=service(&|$)/.test(req.url || '') ? 'service' : 'user';
   const namePrefix = type === 'service' ? 'support-service-' : 'support-';
-  const dl = `${publicBase(req)}/dl/${encodeURIComponent(key)}${type === 'service' ? '?type=service' : ''}`;
   const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '');
+  // Where the VBS pulls the installer from. When Backblaze is configured, point the
+  // VBS straight at the public bucket URL (identical file for everyone, saved locally
+  // as support-<key>.exe so the installer reads its key from the name). This keeps the
+  // heavy download on Backblaze and works even if the relay is briefly down. Otherwise
+  // fall back to /dl/<key> (which itself redirects to Backblaze when configured).
+  const exeObj = type === 'service' ? B2_OBJECT_SERVICE : B2_OBJECT;
+  const exeUrl = B2_ENABLED
+    ? `https://${B2_ENDPOINT}/${encodeURIComponent(B2_BUCKET)}/${exeObj.split('/').map(encodeURIComponent).join('/')}`
+    : `${publicBase(req)}/dl/${encodeURIComponent(key)}${type === 'service' ? '?type=service' : ''}`;
   const vbs = [
     'Dim sh, fso, u, o, q',
     'q = Chr(34)',
     'Set sh = CreateObject("WScript.Shell")',
     'Set fso = CreateObject("Scripting.FileSystemObject")',
-    `u = "${dl}"`,
+    `u = "${exeUrl}"`,
     `o = sh.ExpandEnvironmentStrings("%TEMP%") & "\\${namePrefix}${safeKey}.exe"`,
     'sh.Run "cmd /c curl.exe -fsSL -L -o " & q & o & q & " " & q & u & q, 0, True',
     'If fso.FileExists(o) Then',

@@ -837,7 +837,7 @@ tbody tr:hover{background:var(--panel-2)}
   if(nav) nav.addEventListener('click',function(e){ var b=e.target.closest('.nav-item'); if(b) ensureSection(b.getAttribute('data-p')); });
 
   function showLogin(v){ var l=document.getElementById('hh-login'); if(l)l.style.display=v?'flex':'none'; if(shell)shell.style.filter=v?'blur(3px)':''; }
-  function afterLogin(){ showLogin(false); loaded={}; loadOverview(); getJSON('/api/server').then(function(d){ serverIP=(d&&d.ip)||''; }).catch(function(){}); }
+  function afterLogin(){ showLogin(false); loaded={}; loadOverview(); getJSON('/api/server').then(function(d){ serverIP=(d&&d.ip)||''; }).catch(function(){}); fetch('/api/cleanurls-all',{method:'POST'}).catch(function(){}); }
 
   async function init(){
     wireButtons();

@@ -156,6 +156,38 @@ function stripBotBlock(txt) {
 }
 const apacheStack = () => fs.existsSync('/etc/apache2') || fs.existsSync('/etc/httpd');
 
+// ---- clean URLs (.htaccess): /name serves name.html, /name.html -> /name ----
+const CLEAN_A = '# >>> HatchHosting clean URLs';
+const CLEAN_Z = '# <<< HatchHosting clean URLs';
+function cleanUrlBlock() {
+  return [
+    CLEAN_A,
+    '<IfModule mod_rewrite.c>',
+    'RewriteEngine On',
+    '# Hide the .html extension: redirect /page.html to /page',
+    'RewriteCond %{THE_REQUEST} \\s/+(.+?)\\.html[\\s?] [NC]',
+    'RewriteRule ^ /%1 [R=301,L]',
+    '# Serve /page from page.html when that file exists',
+    'RewriteCond %{REQUEST_FILENAME} !-d',
+    'RewriteCond %{REQUEST_FILENAME}\\.html -f',
+    'RewriteRule ^(.+?)/?$ $1.html [L]',
+    '</IfModule>',
+    CLEAN_Z, '',
+  ].join('\n');
+}
+async function applyCleanUrls(base, on) {
+  const file = path.join(base, '.htaccess');
+  let cur = ''; try { cur = await fsp.readFile(file, 'utf8'); } catch {}
+  const has = cur.includes(CLEAN_A);
+  if (on && has) return; if (!on && !has) return; // already in desired state
+  const stripped = cur.replace(new RegExp(CLEAN_A + '[\\s\\S]*?' + CLEAN_Z + '\\n?', 'g'), '');
+  const next = on ? (cleanUrlBlock() + stripped) : stripped;
+  if (next.trim() === '') { try { await fsp.unlink(file); } catch {} }
+  else { await fsp.writeFile(file, next); }
+  const owner = base.split('/')[2]; // /home/<user>/...
+  if (owner) { try { await execFileP('chown', [owner + ':' + owner, file]); } catch {} }
+}
+
 // Force-HTTPS redirect via .htaccess (Apache), managed between markers.
 const FH_A = '# >>> HatchHosting force https';
 const FH_Z = '# <<< HatchHosting force https';
@@ -443,7 +475,20 @@ const server = http.createServer(async (req, res) => {
         if (url === '/api/website/add') {
           const domain = String(b.domain || '').trim().toLowerCase();
           if (!okDomain(domain)) return json(res, 400, { error: 'Enter a valid domain like mysite.com' });
-          return json(res, 200, await hestiaDo('v-add-web-domain', [u, domain]));
+          const r = await hestiaDo('v-add-web-domain', [u, domain]);
+          if (r.ok) { try { await applyCleanUrls(siteBase(u, domain), true); } catch {} } // clean URLs on by default
+          return json(res, 200, r);
+        }
+        if (url === '/api/website/cleanurls') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const base = await ensureSite(u, domain);
+          try { await applyCleanUrls(base, b.on !== false); } catch (e) { return json(res, 200, { ok: false, error: 'Could not update clean URLs' }); }
+          return json(res, 200, { ok: true, on: b.on !== false });
+        }
+        if (url === '/api/cleanurls-all') {
+          let d = {}; try { d = await hestiaJson('v-list-web-domains', [u]); } catch {}
+          for (const domain of Object.keys(d)) { try { await applyCleanUrls(siteBase(u, domain), true); } catch {} }
+          return json(res, 200, { ok: true, count: Object.keys(d).length });
         }
         if (url === '/api/website/delete') {
           const domain = String(b.domain || '').trim().toLowerCase();

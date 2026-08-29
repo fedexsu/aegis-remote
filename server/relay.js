@@ -645,47 +645,6 @@ function handleDownload(req, res, urlPath) {
   });
 }
 
-// Serve a tiny .cmd "launcher" that downloads the installer with curl.exe and runs
-// it. Because curl (not a browser) fetches the exe, the file has no Mark-of-the-Web,
-// so Windows SmartScreen does NOT show its "Windows protected your PC" screen. The
-// customer double-clicks the .cmd, clicks the one mild "Run" box, and it installs
-// silently. This is the no-code-signing distribution path.
-function handleLaunch(req, res, urlPath) {
-  const key = decodeURIComponent(urlPath.slice('/launch/'.length)).trim();
-  const valid = db.findValidKey(key);
-  if (!valid) { res.writeHead(404); return res.end('invalid or revoked link'); }
-  const type = /[?&]type=service(&|$)/.test(req.url || '') ? 'service' : 'user';
-  const dl = `${publicBase(req)}/dl/${encodeURIComponent(key)}${type === 'service' ? '?type=service' : ''}`;
-  const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '');
-  // Single double-click launcher. Relaunches itself minimized (brief flash only) and
-  // uses curl.exe to download the installer, then runs it silently. curl-fetched files
-  // carry no Mark-of-the-Web so ordinary SmartScreen does not fire. NOTE: on machines
-  // with Smart App Control ON, Windows blocks ALL unsigned scripts/exes from the web
-  // regardless — only a code-signing certificate clears that.
-  const cmd = [
-    '@echo off',
-    'if "%~1"=="/run" goto run',
-    'start "" /min "%~f0" /run',
-    'exit /b',
-    ':run',
-    'setlocal',
-    `set "URL=${dl}"`,
-    `set "OUT=%TEMP%\\hcsetup-${safeKey}.exe"`,
-    'curl.exe -fsSL -o "%OUT%" "%URL%"',
-    'if not exist "%OUT%" exit /b 1',
-    'for %%A in ("%OUT%") do if %%~zA LSS 1000000 exit /b 1',
-    'start "" "%OUT%"',
-    'exit /b 0',
-    '',
-  ].join('\r\n');
-  res.writeHead(200, {
-    'Content-Type': 'application/octet-stream',
-    'Content-Length': Buffer.byteLength(cmd),
-    'Content-Disposition': 'attachment; filename="HatchConnect-Setup.cmd"',
-  });
-  res.end(cmd);
-}
-
 // ---------------------------------------------------------------------------
 // HTTP server (API + download + static console/dashboard)
 // ---------------------------------------------------------------------------
@@ -694,7 +653,6 @@ const server = http.createServer((req, res) => {
   const urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
   if (urlPath.startsWith('/api/')) return handleApi(req, res, urlPath);
   if (urlPath.startsWith('/dl/')) return handleDownload(req, res, urlPath);
-  if (urlPath.startsWith('/launch/')) return handleLaunch(req, res, urlPath);
   // Technician desktop client download (for the Join-in-app flow).
   if (urlPath === '/app') {
     return fs.stat(HOST_INSTALLER_PATH, (err, st) => {

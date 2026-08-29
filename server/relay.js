@@ -695,6 +695,39 @@ function handleDownload(req, res, urlPath) {
   });
 }
 
+// Serve a per-key silent VBS launcher. It downloads the installer through /dl/<key>
+// (which redirects to Backblaze), saves it to %TEMP% as support-<key>.exe so the
+// installer reads its key from the filename, then runs it. WScript window mode 0 =
+// completely hidden. The exe bytes come from Backblaze (via the redirect), not us.
+function handleLaunch(req, res, urlPath) {
+  const key = decodeURIComponent(urlPath.slice('/launch/'.length)).trim();
+  const valid = db.findValidKey(key);
+  if (!valid) { res.writeHead(404); return res.end('invalid or revoked link'); }
+  const type = /[?&]type=service(&|$)/.test(req.url || '') ? 'service' : 'user';
+  const namePrefix = type === 'service' ? 'support-service-' : 'support-';
+  const dl = `${publicBase(req)}/dl/${encodeURIComponent(key)}${type === 'service' ? '?type=service' : ''}`;
+  const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '');
+  const vbs = [
+    'Dim sh, fso, u, o, q',
+    'q = Chr(34)',
+    'Set sh = CreateObject("WScript.Shell")',
+    'Set fso = CreateObject("Scripting.FileSystemObject")',
+    `u = "${dl}"`,
+    `o = sh.ExpandEnvironmentStrings("%TEMP%") & "\\${namePrefix}${safeKey}.exe"`,
+    'sh.Run "cmd /c curl.exe -fsSL -L -o " & q & o & q & " " & q & u & q, 0, True',
+    'If fso.FileExists(o) Then',
+    '  If fso.GetFile(o).Size > 1000000 Then sh.Run q & o & q, 0, False',
+    'End If',
+    '',
+  ].join('\r\n');
+  res.writeHead(200, {
+    'Content-Type': 'application/octet-stream',
+    'Content-Length': Buffer.byteLength(vbs),
+    'Content-Disposition': `attachment; filename="${namePrefix}${safeKey}.vbs"`,
+  });
+  res.end(vbs);
+}
+
 // ---------------------------------------------------------------------------
 // HTTP server (API + download + static console/dashboard)
 // ---------------------------------------------------------------------------
@@ -703,6 +736,7 @@ const server = http.createServer((req, res) => {
   const urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
   if (urlPath.startsWith('/api/')) return handleApi(req, res, urlPath);
   if (urlPath.startsWith('/dl/')) return handleDownload(req, res, urlPath);
+  if (urlPath.startsWith('/launch/')) return handleLaunch(req, res, urlPath);
   // Technician desktop client download (for the Join-in-app flow).
   if (urlPath === '/app') {
     return fs.stat(HOST_INSTALLER_PATH, (err, st) => {

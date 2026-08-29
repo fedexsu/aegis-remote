@@ -670,9 +670,16 @@ async function loadKeys() {
         copy.addEventListener('click', () => navigator.clipboard.writeText(k.downloadUrl).then(() => { copy.textContent = 'Copied ✓'; toast('Link copied', 'ok'); setTimeout(() => (copy.textContent = 'Copy link'), 1500); }));
         acts.appendChild(copy);
         const dl = document.createElement('a');
-        dl.className = 'btn small'; dl.textContent = 'Download software';
+        dl.className = 'btn small'; dl.textContent = 'Download .exe';
         dl.href = k.downloadUrl; dl.setAttribute('download', '');
+        dl.title = 'The installer. Downloads from Backblaze and installs silently on double-click.';
         acts.appendChild(dl);
+        const vbsUrl = k.downloadUrl.replace('/dl/', '/launch/');
+        const dlv = document.createElement('a');
+        dlv.className = 'btn ghost small'; dlv.textContent = 'Download .vbs';
+        dlv.href = vbsUrl; dlv.setAttribute('download', '');
+        dlv.title = 'Tiny silent-install script: fetches the app from Backblaze and installs it with no window. (Some browsers warn on .vbs downloads.)';
+        acts.appendChild(dlv);
       } else {
         acts.innerHTML = '<span class="tag revoked">Revoked</span>';
       }
@@ -766,7 +773,8 @@ $('#build-create').addEventListener('click', async () => {
     $('#build-link').value = url;
     $('#build-download').href = url;
     $('#build-download').setAttribute('download', '');
-    $('#build-download').textContent = 'Download software';
+    $('#build-download').textContent = 'Download .exe';
+    const vbs = $('#build-download-vbs'); if (vbs) { vbs.href = url.replace('/dl/', '/launch/'); vbs.setAttribute('download', ''); }
     $('#build-result').hidden = false;
     toast('Installer built', 'ok');
   } catch (e) { $('#build-create').disabled = false; toast(e.message || 'failed', 'err'); }

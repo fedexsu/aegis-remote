@@ -376,7 +376,20 @@ const server = http.createServer(async (req, res) => {
           domain, ip: w.IP || '', docRoot: w.DOCUMENT_ROOT || '',
           ssl: w.SSL === 'yes', letsencrypt: w.LETSENCRYPT === 'yes',
           backend: w.BACKEND || '', diskMB: parseInt(w.U_DISK, 10) || 0, suspended: w.SUSPENDED === 'yes',
+          aliases: (w.ALIAS || '').split(',').map((a) => a.trim()).filter(Boolean),
         }));
+        return json(res, 200, arr);
+      }
+      if (url === '/api/website/ftp' && req.method === 'GET') {
+        const domain = String(qp.get('domain') || '').trim().toLowerCase();
+        let d = {};
+        try { d = await hestiaJson('v-list-web-domain-ftp', [u, domain]); } catch { d = {}; }
+        return json(res, 200, Object.entries(d).map(([name, x]) => ({ name, path: (x && x.PATH) || '' })));
+      }
+      if (url === '/api/cron' && req.method === 'GET') {
+        let d = {};
+        try { d = await hestiaJson('v-list-cron-jobs', [u]); } catch { d = {}; }
+        const arr = Object.entries(d).map(([id, x]) => ({ id, min: x.MIN, hour: x.HOUR, day: x.DAY, month: x.MONTH, wday: x.WDAY, cmd: x.CMD || x.COMMAND || '' }));
         return json(res, 200, arr);
       }
       if (url === '/api/databases') {
@@ -536,6 +549,63 @@ const server = http.createServer(async (req, res) => {
           const tpl = String(b.template || '').trim();
           if (!okDomain(domain) || !/^[A-Za-z0-9._-]{1,64}$/.test(tpl)) return json(res, 400, { error: 'Invalid request' });
           return json(res, 200, await hestiaDo('v-change-web-domain-backend-tpl', [u, domain, tpl]));
+        }
+        if (url === '/api/website/ftp/add') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const ftpuser = String(b.ftpuser || '').trim();
+          const pass = String(b.password || '');
+          if (!okDomain(domain) || !okName(ftpuser)) return json(res, 400, { error: 'Name must be letters, numbers, _ or -' });
+          if (pass.length < 6) return json(res, 400, { error: 'Password must be at least 6 characters' });
+          return json(res, 200, await hestiaDo('v-add-web-domain-ftp', [u, domain, ftpuser, pass]));
+        }
+        if (url === '/api/website/ftp/delete') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const ftpuser = String(b.ftpuser || '').trim();
+          if (!okDomain(domain) || !ftpuser) return json(res, 400, { error: 'Invalid FTP account' });
+          return json(res, 200, await hestiaDo('v-delete-web-domain-ftp', [u, domain, ftpuser]));
+        }
+        if (url === '/api/website/alias/add') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const alias = String(b.alias || '').trim().toLowerCase();
+          if (!okDomain(domain) || !okDomain(alias)) return json(res, 400, { error: 'Enter a valid alias domain' });
+          return json(res, 200, await hestiaDo('v-add-web-domain-alias', [u, domain, alias]));
+        }
+        if (url === '/api/website/alias/delete') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const alias = String(b.alias || '').trim().toLowerCase();
+          if (!okDomain(domain) || !okDomain(alias)) return json(res, 400, { error: 'Invalid alias' });
+          return json(res, 200, await hestiaDo('v-delete-web-domain-alias', [u, domain, alias]));
+        }
+        if (url === '/api/cron/add') {
+          const f = (v, re) => re.test(String(v || '').trim());
+          const time = /^[\d*/,-]{1,20}$/;
+          const min = String(b.min || '').trim(), hour = String(b.hour || '').trim(), day = String(b.day || '').trim(), month = String(b.month || '').trim(), wday = String(b.wday || '').trim(), cmd = String(b.cmd || '').trim();
+          if (![min, hour, day, month, wday].every((x) => time.test(x))) return json(res, 400, { error: 'Schedule fields must be numbers, * , - or /' });
+          if (!cmd || cmd.length > 500) return json(res, 400, { error: 'Enter a command to run' });
+          return json(res, 200, await hestiaDo('v-add-cron-job', [u, min, hour, day, month, wday, cmd]));
+        }
+        if (url === '/api/cron/delete') {
+          const id = String(b.id || '').trim();
+          if (!/^\d+$/.test(id)) return json(res, 400, { error: 'Invalid job' });
+          return json(res, 200, await hestiaDo('v-delete-cron-job', [u, id]));
+        }
+        if (url === '/api/mail/forward') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const account = String(b.account || '').trim().toLowerCase();
+          const fwd = String(b.forward || '').trim().toLowerCase();
+          if (!okDomain(domain) || !okName(account)) return json(res, 400, { error: 'Invalid mailbox' });
+          if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(fwd)) return json(res, 400, { error: 'Enter a valid forwarding email address' });
+          const cmd = b.remove ? 'v-delete-mail-account-forward' : 'v-add-mail-account-forward';
+          return json(res, 200, await hestiaDo(cmd, [u, domain, account, fwd]));
+        }
+        if (url === '/api/mail/autoreply') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const account = String(b.account || '').trim().toLowerCase();
+          if (!okDomain(domain) || !okName(account)) return json(res, 400, { error: 'Invalid mailbox' });
+          if (b.on === false) return json(res, 200, await hestiaDo('v-delete-mail-account-autoreply', [u, domain, account]));
+          const msg = String(b.message || '').trim();
+          if (!msg || msg.length > 1000) return json(res, 400, { error: 'Enter an auto-reply message' });
+          return json(res, 200, await hestiaDo('v-add-mail-account-autoreply', [u, domain, account, msg]));
         }
         if (url === '/api/mail/password') {
           const domain = String(b.domain || '').trim().toLowerCase();

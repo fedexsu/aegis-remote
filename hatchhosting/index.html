@@ -187,6 +187,7 @@ tbody tr:hover{background:var(--panel-2)}
       <button class="nav-item" data-p="email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5 12 13l8.5-6.5"/></svg>Email</button>
       <button class="nav-item" data-p="backups"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4a8 8 0 1 0 8 8"/><path d="M12 4v5l3 2"/><path d="M20 4v5h-5"/></svg>Backups</button>
       <button class="nav-item" data-p="analytics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke-linecap="round"/></svg>Analytics</button>
+      <button class="nav-item" data-p="cron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg>Scheduled</button>
       <button class="nav-item" data-p="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.5 12a7.5 7.5 0 0 0-.1-1.3l1.9-1.4-1.9-3.3-2.2 1a7.5 7.5 0 0 0-2.2-1.3L14.4 2h-3.8l-.3 2.4a7.5 7.5 0 0 0-2.2 1.3l-2.2-1L2 8l1.9 1.4a7.5 7.5 0 0 0 0 2.6L2 13.4l1.9 3.3 2.2-1a7.5 7.5 0 0 0 2.2 1.3l.3 2.4h3.8l.3-2.4a7.5 7.5 0 0 0 2.2-1.3l2.2 1 1.9-3.3-1.9-1.4c.1-.4.1-.8.1-1.3z"/></svg>Settings</button>
     </nav>
     <div class="side-foot">
@@ -344,6 +345,18 @@ tbody tr:hover{background:var(--panel-2)}
           <div class="card scroll"><div class="an-h">Response status</div><table><tbody id="an-status"></tbody></table></div>
         </div>
         <div class="callout">Data is read live from your web-server logs (typically the last few weeks). Visits from known bots and crawlers are separated out and not counted as visitors.</div>
+      </section>
+
+      <!-- SCHEDULED (CRON) -->
+      <section class="page" data-page="cron">
+        <div class="sec-h" style="margin-top:0"><div><h1 class="page-title">Scheduled tasks</h1><p class="page-sub">Run a command automatically on a schedule (e.g. a nightly script).</p></div><button class="btn primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>New task</button></div>
+        <div class="card scroll">
+          <table>
+            <thead><tr><th>Schedule (min hour day month weekday)</th><th>Command</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="callout">Only add scheduled tasks if an app or a developer tells you to. Times are in the server's timezone.</div>
       </section>
 
       <!-- SETTINGS -->
@@ -528,6 +541,8 @@ tbody tr:hover{background:var(--panel-2)}
       {label:'DNS setup (connect your domain)',fn:function(){ showDns(domain); }},
       {label:'PHP version',fn:function(){ openPhp(domain); }},
       {label:'Bot protection',fn:function(){ openBotShield(domain); }},
+      {label:'FTP / SFTP accounts',fn:function(){ openFtp(domain); }},
+      {label:'Domain aliases',fn:function(){ openAliases(domain); }},
       {label:'Manage files',fn:function(){ fmSite=domain; fmPath=''; goTab('files'); }},
       {sep:true},
       {label:'Delete website',danger:true,fn:async function(){ if(!(await confirmDialog('Delete website','Permanently delete '+domain+' and all its files? This cannot be undone.','Delete website',true))) return; try{ await api('/api/website/delete',{domain:domain}); toast('Website deleted'); loadWebsites(); }catch(ex){ toast(ex.message,false); } }}
@@ -545,7 +560,7 @@ tbody tr:hover{background:var(--panel-2)}
     el.innerHTML=list.map(function(m){ var q=m.quotaMB?(gb(m.quotaMB)+' GB'):'unlimited'; var p=m.quotaMB?pct(m.usedMB,m.quotaMB):3;
       return '<tr><td class="mono">'+esc(m.address)+'</td><td class="dim">'+gb(m.usedMB)+' GB</td><td class="dim">'+q+'</td>'
       +'<td style="width:180px"><span class="bar" style="margin:0"><i style="width:'+p+'%"></i></span></td>'
-      +'<td><div class="row-act">'+act('Password','mail-pass',{domain:m.domain,account:m.account})+act('Delete','mail-del',{domain:m.domain,account:m.account},'danger')+'</div></td></tr>';}).join('');
+      +'<td><div class="row-act">'+act('Manage ▾','mail-manage',{domain:m.domain,account:m.account})+'</div></td></tr>';}).join('');
   }
   function fillBackups(list){
     var el=tbody('backups'); if(!el) return;
@@ -821,6 +836,72 @@ tbody tr:hover{background:var(--panel-2)}
     });
   }
 
+  // --- FTP accounts ---
+  async function openFtp(domain){
+    var ov=openInfo('FTP / SFTP accounts — '+domain, '<div data-list style="margin-bottom:10px"></div><button class="btn ghost sm" data-add>+ New FTP account</button><p style="font-size:12px;color:var(--ink-3);margin-top:10px">Give a designer or developer their own login to upload files. Host: your server, port 22 (SFTP).</p>');
+    async function refresh(){
+      var list=[]; try{ list=await getJSON('/api/website/ftp?domain='+encodeURIComponent(domain)); }catch(e){}
+      var el=ov.querySelector('[data-list]');
+      el.innerHTML=(list&&list.length)?list.map(function(f){return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)"><span class="mono" style="font-size:13px">'+esc(f.name)+'</span><span class="ln danger" data-del="'+esc(f.name)+'">Delete</span></div>';}).join(''):'<div class="dim" style="padding:6px 0;font-size:13px">No FTP accounts yet.</div>';
+      el.querySelectorAll('[data-del]').forEach(function(x){ x.onclick=async function(){ if(!(await confirmDialog('Delete FTP account','Delete '+x.getAttribute('data-del')+'?','Delete',true))) return; try{ await api('/api/website/ftp/delete',{domain:domain,ftpuser:x.getAttribute('data-del')}); toast('Deleted'); refresh(); }catch(e){ toast(e.message,false); } }; });
+    }
+    ov.querySelector('[data-add]').onclick=function(){ openForm('New FTP account',[{name:'ftpuser',label:'Username',ph:'designer'},{name:'password',label:'Password',type:'password',ph:'at least 6 characters'}],'Create',async function(v){ await api('/api/website/ftp/add',{domain:domain,ftpuser:v.ftpuser,password:v.password}); toast('FTP account created'); refresh(); }); };
+    refresh();
+  }
+  // --- Domain aliases ---
+  async function openAliases(domain){
+    var ov=openInfo('Domain aliases — '+domain, '<div data-list style="margin-bottom:10px"></div><button class="btn ghost sm" data-add>+ Add alias</button><p style="font-size:12px;color:var(--ink-3);margin-top:10px">An alias is another domain that shows this same site (for example www.'+esc(domain)+', or a second domain you own).</p>');
+    async function refresh(){
+      var aliases=[]; try{ var s=(await getJSON('/api/websites')).filter(function(y){return y.domain===domain;})[0]; aliases=(s&&s.aliases)||[]; }catch(e){}
+      var el=ov.querySelector('[data-list]');
+      el.innerHTML=aliases.length?aliases.map(function(a){return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)"><span class="mono" style="font-size:13px">'+esc(a)+'</span><span class="ln danger" data-del="'+esc(a)+'">Remove</span></div>';}).join(''):'<div class="dim" style="padding:6px 0;font-size:13px">No aliases yet.</div>';
+      el.querySelectorAll('[data-del]').forEach(function(x){ x.onclick=async function(){ try{ await api('/api/website/alias/delete',{domain:domain,alias:x.getAttribute('data-del')}); toast('Alias removed'); loadWebsites(); refresh(); }catch(e){ toast(e.message,false); } }; });
+    }
+    ov.querySelector('[data-add]').onclick=function(){ openForm('Add alias',[{name:'alias',label:'Alias domain',ph:'www.'+domain}],'Add',async function(v){ await api('/api/website/alias/add',{domain:domain,alias:v.alias}); toast('Alias added'); loadWebsites(); refresh(); }); };
+    refresh();
+  }
+  // --- Email extras ---
+  function openMailMenu(domain,account,e){
+    showMenu(e.clientX,e.clientY,[
+      {label:'Reset password',fn:function(){ mailPassword(domain,account); }},
+      {label:'Forwarding',fn:function(){ openForm('Forward '+account+'@'+domain,[{name:'forward',label:'Forward all mail to',ph:'you@gmail.com'}],'Add forwarding',async function(v){ await api('/api/mail/forward',{domain:domain,account:account,forward:v.forward}); toast('Forwarding added'); }); }},
+      {label:'Auto-reply',fn:function(){ openForm('Auto-reply for '+account+'@'+domain,[{name:'message',label:'Auto-reply message',ph:'Thanks for your email, I will get back to you soon.'}],'Turn on',async function(v){ await api('/api/mail/autoreply',{domain:domain,account:account,on:true,message:v.message}); toast('Auto-reply on'); }); }},
+      {sep:true},
+      {label:'Delete mailbox',danger:true,fn:async function(){ if(!(await confirmDialog('Delete mailbox','Delete '+account+'@'+domain+'? This cannot be undone.','Delete',true))) return; try{ await api('/api/mail/delete',{domain:domain,account:account}); toast('Mailbox deleted'); loadMail(); if(lastAccount) loadOverview(); }catch(ex){ toast(ex.message,false); } }}
+    ]);
+  }
+  // --- Scheduled tasks (cron) ---
+  async function loadCron(){
+    var el=tbody('cron'); loading(el,3);
+    try{ var list=await getJSON('/api/cron');
+      if(!list.length){ empty(el,3,'No scheduled tasks yet. Click "New task" to add one.'); return; }
+      el.innerHTML=list.map(function(c){return '<tr><td class="mono dim">'+esc([c.min,c.hour,c.day,c.month,c.wday].join(' '))+'</td><td class="mono" style="max-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.cmd)+'</div></td><td><div class="row-act">'+act('Delete','cron-del',{id:c.id},'danger')+'</div></td></tr>';}).join('');
+    }catch(e){ empty(el,3,'Could not load scheduled tasks.'); }
+  }
+  function addCron(){
+    openForm('New scheduled task',[
+      {name:'cmd',label:'Command to run',ph:'/usr/bin/php /home/you/web/site/public_html/cron.php'},
+      {name:'min',label:'Minute (0-59, or * for every)',value:'0'},
+      {name:'hour',label:'Hour (0-23, or *)',value:'*'},
+      {name:'day',label:'Day of month (1-31, or *)',value:'*'},
+      {name:'month',label:'Month (1-12, or *)',value:'*'},
+      {name:'wday',label:'Day of week (0-6, or *)',value:'*'}
+    ],'Create task',async function(v){ await api('/api/cron/add',{min:v.min,hour:v.hour,day:v.day,month:v.month,wday:v.wday,cmd:v.cmd}); toast('Task scheduled'); loadCron(); });
+  }
+  // --- One-click website (guided) ---
+  function openCreateWebsite(){
+    openForm('Create a website',[{name:'domain',label:'Your domain name',ph:'mysite.com'},{name:'wp',label:'Website type',type:'select',options:['WordPress site (recommended)','Empty site (I will upload files)']}],'Create website',async function(v){
+      await api('/api/website/add',{domain:v.domain});
+      var wp=/WordPress/.test(v.wp);
+      if(wp){ toast('Setting up WordPress… about a minute.'); try{ await api('/api/website/wordpress',{domain:v.domain}); }catch(e){ toast('Site created, but WordPress step failed: '+e.message,false); } }
+      loadWebsites(); if(lastAccount) loadOverview();
+      openInfo('Website created',
+        '<p><b>'+esc(v.domain)+'</b> is ready'+(wp?' with WordPress':'')+'.</p>'
+        +'<p style="margin-top:10px">Two steps to make it live for everyone:</p>'
+        +'<ol style="margin:8px 0 0 18px;font-size:13px;line-height:1.7"><li><b>Point your domain</b> — on the website, open <b>Manage → DNS setup</b> and add the records at your domain provider.</li><li><b>Turn on SSL</b> — once your domain points here, open <b>Manage → Turn on SSL</b> for the padlock.</li></ol>');
+    });
+  }
+
   // --- Get Started checklist ---
   function gsDone(k){ try{ return localStorage.getItem('hh-gs-'+k)==='1'; }catch(e){ return false; } }
   function gsSet(k){ try{ localStorage.setItem('hh-gs-'+k,'1'); }catch(e){} }
@@ -830,7 +911,7 @@ tbody tr:hover{background:var(--panel-2)}
     var a=lastAccount||{}, sites=lastSites||[];
     var hasSite=sites.length>0, hasSsl=sites.some(function(s){return s.ssl;}), hasContent=((a.diskUsedMB||0)>30)||gsDone('content'), dnsOk=gsDone('dns')||hasSsl;
     var steps=[
-      {k:'site',done:hasSite,title:'Add your first website',desc:'Just your domain name, like mysite.com.',act:function(){addWebsite();}},
+      {k:'site',done:hasSite,title:'Add your first website',desc:'Just your domain name, like mysite.com.',act:function(){openCreateWebsite();}},
       {k:'dns',done:dnsOk,title:'Point your domain to this server',desc:'Add the records at your domain provider so visitors reach your site.',act:function(){ if(sites[0]) showDns(sites[0].domain); else toast('Add a website first'); }},
       {k:'content',done:hasContent,title:'Put your content online',desc:'Install WordPress in one click, or upload your files.',act:function(){ installWpPick(); }},
       {k:'ssl',done:hasSsl,title:'Turn on secure HTTPS (the padlock)',desc:'Keeps your visitors and their data safe.',act:function(){ goTab('websites'); toast('Click "SSL" on your website to turn it on'); }}
@@ -868,9 +949,11 @@ tbody tr:hover{background:var(--panel-2)}
     var a=el.getAttribute('data-act'), domain=el.getAttribute('data-domain'), account=el.getAttribute('data-account'), name=el.getAttribute('data-name');
     try{
       if(a==='manage'){ openSiteMenu(domain,e); return; }
-      else if(a==='add-web'){ addWebsite(); return; }
+      else if(a==='mail-manage'){ openMailMenu(domain,account,e); return; }
+      else if(a==='add-web'){ openCreateWebsite(); return; }
       else if(a==='php'){ openPhp(domain); return; }
       else if(a==='mail-pass'){ mailPassword(domain,account); return; }
+      else if(a==='cron-del'){ if(!(await confirmDialog('Delete task','Delete this scheduled task?','Delete',true))) return; try{ await api('/api/cron/delete',{id:name?name:el.getAttribute('data-id')}); toast('Task deleted'); loadCron(); }catch(ex){ toast(ex.message,false); } return; }
       else if(a==='dns'){ showDns(domain); return; }
       else if(a==='bots'){ openBotShield(domain); return; }
       else if(a==='wp'){ installWp(domain); return; }
@@ -885,7 +968,8 @@ tbody tr:hover{background:var(--panel-2)}
 
   // wire primary + quick-action buttons
   function wireButtons(){
-    var bw=primaryBtn('websites'); if(bw) bw.onclick=addWebsite;
+    var bw=primaryBtn('websites'); if(bw) bw.onclick=openCreateWebsite;
+    var bc=primaryBtn('cron'); if(bc) bc.onclick=addCron;
     var bd=primaryBtn('databases'); if(bd) bd.onclick=addDatabase;
     var bm=primaryBtn('email'); if(bm) bm.onclick=addMail;
     var bb=primaryBtn('backups'); if(bb) bb.onclick=createBackup;
@@ -914,6 +998,7 @@ tbody tr:hover{background:var(--panel-2)}
     if(p==='backups' && !loaded.bk){ loaded.bk=1; loadBackups(); }
     if(p==='files'){ fmOpen(); }
     if(p==='analytics'){ anOpen(); }
+    if(p==='cron' && !loaded.cron){ loaded.cron=1; loadCron(); }
   }
   if(nav) nav.addEventListener('click',function(e){ var b=e.target.closest('.nav-item'); if(b) ensureSection(b.getAttribute('data-p')); });
 

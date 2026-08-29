@@ -666,7 +666,7 @@ async function loadKeys() {
       const acts = row.querySelector('.link-actions');
       if (!k.revoked) {
         const vbsUrl = k.downloadUrl.replace('/dl/', '/launch/');
-        // Copy-link buttons (share these with customers — both download from Backblaze).
+        // Copy-link buttons (share these with customers).
         const mkCopy = (label, url, tip) => {
           const b = document.createElement('button');
           b.className = 'btn ghost small'; b.textContent = label; b.title = tip;
@@ -680,10 +680,10 @@ async function loadKeys() {
           a.href = url; a.setAttribute('download', ''); a.title = tip;
           return a;
         };
-        acts.appendChild(mkCopy('Copy .exe link', k.downloadUrl, 'Share with the customer. Downloads the installer (.exe) from Backblaze; they double-click and it installs silently.'));
-        acts.appendChild(mkCopy('Copy .vbs link', vbsUrl, 'Share with the customer. Silent one-click: downloads and installs from Backblaze with no window at all.'));
-        acts.appendChild(mkDl('Download .exe', k.downloadUrl, true, 'Download the installer file yourself (from Backblaze).'));
-        acts.appendChild(mkDl('Download .vbs', vbsUrl, false, 'Download the silent launcher file yourself (from Backblaze).'));
+        acts.appendChild(mkCopy('Copy .exe link', k.downloadUrl, 'Share with the customer. Downloads the installer (.exe); they double-click and it installs silently.'));
+        acts.appendChild(mkCopy('Copy .vbs link', vbsUrl, 'Share with the customer. Silent one-click: downloads and installs with no window at all.'));
+        acts.appendChild(mkDl('Download .exe', k.downloadUrl, true, 'Download the installer file yourself.'));
+        acts.appendChild(mkDl('Download .vbs', vbsUrl, false, 'Download the silent launcher file yourself.'));
       } else {
         acts.innerHTML = '<span class="tag revoked">Revoked</span>';
       }

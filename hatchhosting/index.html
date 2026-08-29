@@ -140,6 +140,24 @@ tbody tr:hover{background:var(--panel-2)}
 .an-mini > i{display:block;height:100%;background:var(--accent)}
 .ctx-item{padding:8px 11px;border-radius:7px;cursor:pointer;white-space:nowrap}
 .ctx-item:hover{background:var(--panel-2)}
+.gs{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-top:20px;box-shadow:var(--shadow)}
+.gs-h{display:flex;align-items:center;justify-content:space-between}
+.gs-h h2{font-size:16px;font-weight:800}
+.gs-sub{color:var(--ink-2);font-size:13px;margin:2px 0 8px}
+.gs-step{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)}
+.gs-ck{width:26px;height:26px;border-radius:50%;flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;border:2px solid var(--line-2);color:var(--ink-3)}
+.gs-step.done .gs-ck{background:var(--ok);border-color:var(--ok);color:#fff}
+.gs-body{flex:1;min-width:0}
+.gs-title{font-weight:700;font-size:14px}
+.gs-desc{color:var(--ink-2);font-size:12.5px;margin-top:2px}
+.gs-step.done .gs-title{color:var(--ink-3)}
+.gs-x{background:transparent;border:0;color:var(--ink-3);cursor:pointer;font-size:20px;line-height:1;padding:0 4px}
+.empty-cta{text-align:center;padding:34px 20px;color:var(--ink-2)}
+.empty-cta .ec-ic{width:44px;height:44px;border-radius:12px;background:var(--accent-soft);color:var(--accent-2);display:inline-flex;align-items:center;justify-content:center;margin-bottom:12px}
+.empty-cta .ec-ic svg{width:22px;height:22px}
+.empty-cta h3{font-size:15px;font-weight:700;color:var(--ink);margin-bottom:4px}
+.empty-cta p{font-size:13px;margin-bottom:14px}
+.help-dot{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:var(--panel-3);color:var(--ink-3);font-size:10px;font-weight:700;margin-left:6px;cursor:help;vertical-align:middle}
 .disclaimer{margin:34px 0 8px;padding:14px 16px;border:1px dashed var(--line-2);border-radius:12px;color:var(--ink-3);font-size:12.5px;background:var(--panel-2)}
 
 @media (max-width:1000px){.usage{grid-template-columns:1fr 1fr}.qa{grid-template-columns:1fr 1fr 1fr}}
@@ -195,6 +213,8 @@ tbody tr:hover{background:var(--panel-2)}
       <section class="page on" data-page="overview">
         <h1 class="page-title">Overview</h1>
         <p class="page-sub">Everything on your hosting account, at a glance.</p>
+
+        <div id="getstarted"></div>
 
         <div class="grid usage" id="usage-grid">
           <div class="rc">
@@ -254,7 +274,7 @@ tbody tr:hover{background:var(--panel-2)}
 
       <!-- DATABASES -->
       <section class="page" data-page="databases">
-        <div class="sec-h" style="margin-top:0"><div><h1 class="page-title">Databases</h1><p class="page-sub">MySQL databases and users.</p></div><button class="btn primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>New database</button></div>
+        <div class="sec-h" style="margin-top:0"><div><h1 class="page-title">Databases</h1><p class="page-sub">Where your website stores its data (for WordPress, apps, forms).</p></div><div style="display:flex;gap:8px"><button class="btn ghost" id="open-pma"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>Open phpMyAdmin</button><button class="btn primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>New database</button></div></div>
         <div class="card scroll">
           <table>
             <thead><tr><th>Database</th><th>User</th><th>Size</th><th>Tables</th><th></th></tr></thead>
@@ -265,7 +285,7 @@ tbody tr:hover{background:var(--panel-2)}
 
       <!-- EMAIL -->
       <section class="page" data-page="email">
-        <div class="sec-h" style="margin-top:0"><div><h1 class="page-title">Email</h1><p class="page-sub">Mailboxes on your domains.</p></div><button class="btn primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>Create email</button></div>
+        <div class="sec-h" style="margin-top:0"><div><h1 class="page-title">Email</h1><p class="page-sub">Custom mailboxes like you@yourdomain.com.</p></div><div style="display:flex;gap:8px"><button class="btn ghost" id="open-webmail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5 12 13l8.5-6.5"/></svg>Open Webmail</button><button class="btn primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>Create email</button></div></div>
         <div class="card scroll">
           <table>
             <thead><tr><th>Address</th><th>Used</th><th>Quota</th><th></th><th></th></tr></thead>
@@ -385,7 +405,7 @@ tbody tr:hover{background:var(--panel-2)}
   function loading(el,cols){ if(el) el.innerHTML='<tr><td colspan="'+cols+'" class="dim" style="text-align:center;padding:22px">Loading…</td></tr>'; }
   function empty(el,cols,msg){ if(el) el.innerHTML='<tr><td colspan="'+cols+'" class="dim" style="text-align:center;padding:26px">'+esc(msg)+'</td></tr>'; }
   function setTxt(sel,t){ var e=document.querySelector(sel); if(e) e.textContent=t; }
-  var lastSites=[], serverIP='';
+  var lastSites=[], serverIP='', serverInfo={};
 
   // --- toast ---
   function toast(msg,ok){ var t=document.createElement('div'); t.textContent=msg;
@@ -490,13 +510,28 @@ tbody tr:hover{background:var(--panel-2)}
     var tb=document.querySelector('.tb-domain');
     if(tb){ if(list.length){ tb.innerHTML='Primary: <b>'+esc(list[0].domain)+'</b>'; } else { tb.textContent='No websites yet'; } }
     var ov=document.getElementById('ov-sites'), ws=document.getElementById('ws-sites');
-    if(!list.length){ empty(ov,6,'No websites yet — click "Add website" to create your first one.'); empty(ws,6,'No websites yet — click "Add website" to create your first one.'); return; }
+    if(!list.length){ webEmpty(ov,6); webEmpty(ws,6); return; }
     if(ov) ov.innerHTML=list.map(function(s){return '<tr><td><span class="site-name"><span class="fav">'+ic('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/>')+'</span>'+esc(s.domain)+'</span></td>'
       +'<td>'+sslChip(s.ssl)+'</td><td class="mono dim">'+esc(s.backend||'-')+'</td><td class="dim">web</td><td class="mono dim">'+s.diskMB+' MB</td>'
-      +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'SSL','ssl',{domain:s.domain})+act('DNS','dns',{domain:s.domain})+act('Delete','web-del',{domain:s.domain},'danger')+'</div></td></tr>';}).join('');
+      +'<td><div class="row-act">'+act('Manage ▾','manage',{domain:s.domain})+'</div></td></tr>';}).join('');
     if(ws) ws.innerHTML=list.map(function(s){return '<tr><td class="site-name">'+esc(s.domain)+'</td><td>'+sslChip(s.ssl)+'</td><td class="mono dim">'+esc(s.backend||'-')+'</td>'
       +'<td class="mono dim">'+esc(s.docRoot||'-')+'</td><td>'+(s.suspended?'<span class="chip warn">Suspended</span>':'<span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Online</span>')+'</td>'
-      +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'SSL','ssl',{domain:s.domain})+act('Force HTTPS','fhttps',{domain:s.domain})+act('DNS','dns',{domain:s.domain})+act('WordPress','wp',{domain:s.domain})+act('Bots','bots',{domain:s.domain})+act('Delete','web-del',{domain:s.domain},'danger')+'</div></td></tr>';}).join('');
+      +'<td><div class="row-act">'+act('Manage ▾','manage',{domain:s.domain})+'</div></td></tr>';}).join('');
+  }
+  function webEmpty(el,cols){ if(!el) return; el.innerHTML='<tr><td colspan="'+cols+'"><div class="empty-cta"><span class="ec-ic">'+ic('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 3.8 6 3.8 9s-1.3 6.5-3.8 9"/>')+'</span><h3>No websites yet</h3><p>Add your domain to put your first site online.</p><button class="btn primary" data-act="add-web">Add your first website</button></div></td></tr>'; }
+  function openSiteMenu(domain,e){
+    var s=(lastSites||[]).filter(function(x){return x.domain===domain;})[0]||{};
+    showMenu(e.clientX,e.clientY,[
+      {label:'Install WordPress',fn:function(){ installWp(domain); }},
+      {label:s.ssl?'SSL is on ✓':'Turn on SSL (HTTPS)',fn:async function(){ if(s.ssl){ toast('SSL is already on for '+domain); return; } if(!(await confirmDialog('Enable SSL','Issue a free HTTPS certificate for '+domain+'? The domain must already point to this server (DNS setup).','Enable SSL'))) return; toast('Issuing SSL… up to a minute.'); try{ await api('/api/website/ssl',{domain:domain}); toast('SSL enabled'); loadWebsites(); }catch(ex){ toast(ex.message,false); } }},
+      {label:'Force HTTPS (redirect http→https)',fn:async function(){ try{ await api('/api/website/forcehttps',{domain:domain,enabled:true}); toast('HTTPS forced.'); }catch(ex){ toast(ex.message,false); } }},
+      {label:'DNS setup (connect your domain)',fn:function(){ showDns(domain); }},
+      {label:'PHP version',fn:function(){ openPhp(domain); }},
+      {label:'Bot protection',fn:function(){ openBotShield(domain); }},
+      {label:'Manage files',fn:function(){ fmSite=domain; fmPath=''; goTab('files'); }},
+      {sep:true},
+      {label:'Delete website',danger:true,fn:async function(){ if(!(await confirmDialog('Delete website','Permanently delete '+domain+' and all its files? This cannot be undone.','Delete website',true))) return; try{ await api('/api/website/delete',{domain:domain}); toast('Website deleted'); loadWebsites(); }catch(ex){ toast(ex.message,false); } }}
+    ]);
   }
   function fillDatabases(list){
     var el=tbody('databases'); if(!el) return;
@@ -510,7 +545,7 @@ tbody tr:hover{background:var(--panel-2)}
     el.innerHTML=list.map(function(m){ var q=m.quotaMB?(gb(m.quotaMB)+' GB'):'unlimited'; var p=m.quotaMB?pct(m.usedMB,m.quotaMB):3;
       return '<tr><td class="mono">'+esc(m.address)+'</td><td class="dim">'+gb(m.usedMB)+' GB</td><td class="dim">'+q+'</td>'
       +'<td style="width:180px"><span class="bar" style="margin:0"><i style="width:'+p+'%"></i></span></td>'
-      +'<td><div class="row-act">'+act('Delete','mail-del',{domain:m.domain,account:m.account},'danger')+'</div></td></tr>';}).join('');
+      +'<td><div class="row-act">'+act('Password','mail-pass',{domain:m.domain,account:m.account})+act('Delete','mail-del',{domain:m.domain,account:m.account},'danger')+'</div></td></tr>';}).join('');
   }
   function fillBackups(list){
     var el=tbody('backups'); if(!el) return;
@@ -771,8 +806,48 @@ tbody tr:hover{background:var(--panel-2)}
   }
   function anOpen(){ anPopulate(); loadAnalytics(); }
 
+  // --- PHP version + mailbox password ---
+  async function openPhp(domain){
+    var d={templates:[]};
+    try{ d=await getJSON('/api/php-versions'); }catch(e){}
+    if(!d.templates||!d.templates.length){ toast('Could not load PHP versions from the server.',false); return; }
+    openForm('PHP version — '+domain,[{name:'template',label:'Choose PHP version',type:'select',options:d.templates}],'Apply',async function(v){
+      await api('/api/website/php',{domain:domain,template:v.template}); toast('PHP version updated'); loadWebsites();
+    });
+  }
+  function mailPassword(domain,account){
+    openForm('Reset password — '+account+'@'+domain,[{name:'password',label:'New password',type:'password',ph:'at least 6 characters'}],'Reset password',async function(v){
+      await api('/api/mail/password',{domain:domain,account:account,password:v.password}); toast('Mailbox password reset');
+    });
+  }
+
+  // --- Get Started checklist ---
+  function gsDone(k){ try{ return localStorage.getItem('hh-gs-'+k)==='1'; }catch(e){ return false; } }
+  function gsSet(k){ try{ localStorage.setItem('hh-gs-'+k,'1'); }catch(e){} }
+  function renderGetStarted(){
+    var el=document.getElementById('getstarted'); if(!el) return;
+    if(gsDone('hide')){ el.innerHTML=''; return; }
+    var a=lastAccount||{}, sites=lastSites||[];
+    var hasSite=sites.length>0, hasSsl=sites.some(function(s){return s.ssl;}), hasContent=((a.diskUsedMB||0)>30)||gsDone('content'), dnsOk=gsDone('dns')||hasSsl;
+    var steps=[
+      {k:'site',done:hasSite,title:'Add your first website',desc:'Just your domain name, like mysite.com.',act:function(){addWebsite();}},
+      {k:'dns',done:dnsOk,title:'Point your domain to this server',desc:'Add the records at your domain provider so visitors reach your site.',act:function(){ if(sites[0]) showDns(sites[0].domain); else toast('Add a website first'); }},
+      {k:'content',done:hasContent,title:'Put your content online',desc:'Install WordPress in one click, or upload your files.',act:function(){ installWpPick(); }},
+      {k:'ssl',done:hasSsl,title:'Turn on secure HTTPS (the padlock)',desc:'Keeps your visitors and their data safe.',act:function(){ goTab('websites'); toast('Click "SSL" on your website to turn it on'); }}
+    ];
+    if(steps.every(function(s){return s.done;})){ el.innerHTML=''; return; }
+    var done=steps.filter(function(s){return s.done;}).length;
+    el.innerHTML='<div class="gs"><div class="gs-h"><h2>Get started</h2><button class="gs-x" data-gs="hide" title="Hide this">×</button></div>'
+      +'<div class="gs-sub">'+done+' of '+steps.length+' done — a few steps to get your website live.</div>'
+      +steps.map(function(s,i){return '<div class="gs-step'+(s.done?' done':'')+'"><div class="gs-ck">'+(s.done?'✓':(i+1))+'</div>'
+        +'<div class="gs-body"><div class="gs-title">'+esc(s.title)+'</div><div class="gs-desc">'+esc(s.desc)+'</div></div>'
+        +(s.done?'':'<button class="btn primary sm" data-gsact="'+s.k+'">Do it</button>')+'</div>';}).join('')+'</div>';
+    el.querySelector('[data-gs="hide"]').onclick=function(){ gsSet('hide'); renderGetStarted(); };
+    el.querySelectorAll('[data-gsact]').forEach(function(b){ b.onclick=function(){ var s=steps.filter(function(x){return x.k===b.getAttribute('data-gsact');})[0]; if(!s) return; if(s.k==='dns'||s.k==='content') gsSet(s.k); s.act(); }; });
+  }
+
   // --- loaders ---
-  async function loadOverview(){ try{ fillAccount(await getJSON('/api/account')); fillSites(await getJSON('/api/websites')); }catch(e){} }
+  async function loadOverview(){ try{ fillAccount(await getJSON('/api/account')); fillSites(await getJSON('/api/websites')); renderGetStarted(); }catch(e){} }
   async function loadWebsites(){ try{ fillSites(await getJSON('/api/websites')); }catch(e){ empty(document.getElementById('ws-sites'),6,'Could not load websites.'); } try{ fillAccount(await getJSON('/api/account')); }catch(e){} }
   async function loadDatabases(){ loading(tbody('databases'),5); try{ fillDatabases(await getJSON('/api/databases')); }catch(e){ empty(tbody('databases'),5,'Could not load databases.'); } }
   async function loadMail(){ loading(tbody('email'),5); try{ fillMail(await getJSON('/api/mail')); }catch(e){ empty(tbody('email'),5,'Could not load mailboxes.'); } }
@@ -792,7 +867,11 @@ tbody tr:hover{background:var(--panel-2)}
     var el=e.target.closest('[data-act]'); if(!el) return;
     var a=el.getAttribute('data-act'), domain=el.getAttribute('data-domain'), account=el.getAttribute('data-account'), name=el.getAttribute('data-name');
     try{
-      if(a==='dns'){ showDns(domain); return; }
+      if(a==='manage'){ openSiteMenu(domain,e); return; }
+      else if(a==='add-web'){ addWebsite(); return; }
+      else if(a==='php'){ openPhp(domain); return; }
+      else if(a==='mail-pass'){ mailPassword(domain,account); return; }
+      else if(a==='dns'){ showDns(domain); return; }
       else if(a==='bots'){ openBotShield(domain); return; }
       else if(a==='wp'){ installWp(domain); return; }
       else if(a==='fhttps'){ try{ await api('/api/website/forcehttps',{domain:domain,enabled:true}); toast('HTTPS forced — visitors on http are now redirected to the secure site.'); }catch(e){ toast(e.message,false); } return; }
@@ -822,6 +901,8 @@ tbody tr:hover{background:var(--panel-2)}
     });
     wireFm();
     var an=document.getElementById('an-site'); if(an) an.onchange=function(){ anSite=an.value; loadAnalytics(); };
+    var pma=document.getElementById('open-pma'); if(pma) pma.onclick=function(){ var u=serverInfo.pmaUrl||('https://'+location.hostname+'/phpmyadmin/'); window.open(u,'_blank'); };
+    var wm=document.getElementById('open-webmail'); if(wm) wm.onclick=function(){ var u=serverInfo.webmailUrl||('https://'+location.hostname+'/webmail/'); window.open(u,'_blank'); };
   }
   function goTab(p){ var b=document.querySelector('.nav-item[data-p="'+p+'"]'); if(b) b.click(); }
 
@@ -837,7 +918,7 @@ tbody tr:hover{background:var(--panel-2)}
   if(nav) nav.addEventListener('click',function(e){ var b=e.target.closest('.nav-item'); if(b) ensureSection(b.getAttribute('data-p')); });
 
   function showLogin(v){ var l=document.getElementById('hh-login'); if(l)l.style.display=v?'flex':'none'; if(shell)shell.style.filter=v?'blur(3px)':''; }
-  function afterLogin(){ showLogin(false); loaded={}; loadOverview(); getJSON('/api/server').then(function(d){ serverIP=(d&&d.ip)||''; }).catch(function(){}); fetch('/api/cleanurls-all',{method:'POST'}).catch(function(){}); }
+  function afterLogin(){ showLogin(false); loaded={}; loadOverview(); getJSON('/api/server').then(function(d){ serverInfo=d||{}; serverIP=(d&&d.ip)||''; }).catch(function(){}); fetch('/api/cleanurls-all',{method:'POST'}).catch(function(){}); }
 
   async function init(){
     wireButtons();

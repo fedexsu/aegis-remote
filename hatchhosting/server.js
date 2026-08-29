@@ -408,7 +408,13 @@ const server = http.createServer(async (req, res) => {
       if (url === '/api/server') {
         let ip = SERVER_IP;
         if (!ip) { try { const ips = await hestiaJson('v-list-sys-ips', []); ip = Object.keys(ips)[0] || ''; } catch { ip = ''; } }
-        return json(res, 200, { ip, hostname: HOSTNAME });
+        const host = HOSTNAME || ip;
+        return json(res, 200, { ip, hostname: HOSTNAME, pmaUrl: 'https://' + host + '/phpmyadmin/', webmailUrl: 'https://' + host + '/webmail/' });
+      }
+      if (url === '/api/php-versions') {
+        let out = [];
+        try { const t = await hestiaJson('v-list-web-templates-backend', []); out = Array.isArray(t) ? t : Object.keys(t); } catch { out = []; }
+        return json(res, 200, { templates: out });
       }
       if (url === '/api/analytics' && req.method === 'GET') {
         const domain = String(qp.get('domain') || '').trim().toLowerCase();
@@ -524,6 +530,20 @@ const server = http.createServer(async (req, res) => {
           if (next.trim() === '') { try { await fsp.unlink(file); } catch {} }
           else { await fsp.writeFile(file, next); try { await execFileP('chown', [u + ':' + u, file]); } catch {} }
           return json(res, 200, { ok: true, mode, enabled: mode !== 'off' });
+        }
+        if (url === '/api/website/php') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const tpl = String(b.template || '').trim();
+          if (!okDomain(domain) || !/^[A-Za-z0-9._-]{1,64}$/.test(tpl)) return json(res, 400, { error: 'Invalid request' });
+          return json(res, 200, await hestiaDo('v-change-web-domain-backend-tpl', [u, domain, tpl]));
+        }
+        if (url === '/api/mail/password') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const account = String(b.account || '').trim().toLowerCase();
+          const pass = String(b.password || '');
+          if (!okDomain(domain) || !okName(account)) return json(res, 400, { error: 'Invalid mailbox' });
+          if (pass.length < 6) return json(res, 400, { error: 'Password must be at least 6 characters' });
+          return json(res, 200, await hestiaDo('v-change-mail-account-password', [u, domain, account, pass]));
         }
         if (url === '/api/website/wordpress') {
           const domain = String(b.domain || '').trim().toLowerCase();

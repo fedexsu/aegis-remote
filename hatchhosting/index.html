@@ -496,7 +496,7 @@ tbody tr:hover{background:var(--panel-2)}
       +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'SSL','ssl',{domain:s.domain})+act('DNS','dns',{domain:s.domain})+act('Delete','web-del',{domain:s.domain},'danger')+'</div></td></tr>';}).join('');
     if(ws) ws.innerHTML=list.map(function(s){return '<tr><td class="site-name">'+esc(s.domain)+'</td><td>'+sslChip(s.ssl)+'</td><td class="mono dim">'+esc(s.backend||'-')+'</td>'
       +'<td class="mono dim">'+esc(s.docRoot||'-')+'</td><td>'+(s.suspended?'<span class="chip warn">Suspended</span>':'<span class="chip ok"><span class="dot" style="background:var(--ok)"></span>Online</span>')+'</td>'
-      +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'SSL','ssl',{domain:s.domain})+act('DNS','dns',{domain:s.domain})+act('WordPress','wp',{domain:s.domain})+act('Bots','bots',{domain:s.domain})+act('Delete','web-del',{domain:s.domain},'danger')+'</div></td></tr>';}).join('');
+      +'<td><div class="row-act">'+act(s.ssl?'SSL ✓':'SSL','ssl',{domain:s.domain})+act('Force HTTPS','fhttps',{domain:s.domain})+act('DNS','dns',{domain:s.domain})+act('WordPress','wp',{domain:s.domain})+act('Bots','bots',{domain:s.domain})+act('Delete','web-del',{domain:s.domain},'danger')+'</div></td></tr>';}).join('');
   }
   function fillDatabases(list){
     var el=tbody('databases'); if(!el) return;
@@ -795,6 +795,7 @@ tbody tr:hover{background:var(--panel-2)}
       if(a==='dns'){ showDns(domain); return; }
       else if(a==='bots'){ openBotShield(domain); return; }
       else if(a==='wp'){ installWp(domain); return; }
+      else if(a==='fhttps'){ try{ await api('/api/website/forcehttps',{domain:domain,enabled:true}); toast('HTTPS forced — visitors on http are now redirected to the secure site.'); }catch(e){ toast(e.message,false); } return; }
       else if(a==='ssl'){ if(!(await confirmDialog('Enable SSL','Issue a free HTTPS certificate for '+domain+'? The domain must already point to this server (check the DNS button).','Enable SSL'))) return; el.textContent='…'; toast('Issuing SSL certificate for '+domain+'… this can take up to a minute.'); await api('/api/website/ssl',{domain}); toast('SSL enabled for '+domain); loadWebsites(); }
       else if(a==='web-del'){ if(!(await confirmDialog('Delete website','Permanently delete '+domain+' and all its files? This cannot be undone.','Delete website',true))) return; await api('/api/website/delete',{domain}); toast('Website deleted'); loadWebsites(); }
       else if(a==='web-files'){ toast('Connect with SFTP — host: your server, port 22, username & password: your panel login.'); }

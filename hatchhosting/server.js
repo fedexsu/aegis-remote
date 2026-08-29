@@ -156,6 +156,20 @@ function stripBotBlock(txt) {
 }
 const apacheStack = () => fs.existsSync('/etc/apache2') || fs.existsSync('/etc/httpd');
 
+// Force-HTTPS redirect via .htaccess (Apache), managed between markers.
+const FH_A = '# >>> HatchHosting force https';
+const FH_Z = '# <<< HatchHosting force https';
+const fhBlock = () => [FH_A, '<IfModule mod_rewrite.c>', 'RewriteEngine On', 'RewriteCond %{HTTPS} off', 'RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]', '</IfModule>', FH_Z, ''].join('\n');
+function stripFh(txt) { return String(txt || '').replace(new RegExp(FH_A + '[\\s\\S]*?' + FH_Z + '\\n?', 'g'), ''); }
+async function setForceHttps(u, domain, on) {
+  const base = await ensureSite(u, domain);
+  const file = path.join(base, '.htaccess');
+  let cur = ''; try { cur = await fsp.readFile(file, 'utf8'); } catch {}
+  const next = (on ? fhBlock() : '') + stripFh(cur);
+  if (next.trim() === '') { try { await fsp.unlink(file); } catch {} }
+  else { await fsp.writeFile(file, next); try { await execFileP('chown', [u + ':' + u, file]); } catch {} }
+}
+
 // ---- analytics (parse nginx access logs) --------------------------------
 const DATA_DIR = process.env.DATA_DIR || '/var/tmp/hatchhosting';
 const GEO_URL = process.env.GEO_URL || 'https://cdn.jsdelivr.net/npm/@ip-location-db/geo-whois-asn-country/geo-whois-asn-country-ipv4-num.csv';
@@ -443,8 +457,16 @@ const server = http.createServer(async (req, res) => {
           let r;
           try { r = await hestiaDo('v-add-letsencrypt-domain', [u, domain], 160000); }
           catch (e) { return json(res, 200, { ok: false, error: 'The certificate request is taking too long.' + hint }); }
-          if (!r.ok) r.error = 'Could not issue the certificate.' + hint;
+          if (!r.ok) { r.error = 'Could not issue the certificate.' + hint; return json(res, 200, r); }
+          if (apacheStack()) { try { await setForceHttps(u, domain, true); } catch {} } // send http -> https
           return json(res, 200, r);
+        }
+        if (url === '/api/website/forcehttps') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          if (!okDomain(domain)) return json(res, 400, { error: 'Invalid domain' });
+          if (!apacheStack()) return json(res, 200, { ok: false, error: 'This server is Nginx-only; the HTTPS redirect is set differently — contact support.' });
+          try { await setForceHttps(u, domain, b.enabled !== false); } catch (e) { return json(res, 200, { ok: false, error: 'Could not update: ' + (e.message || e) }); }
+          return json(res, 200, { ok: true, enabled: b.enabled !== false });
         }
         if (url === '/api/website/botshield') {
           const domain = String(b.domain || '').trim().toLowerCase();

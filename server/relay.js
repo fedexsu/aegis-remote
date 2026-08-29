@@ -14,6 +14,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const db = require('./db');
 
@@ -24,6 +25,47 @@ const INSTALLER_PATH = process.env.INSTALLER_PATH || path.join(__dirname, '..', 
 const SERVICE_INSTALLER_PATH = process.env.SERVICE_INSTALLER_PATH || path.join(__dirname, '..', 'release', 'support-service.exe');
 // Technician desktop client (host) installer, served at /app for the Join flow.
 const HOST_INSTALLER_PATH = process.env.HOST_INSTALLER_PATH || path.join(__dirname, '..', 'release', 'HatchConnect-Setup.exe');
+
+// Optional: serve the installer from Backblaze B2 / S3 (trusted download domain, so
+// browsers/SmartScreen do not flag it the way they flag the shared *.up.railway.app
+// host). The installer bytes are identical for every key, so ONE object is uploaded
+// and each download gets a presigned URL with a per-key Content-Disposition filename
+// (support-<key>.exe) — the installer still reads its key from that name. Falls back
+// to streaming the local file when B2 is not configured.
+const B2_ENDPOINT = process.env.B2_S3_ENDPOINT || '';                 // s3.us-east-005.backblazeb2.com
+const B2_REGION = process.env.B2_REGION || (B2_ENDPOINT.match(/s3\.([a-z0-9-]+)\./)?.[1] || 'us-east-005');
+const B2_BUCKET = process.env.B2_BUCKET || '';                        // supportttt
+const B2_KEY_ID = process.env.B2_KEY_ID || '';                       // application keyID
+const B2_APP_KEY = process.env.B2_APP_KEY || '';                     // application key secret
+const B2_OBJECT = process.env.B2_OBJECT || 'support.exe';            // per-user installer object name in the bucket
+const B2_OBJECT_SERVICE = process.env.B2_OBJECT_SERVICE || 'support-service.exe';
+const B2_ENABLED = !!(B2_ENDPOINT && B2_BUCKET && B2_KEY_ID && B2_APP_KEY);
+
+const enc3986 = (s) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+const encPath = (p) => p.split('/').map(enc3986).join('/');
+const hmac = (key, str) => crypto.createHmac('sha256', key).update(str, 'utf8').digest();
+const sha256hex = (str) => crypto.createHash('sha256').update(str, 'utf8').digest('hex');
+// AWS Signature V4 presigned GET URL (works with Backblaze B2 S3, Cloudflare R2, AWS S3).
+function presignB2(objectKey, downloadName, expires) {
+  const amz = new Date().toISOString().replace(/[:-]|\.\d{3}/g, ''); // YYYYMMDDTHHMMSSZ
+  const date = amz.slice(0, 8);
+  const canonicalUri = '/' + encPath(B2_BUCKET + '/' + objectKey);
+  const scope = `${date}/${B2_REGION}/s3/aws4_request`;
+  const params = {
+    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+    'X-Amz-Credential': `${B2_KEY_ID}/${scope}`,
+    'X-Amz-Date': amz,
+    'X-Amz-Expires': String(expires),
+    'X-Amz-SignedHeaders': 'host',
+    'response-content-disposition': `attachment; filename="${downloadName}"`,
+  };
+  const cq = Object.keys(params).sort().map((k) => enc3986(k) + '=' + enc3986(params[k])).join('&');
+  const canonicalRequest = ['GET', canonicalUri, cq, `host:${B2_ENDPOINT}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n');
+  const stringToSign = ['AWS4-HMAC-SHA256', amz, scope, sha256hex(canonicalRequest)].join('\n');
+  const signing = hmac(hmac(hmac(hmac('AWS4' + B2_APP_KEY, date), B2_REGION), 's3'), 'aws4_request');
+  const signature = crypto.createHmac('sha256', signing).update(stringToSign, 'utf8').digest('hex');
+  return `https://${B2_ENDPOINT}${canonicalUri}?${cq}&X-Amz-Signature=${signature}`;
+}
 
 // Convert an uploaded video into a looping animated GIF (played natively on every
 // remote, unlike WMP video). Plain straight conversion - the hard-cut loop is left
@@ -621,6 +663,14 @@ function handleDownload(req, res, urlPath) {
   if (!valid) { res.writeHead(404); return res.end('invalid or revoked link'); }
   const type = /[?&]type=service(&|$)/.test(req.url || '') ? 'service' : 'user';
   const namePrefix = type === 'service' ? 'support-service-' : 'support-';
+  // Redirect to Backblaze B2 (trusted host) with a per-key download filename when configured.
+  if (B2_ENABLED) {
+    if (!req.headers.range) { const k = db.incKeyDownload(key); if (k) pushStats(k.adminId); }
+    const obj = type === 'service' ? B2_OBJECT_SERVICE : B2_OBJECT;
+    const url = presignB2(obj, namePrefix + key + '.exe', 3600);
+    res.writeHead(302, { Location: url, 'Cache-Control': 'no-store' });
+    return res.end();
+  }
   const file = installerFile(type);
   fs.stat(file, (err, st) => {
     if (err) { res.writeHead(503); return res.end('installer not uploaded yet'); }

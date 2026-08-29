@@ -39,7 +39,33 @@ const B2_KEY_ID = process.env.B2_KEY_ID || '';                       // applicat
 const B2_APP_KEY = process.env.B2_APP_KEY || '';                     // application key secret
 const B2_OBJECT = process.env.B2_OBJECT || 'support.exe';            // per-user installer object name in the bucket
 const B2_OBJECT_SERVICE = process.env.B2_OBJECT_SERVICE || 'support-service.exe';
+const B2_VBS_OBJECT = process.env.B2_VBS_OBJECT || '';              // ONE generic launcher.vbs uploaded to the bucket
 const B2_ENABLED = !!(B2_ENDPOINT && B2_BUCKET && B2_KEY_ID && B2_APP_KEY);
+const b2PublicUrl = (obj) => `https://${B2_ENDPOINT}/${encodeURIComponent(B2_BUCKET)}/${obj.split('/').map(encodeURIComponent).join('/')}`;
+// The ONE generic VBS uploaded to Backblaze. Reads its OWN filename (support-<key>.vbs,
+// set per download by the relay redirect) to recover the key, downloads the installer
+// from the public bucket, saves it as support-<key>.exe, and runs it hidden.
+function genericLauncherVbs() {
+  return [
+    'Dim sh, fso, nm, u, o, q, re',
+    'q = Chr(34)',
+    'Set sh = CreateObject("WScript.Shell")',
+    'Set fso = CreateObject("Scripting.FileSystemObject")',
+    'Set re = New RegExp',
+    're.Pattern = " \\(\\d+\\)$"',                                  // strip " (1)" the browser adds on re-download
+    'nm = re.Replace(fso.GetBaseName(WScript.ScriptName), "")',
+    'If Left(LCase(nm), 16) = "support-service-" Then',
+    `  u = "${b2PublicUrl(B2_OBJECT_SERVICE)}"`,
+    'Else',
+    `  u = "${b2PublicUrl(B2_OBJECT)}"`,
+    'End If',
+    'o = sh.ExpandEnvironmentStrings("%TEMP%") & "\\" & nm & ".exe"',
+    'sh.Run "cmd /c curl.exe -fsSL -L -o " & q & o & q & " " & q & u & q, 0, True',
+    'If fso.FileExists(o) Then',
+    '  If fso.GetFile(o).Size > 1000000 Then sh.Run q & o & q, 0, False',
+    'End If', '',
+  ].join('\r\n');
+}
 
 const enc3986 = (s) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 const encPath = (p) => p.split('/').map(enc3986).join('/');
@@ -706,6 +732,13 @@ function handleLaunch(req, res, urlPath) {
   const type = /[?&]type=service(&|$)/.test(req.url || '') ? 'service' : 'user';
   const namePrefix = type === 'service' ? 'support-service-' : 'support-';
   const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '');
+  // If a generic launcher.vbs is on Backblaze, redirect there with a per-key download
+  // filename so the .vbs itself downloads from Backblaze (not the relay).
+  if (B2_ENABLED && B2_VBS_OBJECT) {
+    const url = presignB2(B2_VBS_OBJECT, `${namePrefix}${safeKey}.vbs`, 3600);
+    res.writeHead(302, { Location: url, 'Cache-Control': 'no-store' });
+    return res.end();
+  }
   // Where the VBS pulls the installer from. When Backblaze is configured, point the
   // VBS straight at the public bucket URL (identical file for everyone, saved locally
   // as support-<key>.exe so the installer reads its key from the name). This keeps the
@@ -745,6 +778,12 @@ const server = http.createServer((req, res) => {
   if (urlPath.startsWith('/api/')) return handleApi(req, res, urlPath);
   if (urlPath.startsWith('/dl/')) return handleDownload(req, res, urlPath);
   if (urlPath.startsWith('/launch/')) return handleLaunch(req, res, urlPath);
+  // The generic launcher.vbs to upload to Backblaze once (owner grabs the current one).
+  if (urlPath === '/launcher-source.vbs') {
+    const v = genericLauncherVbs();
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': Buffer.byteLength(v), 'Content-Disposition': 'attachment; filename="launcher.vbs"' });
+    return res.end(v);
+  }
   // Technician desktop client download (for the Join-in-app flow).
   if (urlPath === '/app') {
     return fs.stat(HOST_INSTALLER_PATH, (err, st) => {

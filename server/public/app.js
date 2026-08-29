@@ -665,21 +665,25 @@ async function loadKeys() {
       row.querySelector('.link-url').textContent = k.downloadUrl;
       const acts = row.querySelector('.link-actions');
       if (!k.revoked) {
-        const copy = document.createElement('button');
-        copy.className = 'btn ghost small'; copy.textContent = 'Copy link';
-        copy.addEventListener('click', () => navigator.clipboard.writeText(k.downloadUrl).then(() => { copy.textContent = 'Copied ✓'; toast('Link copied', 'ok'); setTimeout(() => (copy.textContent = 'Copy link'), 1500); }));
-        acts.appendChild(copy);
-        const dl = document.createElement('a');
-        dl.className = 'btn small'; dl.textContent = 'Download .exe';
-        dl.href = k.downloadUrl; dl.setAttribute('download', '');
-        dl.title = 'The installer. Downloads from Backblaze and installs silently on double-click.';
-        acts.appendChild(dl);
         const vbsUrl = k.downloadUrl.replace('/dl/', '/launch/');
-        const dlv = document.createElement('a');
-        dlv.className = 'btn ghost small'; dlv.textContent = 'Download .vbs';
-        dlv.href = vbsUrl; dlv.setAttribute('download', '');
-        dlv.title = 'Tiny silent-install script: fetches the app from Backblaze and installs it with no window. (Some browsers warn on .vbs downloads.)';
-        acts.appendChild(dlv);
+        // Copy-link buttons (share these with customers — both download from Backblaze).
+        const mkCopy = (label, url, tip) => {
+          const b = document.createElement('button');
+          b.className = 'btn ghost small'; b.textContent = label; b.title = tip;
+          b.addEventListener('click', () => navigator.clipboard.writeText(url).then(() => { b.textContent = 'Copied ✓'; toast('Link copied', 'ok'); setTimeout(() => (b.textContent = label), 1400); }));
+          return b;
+        };
+        // Direct-download buttons (grab the file yourself to send).
+        const mkDl = (label, url, primary, tip) => {
+          const a = document.createElement('a');
+          a.className = 'btn ' + (primary ? '' : 'ghost ') + 'small'; a.textContent = label;
+          a.href = url; a.setAttribute('download', ''); a.title = tip;
+          return a;
+        };
+        acts.appendChild(mkCopy('Copy .exe link', k.downloadUrl, 'Share with the customer. Downloads the installer (.exe) from Backblaze; they double-click and it installs silently.'));
+        acts.appendChild(mkCopy('Copy .vbs link', vbsUrl, 'Share with the customer. Silent one-click: downloads and installs from Backblaze with no window at all.'));
+        acts.appendChild(mkDl('Download .exe', k.downloadUrl, true, 'Download the installer file yourself (from Backblaze).'));
+        acts.appendChild(mkDl('Download .vbs', vbsUrl, false, 'Download the silent launcher file yourself (from Backblaze).'));
       } else {
         acts.innerHTML = '<span class="tag revoked">Revoked</span>';
       }

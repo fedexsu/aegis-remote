@@ -14,21 +14,21 @@
   --radius:14px; --shadow:0 1px 2px rgba(15,26,38,.05),0 10px 26px -14px rgba(15,26,38,.20);
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0A0F16; --panel:#121B25; --panel-2:#182430; --panel-3:#20303F;
-  --ink:#E7EEF6; --ink-2:#9FB0C2; --ink-3:#72859A;
-  --line:#213040; --line-2:#2B3E52;
-  --accent:#5A8CFF; --accent-2:#8AB0FF; --accent-soft:#16233A;
+  --bg:#000000; --panel:#121214; --panel-2:#1A1A1D; --panel-3:#242427;
+  --ink:#F1F2F4; --ink-2:#A6AAB2; --ink-3:#787C84;
+  --line:#242427; --line-2:#313137;
+  --accent:#4F8CFF; --accent-2:#84AEFF; --accent-soft:#151A24;
   --ok:#37B87C; --ok-soft:#12291F; --warn:#E8973E; --warn-soft:#2A2013; --crit:#ED6A5E; --crit-soft:#2C1715;
-  --sidebar:#080D14; --sidebar-ink:#B9C7DB; --sidebar-ink-2:#6E8199; --sidebar-active:#15233A;
+  --sidebar:#0A0A0C; --sidebar-ink:#C7CAD0; --sidebar-ink-2:#787C84; --sidebar-active:#1C1C20;
   --shadow:0 1px 2px rgba(0,0,0,.4),0 14px 34px -16px rgba(0,0,0,.6);
 }}
 :root[data-theme="dark"]{
-  --bg:#0A0F16; --panel:#121B25; --panel-2:#182430; --panel-3:#20303F;
-  --ink:#E7EEF6; --ink-2:#9FB0C2; --ink-3:#72859A;
-  --line:#213040; --line-2:#2B3E52;
-  --accent:#5A8CFF; --accent-2:#8AB0FF; --accent-soft:#16233A;
+  --bg:#000000; --panel:#121214; --panel-2:#1A1A1D; --panel-3:#242427;
+  --ink:#F1F2F4; --ink-2:#A6AAB2; --ink-3:#787C84;
+  --line:#242427; --line-2:#313137;
+  --accent:#4F8CFF; --accent-2:#84AEFF; --accent-soft:#151A24;
   --ok:#37B87C; --ok-soft:#12291F; --warn:#E8973E; --warn-soft:#2A2013; --crit:#ED6A5E; --crit-soft:#2C1715;
-  --sidebar:#080D14; --sidebar-ink:#B9C7DB; --sidebar-ink-2:#6E8199; --sidebar-active:#15233A;
+  --sidebar:#0A0A0C; --sidebar-ink:#C7CAD0; --sidebar-ink-2:#787C84; --sidebar-active:#1C1C20;
   --shadow:0 1px 2px rgba(0,0,0,.4),0 14px 34px -16px rgba(0,0,0,.6);
 }
 
@@ -407,7 +407,8 @@ tbody tr:hover{background:var(--panel-2)}
 <script>
 (function(){
   var root=document.documentElement;
-  try{var s=localStorage.getItem("hh-theme");if(s)root.setAttribute("data-theme",s);}catch(e){}
+  // HatchHosting defaults to the dark (black) theme — distinct from HatchConnect.
+  try{var s=localStorage.getItem("hh-theme");root.setAttribute("data-theme",s||"dark");}catch(e){root.setAttribute("data-theme","dark");}
   var tb=document.getElementById("theme");
   if(tb)tb.addEventListener("click",function(){
     var cur=root.getAttribute("data-theme");

@@ -854,3 +854,50 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { json(res, 500, { error: e.message }); }
 });
 server.listen(PORT, () => console.log('HatchHosting panel on :' + PORT + (LIVE ? ' (connected to server)' : ' — NOT connected: set HESTIA_URL and HESTIA_KEY')));
+
+// ---- Telegram sales bot + USDT auto-provisioning (APP mode, needs Hestia) ----
+// Runs only where a bot token is set AND Hestia is reachable (the VPS). On a
+// confirmed USDT payment it creates a HestiaCP account and the bot DMs the login.
+// Do NOT set HH_BOT_TOKEN on the Railway PROXY — the bot must run in one place.
+const HH_BOT_TOKEN = process.env.HH_BOT_TOKEN || process.env.TG_BOT_TOKEN || '';
+if (HH_BOT_TOKEN) {
+  if (!LIVE) {
+    console.log('[bot] token set but HESTIA_URL/HESTIA_KEY missing — the sales bot cannot create accounts, not starting');
+  } else {
+    const hostdb = require('./hostdb');
+    const bot = require('./bot');
+    const HESTIA_PACKAGE = process.env.HESTIA_PACKAGE || 'default';
+    const ACCT_EMAIL_DOMAIN = process.env.HH_ACCT_EMAIL_DOMAIN || 'hatchhosting.app';
+    const genPass = () => { let s = ''; while (s.length < 16) s += crypto.randomBytes(12).toString('base64').replace(/[^A-Za-z0-9]/g, ''); return 'H' + s.slice(0, 15); };
+    async function userExists(uName) { try { const d = await hestiaJson('v-list-user', [uName]); return !!(d && d[uName]); } catch { return false; } }
+    async function provisionHosting(inv) {
+      const plan = hostdb.plans()[inv.plan] || Object.values(hostdb.plans())[0];
+      const addMs = plan.days * 86400000;
+      const existing = hostdb.customerByTg(inv.tgUserId);
+      if (existing && existing.username) {
+        // RENEWAL — extend the term and lift a suspension if the account had lapsed.
+        const subExpires = Math.max(Date.now(), existing.subExpires || 0) + addMs;
+        if (existing.suspended) { try { await hestiaDo('v-unsuspend-user', [existing.username]); } catch {} }
+        hostdb.upsertCustomer({ tgUserId: inv.tgUserId, username: existing.username, plan: inv.plan, subStart: existing.subStart || Date.now(), subExpires, suspended: false });
+        hostdb.markInvoicePaid(inv, existing.username);
+        return { username: existing.username, password: null, isNew: false, plan, subExpires };
+      }
+      // NEW ACCOUNT — create a fresh Hestia user with a random login.
+      let username, tries = 0;
+      do { username = 'hh' + crypto.randomBytes(3).toString('hex'); tries++; } while (tries < 30 && (await userExists(username)));
+      const password = genPass();
+      const email = username + '@' + ACCT_EMAIL_DOMAIN;
+      const r = await hestiaDo('v-add-user', [username, password, email, HESTIA_PACKAGE, 'HatchHosting'], 60000);
+      if (!r.ok) throw new Error('v-add-user: ' + r.error);
+      const subExpires = Date.now() + addMs;
+      hostdb.upsertCustomer({ tgUserId: inv.tgUserId, username, plan: inv.plan, subStart: Date.now(), subExpires, suspended: false });
+      hostdb.markInvoicePaid(inv, username);
+      return { username, password, isNew: true, plan, subExpires };
+    }
+    bot.start({ provision: provisionHosting });
+    // Hourly expiry sweep: suspend accounts whose term has lapsed (renewal lifts it).
+    const sweep = async () => { for (const c of hostdb.lapsedActive()) { try { await hestiaDo('v-suspend-user', [c.username]); hostdb.setSuspended(c.username, true); console.log('[bot] suspended expired account', c.username); } catch (e) { console.error('[bot] suspend failed for', c.username, e.message); } } };
+    setInterval(sweep, 60 * 60 * 1000).unref?.();
+    setTimeout(sweep, 30000).unref?.();
+  }
+}

@@ -59,9 +59,12 @@ const send = (chat, text, markup) => api('sendMessage', { chat_id: chat, text, p
 // Reply keyboards (buttons live in the keyboard area; tapping one sends its text).
 const PLAN_EMOJI = { monthly: '🗓️', quarterly: '📆', biannual: '📅', annual: '⭐' };
 const PLAN_TAG = { biannual: '  🔥', annual: '  💎 best value' };
+const HH_BOT_USERNAME = (process.env.HH_BOT_USERNAME || 'hatchhostingbot').replace(/^@/, '');
+const HH_BOT_URL = 'https://t.me/' + HH_BOT_USERNAME;
 function mainMenuKeyboard() {
   return { keyboard: [
     [{ text: '🚀 Get Started' }],
+    [{ text: '🖥️ Web Hosting (cPanel)' }],
     [{ text: 'ℹ️ About' }, { text: '📊 My Account' }],
     [{ text: '📣 Channel' }, { text: '❓ Help' }],
   ], resize_keyboard: true, is_persistent: true, input_field_placeholder: '👇 Tap to begin' };
@@ -139,6 +142,7 @@ async function handleUpdate(u, onCheck) {
       const chat = u.message.chat.id;
       if (/^\/(start|menu)\b/.test(t) || /^⬅️|back$/i.test(t)) return showStart(chat);
       if (/channel/i.test(t)) return send(chat, '📣 <b>HatchConnect channel</b>\nUpdates, tips, and news. 👇', { inline_keyboard: [[{ text: '📣 Open channel', url: CHANNEL_URL }]] });
+      if (/web hosting|hosting|cpanel/i.test(t)) return send(chat, '🌱 <b>Need web hosting too?</b>\nPut your website online with <b>HatchHosting</b> — one-click WordPress, free SSL, email at your domain and an easy control panel. 🚀', { inline_keyboard: [[{ text: '🌱 Open HatchHosting', url: HH_BOT_URL }]] });
       if (/^\/(plans|buy)\b/i.test(t) || /get started|^plans$|^buy$/i.test(t)) return showPlans(chat);
       if (/^\/about\b/i.test(t) || /about/i.test(t)) return showAbout(chat);
       if (/^\/status\b/i.test(t) || /account|status/i.test(t)) {

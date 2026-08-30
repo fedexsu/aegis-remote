@@ -320,7 +320,7 @@ tbody tr:hover{background:var(--panel-2)}
           <div><h1 class="page-title">File manager</h1><p class="page-sub">Upload and manage your website files.</p></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <select id="fm-site" style="padding:8px 10px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:13px"></select>
-            <select id="fm-page" title="Jump to the homepage or one of this domain's extra pages" style="padding:8px 10px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:13px"><option value="">Main site  (/)</option></select>
+            <select id="fm-page" title="Choose the main page or one of this domain's extra link pages" style="padding:8px 10px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:13px"><option value="">Main page</option></select>
             <button class="btn ghost sm" id="fm-newfile">New file</button>
             <button class="btn ghost sm" id="fm-mkdir">New folder</button>
             <button class="btn primary sm" id="fm-up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V6M6 12l6-6 6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>Upload</button>
@@ -679,10 +679,10 @@ tbody tr:hover{background:var(--panel-2)}
   var fmSite='', fmPath='', fmPagesCache=[];
   async function fmPopulatePages(){
     var sel=document.getElementById('fm-page'); if(!sel) return;
-    if(!fmSite){ sel.innerHTML='<option value="">Main site  (/)</option>'; fmPagesCache=[]; return; }
+    if(!fmSite){ sel.innerHTML='<option value="">Main page</option>'; fmPagesCache=[]; return; }
     var list=[]; try{ list=await getJSON('/api/website/pages?domain='+encodeURIComponent(fmSite)); }catch(e){ list=[]; }
     fmPagesCache=list;
-    sel.innerHTML='<option value="">Main site  (/)</option>'+list.map(function(p){ return '<option value="p/'+esc(p.slug)+'">/p/'+esc(p.slug)+(p.title?('  —  '+esc(p.title)):'')+'</option>'; }).join('');
+    sel.innerHTML='<option value="">'+esc(fmSite)+'  (main page)</option>'+list.map(function(p){ return '<option value="p/'+esc(p.slug)+'">'+esc(fmSite+'/p/'+p.slug)+(p.title?('  —  '+esc(p.title)):'')+'</option>'; }).join('');
     fmSyncPageSelect();
   }
   function fmSyncPageSelect(){ var sel=document.getElementById('fm-page'); if(!sel) return;

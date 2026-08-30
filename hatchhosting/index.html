@@ -37,7 +37,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",
 h1,h2,h3,h4{font-family:"Archivo","IBM Plex Sans",sans-serif;margin:0;letter-spacing:-.01em}
 .mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
 a{color:inherit}
-button{font-family:inherit}
+button{font-family:inherit;color:inherit}
 
 .shell{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
 
@@ -98,7 +98,7 @@ button{font-family:inherit}
 
 /* quick actions */
 .qa{grid-template-columns:repeat(5,1fr);margin-top:16px}
-.qa-btn{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);cursor:pointer;transition:transform .12s,border-color .12s,box-shadow .12s}
+.qa-btn{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);cursor:pointer;transition:transform .12s,border-color .12s,box-shadow .12s}
 .qa-btn:hover{transform:translateY(-2px);border-color:var(--accent);box-shadow:var(--shadow)}
 .qa-ic{width:38px;height:38px;border-radius:10px;background:var(--accent-soft);color:var(--accent-2);display:flex;align-items:center;justify-content:center}
 .qa-ic svg{width:19px;height:19px}

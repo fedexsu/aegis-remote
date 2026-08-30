@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Hatch">
+  <defs>
+    <linearGradient id="sprout" x1="150" y1="380" x2="380" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4F8CFF"/>
+      <stop offset="1" stop-color="#54E0B0"/>
+    </linearGradient>
+  </defs>
+  <!-- black tile -->
+  <rect x="0" y="0" width="512" height="512" rx="116" fill="#000000"/>
+  <rect x="6" y="6" width="500" height="500" rx="110" fill="none" stroke="#26262A" stroke-width="4"/>
+  <!-- stem -->
+  <path d="M256 396 C 256 336 256 312 256 268" fill="none" stroke="url(#sprout)" stroke-width="26" stroke-linecap="round"/>
+  <!-- left leaf -->
+  <path d="M256 300 C 214 306 178 286 160 236 C 210 226 246 252 256 300 Z" fill="url(#sprout)"/>
+  <!-- right leaf -->
+  <path d="M256 288 C 298 292 336 268 356 216 C 306 208 268 236 256 288 Z" fill="url(#sprout)" opacity="0.92"/>
+  <!-- seed dot -->
+  <circle cx="256" cy="404" r="15" fill="url(#sprout)"/>
+</svg>

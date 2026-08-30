@@ -543,6 +543,7 @@ tbody tr:hover{background:var(--panel-2)}
       {label:'Bot protection',fn:function(){ openBotShield(domain); }},
       {label:'FTP / SFTP accounts',fn:function(){ openFtp(domain); }},
       {label:'Domain aliases',fn:function(){ openAliases(domain); }},
+      {label:'Extra pages (host more on this domain)',fn:function(){ openPages(domain); }},
       {label:'Manage files',fn:function(){ fmSite=domain; fmPath=''; goTab('files'); }},
       {sep:true},
       {label:'Delete website',danger:true,fn:async function(){ if(!(await confirmDialog('Delete website','Permanently delete '+domain+' and all its files? This cannot be undone.','Delete website',true))) return; try{ await api('/api/website/delete',{domain:domain}); toast('Website deleted'); loadWebsites(); }catch(ex){ toast(ex.message,false); } }}
@@ -860,6 +861,45 @@ tbody tr:hover{background:var(--panel-2)}
     ov.querySelector('[data-add]').onclick=function(){ openForm('Add alias',[{name:'alias',label:'Alias domain',ph:'www.'+domain}],'Add',async function(v){ await api('/api/website/alias/add',{domain:domain,alias:v.alias}); toast('Alias added'); loadWebsites(); refresh(); }); };
     refresh();
   }
+  // --- Extra pages on the same domain (yoursite.com/p/xxxxx) ---
+  function editPage(domain,slug){ fmSite=domain; fmPath='p/'+slug; goTab('files'); openEditor('index.html'); }
+  async function openPages(domain){
+    var ov=openInfo('Extra pages — '+domain,
+      '<div style="font-size:13px;color:var(--ink-2);line-height:1.55;margin-bottom:14px">Your homepage is <b>'+esc(domain)+'</b>. Add extra pages here to host more on the <b>same domain</b> — each one gets its own short link like <span class="mono" style="color:var(--ink)">'+esc(domain)+'/p/xxxxx</span>, separate from your homepage. No extra setup: they share your domain and SSL, so a new page is live straight away.</div>'
+      +'<div data-list style="margin-bottom:12px"></div>'
+      +'<button class="btn primary sm" data-add><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>Add another page</button>');
+    async function refresh(){
+      var el=ov.querySelector('[data-list]'); if(!el) return;
+      el.innerHTML='<div class="dim" style="padding:6px 0;font-size:13px">Loading…</div>';
+      var list=[]; try{ list=await getJSON('/api/website/pages?domain='+encodeURIComponent(domain)); }catch(e){ list=[]; }
+      if(!list.length){ el.innerHTML='<div class="dim" style="padding:8px 0;font-size:13px">No extra pages yet. Click <b>Add another page</b> to create one.</div>'; return; }
+      el.innerHTML=list.map(function(p){
+        var link=p.link||(domain+'/p/'+p.slug);
+        return '<div style="padding:11px 0;border-bottom:1px solid var(--line)"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px">'
+          +'<div style="min-width:0"><div style="font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.title||p.slug)+'</div>'
+          +'<a href="https://'+esc(link)+'" target="_blank" rel="noopener" class="mono" style="font-size:12px;color:var(--accent-2);text-decoration:none">'+esc(link)+'</a></div>'
+          +'<div style="display:flex;gap:6px;flex:0 0 auto"><span class="ln" data-copy="'+esc(link)+'">Copy link</span><span class="ln" data-edit="'+esc(p.slug)+'">Edit</span><span class="ln danger" data-del="'+esc(p.slug)+'">Delete</span></div>'
+          +'</div></div>';
+      }).join('');
+      el.querySelectorAll('[data-copy]').forEach(function(x){ x.onclick=function(){ var u='https://'+x.getAttribute('data-copy'); try{ navigator.clipboard.writeText(u); toast('Link copied'); }catch(e){ toast(u); } }; });
+      el.querySelectorAll('[data-edit]').forEach(function(x){ x.onclick=function(){ ov.remove(); editPage(domain,x.getAttribute('data-edit')); }; });
+      el.querySelectorAll('[data-del]').forEach(function(x){ x.onclick=async function(){ var slug=x.getAttribute('data-del'); if(!(await confirmDialog('Delete page','Delete this page and its files? The link '+domain+'/p/'+slug+' will stop working. This cannot be undone.','Delete',true))) return; try{ await api('/api/website/pages/delete',{domain:domain,slug:slug}); toast('Page deleted'); refresh(); }catch(e){ toast(e.message,false); } }; });
+    }
+    ov.querySelector('[data-add]').onclick=function(){
+      openForm('Add another page',[
+        {name:'title',label:'Page name (shown as the page title)',ph:'About us'},
+        {name:'slug',label:'Custom link ending (optional) — leave blank for a random one',ph:'about'}
+      ],'Create page',async function(v){
+        var d=await api('/api/website/pages/add',{domain:domain,title:v.title,slug:v.slug});
+        toast('Page created'); refresh();
+        openInfo('Page created','<p>Your new page is live at:</p>'
+          +'<p style="margin-top:8px"><a href="'+esc(d.url)+'" target="_blank" rel="noopener" class="ln">'+esc(d.link||d.url)+'</a></p>'
+          +'<p style="margin-top:14px;color:var(--ink-2)">Click <b>Edit</b> next to the page to change its content, or open it in the <b>File manager</b>. It sits in the <span class="mono">p/'+esc(d.slug)+'</span> folder of '+esc(domain)+'.</p>');
+      });
+    };
+    refresh();
+  }
+
   // --- Email extras ---
   function openMailMenu(domain,account,e){
     showMenu(e.clientX,e.clientY,[

@@ -95,6 +95,11 @@ async function hestiaDo(cmd, args, timeout) {
 const numOrNull = (v) => (v === 'unlimited' || v === '' || v == null) ? null : (parseInt(v, 10) || 0);
 const okName = (s) => /^[a-z0-9._-]{1,32}$/i.test(s);
 const okDomain = (s) => /^[a-z0-9.-]{1,253}\.[a-z]{2,}$/i.test(s);
+const escHtml = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// extra pages on the same domain (main.com/p/<slug>): slug = url-safe path segment
+const okSlug = (s) => /^[a-z0-9-]{1,32}$/.test(s);
+const slugify = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+const randSlug = () => (crypto.randomBytes(6).toString('hex').replace(/[^a-z0-9]/g, '').slice(0, 6) || ('p' + nowSec()));
 
 // ---- filesystem (VPS): scoped to the logged-in user's own site directories ----
 function siteBase(u, domain) {
@@ -128,6 +133,63 @@ function wpConfig(dbName, dbUser, dbPass) {
     + "define('WP_AUTO_UPDATE_CORE', 'minor');\n"
     + "if ( ! defined('ABSPATH') ) { define('ABSPATH', __DIR__ . '/'); }\n"
     + "require_once ABSPATH . 'wp-settings.php';\n";
+}
+
+// ---- extra pages on the same domain (main.com/p/<slug>) ----
+// Each "page" is a folder under public_html/p/<slug> with its own index.html.
+// It shares the domain's SSL and DNS, so no extra setup is needed — the page is
+// live the moment the folder exists.
+function pageStarter(title, domain) {
+  const t = escHtml(title || 'New page');
+  return [
+    '<!doctype html>',
+    '<html lang="en">',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<title>' + t + '</title>',
+    '<style>',
+    '  :root{--ink:#0f1a26;--ink-2:#53627a;--bg:#f5f7fb;--card:#fff;--line:#e5eaf2;--accent:#2f6bff}',
+    '  @media(prefers-color-scheme:dark){:root{--ink:#e7eef6;--ink-2:#9fb0c2;--bg:#0b1017;--card:#141d28;--line:#243244;--accent:#5a8cff}}',
+    '  *{box-sizing:border-box}',
+    '  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.6}',
+    '  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;max-width:640px;width:100%;padding:44px 40px;box-shadow:0 20px 50px -30px rgba(0,0,0,.4)}',
+    '  h1{font-size:30px;margin:0 0 12px;letter-spacing:-.02em}',
+    '  p{color:var(--ink-2);font-size:16px;margin:0 0 14px}',
+    '  .tag{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}',
+    '  a{color:var(--accent);text-decoration:none;font-weight:600}',
+    '</style>',
+    '</head>',
+    '<body>',
+    '  <main class="card">',
+    '    <span class="tag">' + escHtml(domain) + '</span>',
+    '    <h1>' + t + '</h1>',
+    '    <p>This is your new page. Replace this text with your own content — edit it right from your hosting panel, or upload your own files into this folder.</p>',
+    '    <p><a href="/">&larr; Back to ' + escHtml(domain) + '</a></p>',
+    '  </main>',
+    '</body>',
+    '</html>',
+    '',
+  ].join('\n');
+}
+async function listPages(u, domain) {
+  const base = await ensureSite(u, domain);
+  const dir = path.join(base, 'p');
+  let names = [];
+  try { names = await fsp.readdir(dir); } catch { return []; }
+  const out = [];
+  for (const n of names) {
+    if (!okSlug(n)) continue;
+    try {
+      const st = await fsp.stat(path.join(dir, n));
+      if (!st.isDirectory()) continue;
+      let title = '';
+      try { const h = await fsp.readFile(path.join(dir, n, 'index.html'), 'utf8'); const m = h.match(/<title>([^<]*)<\/title>/i); if (m) title = m[1].trim().slice(0, 100); } catch {}
+      out.push({ slug: n, url: 'https://' + domain + '/p/' + n, link: domain + '/p/' + n, title, mtime: st.mtimeMs });
+    } catch {}
+  }
+  out.sort((a, b) => b.mtime - a.mtime);
+  return out;
 }
 
 // ---- bot protection (.htaccess, apache backend) ----
@@ -434,6 +496,10 @@ const server = http.createServer(async (req, res) => {
         await ensureSite(u, domain);
         return json(res, 200, await analytics(domain, u));
       }
+      if (url === '/api/website/pages' && req.method === 'GET') {
+        const domain = String(qp.get('domain') || '').trim().toLowerCase();
+        return json(res, 200, await listPages(u, domain));
+      }
       if (url === '/api/website/botshield' && req.method === 'GET') {
         const domain = String(qp.get('domain') || '').trim().toLowerCase();
         const base = await ensureSite(u, domain);
@@ -497,6 +563,36 @@ const server = http.createServer(async (req, res) => {
           const r = await hestiaDo('v-add-web-domain', [u, domain]);
           if (r.ok) { try { await applyCleanUrls(siteBase(u, domain), true); } catch {} } // clean URLs on by default
           return json(res, 200, r);
+        }
+        if (url === '/api/website/pages/add') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const base = await ensureSite(u, domain);
+          const title = String(b.title || '').trim().slice(0, 80);
+          let slug = slugify(b.slug || title);
+          if (!slug || !okSlug(slug)) slug = randSlug();
+          const pagesDir = path.join(base, 'p');
+          await fsp.mkdir(pagesDir, { recursive: true });
+          // keep it unique so a new page never overwrites an existing one
+          let final = slug, tries = 0;
+          while (fs.existsSync(path.join(pagesDir, final))) { final = (slug + '-' + randSlug()).slice(0, 32); if (++tries > 6) { final = randSlug(); break; } }
+          if (!okSlug(final)) final = randSlug();
+          const pdir = path.join(pagesDir, final);
+          try {
+            await fsp.mkdir(pdir);
+            await fsp.writeFile(path.join(pdir, 'index.html'), pageStarter(title, domain));
+            await execFileP('chown', ['-R', u + ':' + u, pagesDir]);
+          } catch (e) { return json(res, 200, { ok: false, error: 'Could not create the page: ' + (e.message || e) }); }
+          return json(res, 200, { ok: true, slug: final, path: 'p/' + final, link: domain + '/p/' + final, url: 'https://' + domain + '/p/' + final });
+        }
+        if (url === '/api/website/pages/delete') {
+          const domain = String(b.domain || '').trim().toLowerCase();
+          const base = await ensureSite(u, domain);
+          const slug = String(b.slug || '').trim().toLowerCase();
+          if (!okSlug(slug)) return json(res, 400, { error: 'Invalid page' });
+          const pdir = safeJoin(base, 'p/' + slug);
+          if (pdir === base || pdir === path.join(base, 'p')) return json(res, 400, { error: 'Invalid page' });
+          try { await fsp.rm(pdir, { recursive: true, force: true }); } catch { return json(res, 200, { ok: false, error: 'Could not delete the page' }); }
+          return json(res, 200, { ok: true });
         }
         if (url === '/api/website/cleanurls') {
           const domain = String(b.domain || '').trim().toLowerCase();

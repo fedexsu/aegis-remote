@@ -363,10 +363,10 @@ function removeCredential(adminId, id) {
 // Prices in USDT (1 USDT ~= 1 USD). All plans are full-featured at launch; the term
 // just sets the subscription length. Enforcement of expiry is a later step.
 const PLANS = {
-  monthly:   { key: 'monthly',   label: 'Monthly',            usdt: 29,  days: 30 },
-  quarterly: { key: 'quarterly', label: 'Quarterly (3 months)', usdt: 78,  days: 90 },
-  biannual:  { key: 'biannual',  label: 'Biannual (6 months)',  usdt: 138, days: 180 },
-  annual:    { key: 'annual',    label: 'Annual (12 months)',   usdt: 228, days: 365 },
+  monthly:   { key: 'monthly',   label: 'Monthly',            usdt: 499,  days: 30 },
+  quarterly: { key: 'quarterly', label: 'Quarterly (3 months)', usdt: 1499, days: 90 },
+  biannual:  { key: 'biannual',  label: 'Biannual (6 months)',  usdt: 2999, days: 180 },
+  annual:    { key: 'annual',    label: 'Annual (12 months)',   usdt: 5999, days: 365 },
 };
 const plans = () => PLANS;
 

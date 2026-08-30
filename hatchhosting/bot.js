@@ -26,6 +26,8 @@ const APP_URL = process.env.PANEL_URL || process.env.PUBLIC_URL || 'https://hatc
 const CHANNEL_USER = (process.env.HH_CHANNEL_USERNAME || '').replace(/^@/, '');
 const CHANNEL = CHANNEL_USER ? '@' + CHANNEL_USER : '';
 const CHANNEL_URL = CHANNEL_USER ? 'https://t.me/' + CHANNEL_USER : '';
+const SUPPORT_WA = process.env.HH_SUPPORT_WA || process.env.SUPPORT_WA || 'https://wa.me/message/DNZEI62CNT67P1';
+const SUPPORT_TG = (process.env.HH_SUPPORT_TG || process.env.SUPPORT_TG || '').replace(/^@/, ''); // Telegram support handle (set later)
 const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function api(method, params) {
@@ -72,7 +74,13 @@ function mainMenuKeyboard() {
     [{ text: 'ℹ️ About' }, { text: '📊 My Account' }],
   ];
   rows.push(CHANNEL_URL ? [{ text: '📣 Channel' }, { text: '❓ Help' }] : [{ text: '❓ Help' }]);
+  rows.push([{ text: '💬 Support' }]);
   return { keyboard: rows, resize_keyboard: true, is_persistent: true, input_field_placeholder: '👇 Tap to begin' };
+}
+function showSupport(chat) {
+  const rows = [[{ text: '💬 WhatsApp support', url: SUPPORT_WA }]];
+  if (SUPPORT_TG) rows.push([{ text: '✈️ Telegram support', url: 'https://t.me/' + SUPPORT_TG }]);
+  send(chat, '💬 <b>Support</b>\nWe’re happy to help — setup, your domain, billing, or any question. Tap below to reach a human. 👇', { inline_keyboard: rows });
 }
 function plansKeyboard() {
   const P = hostdb.plans();
@@ -156,7 +164,8 @@ async function handleUpdate(u, onCheck) {
         const expired = c.subExpires && c.subExpires <= Date.now();
         return send(chat, `📊 <b>Your hosting</b>\n\n📦 Plan: <b>${esc(P ? P.label : c.plan || 'n/a')}</b>\n${expired ? '⛔ <b>Expired</b>' : '⏳ Active until'}: <b>${until}</b>\n👤 Username: <code>${esc(c.username)}</code>\n🔗 Sign in: ${APP_URL}\n\n🔄 To ${expired ? 'reactivate' : 'renew or extend'}, tap <b>Get Started</b> and pick a plan. Time is added on top of what you have.`, mainMenuKeyboard());
       }
-      if (/^\/help\b/i.test(t) || /help/i.test(t)) return send(chat, '❓ <b>How it works</b>\n\n1️⃣ Tap <b>Get Started</b> and choose a plan.\n2️⃣ Send the exact USDT (TRC-20) amount shown.\n3️⃣ Your hosting account + login arrive here automatically in about a minute. 🎉\n\n📊 <b>My Account</b> shows your plan. 🔄 /start reopens the menu.', mainMenuKeyboard());
+      if (/^\/support\b/i.test(t) || /support|contact/i.test(t)) return showSupport(chat);
+      if (/^\/help\b/i.test(t) || /help/i.test(t)) return send(chat, '❓ <b>How it works</b>\n\n1️⃣ Tap <b>Get Started</b> and choose a plan.\n2️⃣ Send the exact USDT (TRC-20) amount shown.\n3️⃣ Your hosting account + login arrive here automatically in about a minute. 🎉\n\n📊 <b>My Account</b> shows your plan. 💬 <b>Support</b> reaches a human. 🔄 /start reopens the menu.', mainMenuKeyboard());
       const planKey = planFromText(t);
       if (planKey) {
         if (!(process.env.HH_USDT_ADDRESS || process.env.USDT_ADDRESS)) return send(chat, 'Payments are not configured yet. Please try again shortly.');

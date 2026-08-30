@@ -33,10 +33,10 @@ const genId = () => crypto.randomUUID();
 //   HH_PLANS='{"monthly":{"label":"Monthly","usdt":6,"days":30}}'
 // Prices are in USDT (~= USD). Adjust freely — the bot reads these live.
 const DEFAULT_PLANS = {
-  monthly:   { key: 'monthly',   label: 'Monthly',              usdt: 6,  days: 30 },
-  quarterly: { key: 'quarterly', label: 'Quarterly (3 months)', usdt: 16, days: 90 },
-  biannual:  { key: 'biannual',  label: 'Biannual (6 months)',  usdt: 30, days: 180 },
-  annual:    { key: 'annual',    label: 'Annual (12 months)',   usdt: 55, days: 365 },
+  monthly:   { key: 'monthly',   label: 'Monthly',              usdt: 49,  days: 30 },
+  quarterly: { key: 'quarterly', label: 'Quarterly (3 months)', usdt: 149, days: 90 },
+  biannual:  { key: 'biannual',  label: 'Biannual (6 months)',  usdt: 299, days: 180 },
+  annual:    { key: 'annual',    label: 'Annual (12 months)',   usdt: 599, days: 365 },
 };
 let PLANS = DEFAULT_PLANS;
 try {

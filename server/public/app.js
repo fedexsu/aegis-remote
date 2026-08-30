@@ -167,6 +167,7 @@ function showApp(a) {
   if (owner) loadEnrollLog();
   loadStats();
   loadAlerts();
+  fillSupport();
   loadSubscription();
   checkInstaller();
   loadBlankImage();
@@ -175,6 +176,14 @@ function showApp(a) {
 }
 function showAuth() { $('#auth-view').hidden = false; $('#app-view').hidden = true; }
 
+async function fillSupport() {
+  try {
+    const s = await api('/api/support');
+    const wa = document.querySelector('#support-wa'); if (wa && s.wa) wa.href = s.wa;
+    const tg = document.getElementById('sup-tg');
+    if (tg && s.tg) tg.innerHTML = '<a class="btn ghost small" target="_blank" rel="noopener" href="https://t.me/' + encodeURIComponent(s.tg) + '">Message on Telegram</a>';
+  } catch {}
+}
 function goto(view) {
   $$('.nav-item').forEach((n) => n.classList.toggle('active', n.dataset.view === view));
   $$('.page').forEach((p) => (p.hidden = p.dataset.page !== view));

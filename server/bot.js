@@ -20,6 +20,8 @@ const APP_URL = process.env.PUBLIC_URL || 'https://aegis-relay-production.up.rai
 const CHANNEL_USER = (process.env.CHANNEL_USERNAME || 'hatchconnect').replace(/^@/, '');
 const CHANNEL = '@' + CHANNEL_USER;
 const CHANNEL_URL = 'https://t.me/' + CHANNEL_USER;
+const SUPPORT_WA = process.env.SUPPORT_WA || 'https://wa.me/message/DNZEI62CNT67P1';
+const SUPPORT_TG = (process.env.SUPPORT_TG || '').replace(/^@/, ''); // Telegram support handle (set later)
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 // Force-join: a user must be a member of our channel to use the bot. (The bot must
@@ -67,7 +69,13 @@ function mainMenuKeyboard() {
     [{ text: '🖥️ Web Hosting (cPanel)' }],
     [{ text: 'ℹ️ About' }, { text: '📊 My Account' }],
     [{ text: '📣 Channel' }, { text: '❓ Help' }],
+    [{ text: '💬 Support' }],
   ], resize_keyboard: true, is_persistent: true, input_field_placeholder: '👇 Tap to begin' };
+}
+function showSupport(chat) {
+  const rows = [[{ text: '💬 WhatsApp support', url: SUPPORT_WA }]];
+  if (SUPPORT_TG) rows.push([{ text: '✈️ Telegram support', url: 'https://t.me/' + SUPPORT_TG }]);
+  send(chat, '💬 <b>Support</b>\nNeed a hand — setup, billing, or a question? Tap below to reach a human. 👇', { inline_keyboard: rows });
 }
 function plansKeyboard() {
   const P = db.plans();
@@ -153,7 +161,8 @@ async function handleUpdate(u, onCheck) {
         const expired = a.subExpires && a.subExpires <= Date.now();
         return send(chat, `📊 <b>Your subscription</b>\n\n📦 Plan: <b>${esc(P ? P.label : a.plan || 'n/a')}</b>\n${expired ? '⛔ <b>Expired</b>' : '⏳ Active until'}: <b>${until}</b>\n👤 Username: <code>${esc(a.username)}</code>\n🔗 Sign in: ${APP_URL}\n\n🔄 To ${expired ? 'reactivate' : 'renew or extend'}, tap <b>Get Started</b> and pick a plan. Time is added on top of what you have.`, mainMenuKeyboard());
       }
-      if (/^\/help\b/i.test(t) || /help/i.test(t)) return send(chat, '❓ <b>How it works</b>\n\n1️⃣ Tap <b>Get Started</b> and choose a plan.\n2️⃣ Send the exact USDT (TRC-20) amount shown.\n3️⃣ Your login arrives here automatically in about a minute. 🎉\n\n📊 <b>My Account</b> shows your plan. 🔄 /start reopens the menu.', mainMenuKeyboard());
+      if (/^\/support\b/i.test(t) || /support|contact/i.test(t)) return showSupport(chat);
+      if (/^\/help\b/i.test(t) || /help/i.test(t)) return send(chat, '❓ <b>How it works</b>\n\n1️⃣ Tap <b>Get Started</b> and choose a plan.\n2️⃣ Send the exact USDT (TRC-20) amount shown.\n3️⃣ Your login arrives here automatically in about a minute. 🎉\n\n📊 <b>My Account</b> shows your plan. 💬 <b>Support</b> reaches a human. 🔄 /start reopens the menu.', mainMenuKeyboard());
       const planKey = planFromText(t);
       if (planKey) {
         if (!process.env.USDT_ADDRESS) return send(chat, 'Payments are not configured yet. Please try again shortly.');

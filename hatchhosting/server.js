@@ -393,6 +393,7 @@ function accountFrom(u) {
 // ---- http ---------------------------------------------------------------
 const json = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
 const getCookie = (req) => { const m = (req.headers.cookie || '').match(/hh_sess=([^;]+)/); return m ? m[1] : null; };
+const hostdb = require('./hostdb'); // billing/subscription store (shared by the route + bot)
 const sessionUser = (req) => { const c = getCookie(req); return c ? (sessions.get(c) || null) : null; };
 const clientIp = (req) => (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
 const readBody = (req) => new Promise((r) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { try { r(JSON.parse(b || '{}')); } catch { r({}); } }); });
@@ -403,6 +404,18 @@ const server = http.createServer(async (req, res) => {
   const qp = parsed.searchParams;
   try {
     if (url === '/api/session') { const u = sessionUser(req); return json(res, 200, { authed: !!u, user: u }); }
+
+    // Subscription status for the panel's renew banner. Login is never blocked for
+    // hosting — when a term lapses we pause the sites, not the account, so this just
+    // tells the panel to show a renew notice. `managed:false` = not a bot-sold account.
+    if (url === '/api/subscription') {
+      const u = sessionUser(req); if (!u) return json(res, 401, { error: 'not signed in' });
+      const c = hostdb.customerByUser(u);
+      const botUrl = 'https://t.me/' + (process.env.HH_BOT_USERNAME || 'hatchhostingbot');
+      if (!c || !c.subExpires) return json(res, 200, { subscription: { managed: false, botUrl } });
+      const daysLeft = Math.ceil((c.subExpires - Date.now()) / 86400000);
+      return json(res, 200, { subscription: { managed: true, plan: c.plan, planLabel: (hostdb.plans()[c.plan] || {}).label || c.plan, suspended: !!c.suspended, subExpires: c.subExpires, daysLeft, expired: daysLeft < 0, botUrl } });
+    }
 
     if (url === '/login' && req.method === 'POST') {
       if (!LIVE) return json(res, 503, { error: 'Server not connected yet' });
@@ -866,21 +879,26 @@ if (HH_BOT_TOKEN) {
   if (!LIVE) {
     console.log('[bot] token set but HESTIA_URL/HESTIA_KEY missing — the sales bot cannot create accounts, not starting');
   } else {
-    const hostdb = require('./hostdb');
     const bot = require('./bot');
     const HESTIA_PACKAGE = process.env.HESTIA_PACKAGE || 'default';
     const ACCT_EMAIL_DOMAIN = process.env.HH_ACCT_EMAIL_DOMAIN || 'hatchhosting.app';
     const genPass = () => { let s = ''; while (s.length < 16) s += crypto.randomBytes(12).toString('base64').replace(/[^A-Za-z0-9]/g, ''); return 'H' + s.slice(0, 15); };
     async function userExists(uName) { try { const d = await hestiaJson('v-list-user', [uName]); return !!(d && d[uName]); } catch { return false; } }
+    async function listDomains(uName) { try { const d = await hestiaJson('v-list-web-domains', [uName]); return d ? Object.keys(d) : []; } catch { return []; } }
+    // We pause the customer's WEBSITES (not the whole account) so their pages stop
+    // serving while their panel login keeps working — that's the point where they see
+    // the renew notice. Renewal unsuspends every domain again.
+    async function suspendSite(uName) { for (const dom of await listDomains(uName)) { try { await hestiaDo('v-suspend-web-domain', [uName, dom]); } catch (e) {} } }
+    async function unsuspendSite(uName) { for (const dom of await listDomains(uName)) { try { await hestiaDo('v-unsuspend-web-domain', [uName, dom]); } catch (e) {} } }
     async function provisionHosting(inv) {
       const plan = hostdb.plans()[inv.plan] || Object.values(hostdb.plans())[0];
       const addMs = plan.days * 86400000;
       const existing = hostdb.customerByTg(inv.tgUserId);
       if (existing && existing.username) {
-        // RENEWAL — extend the term and lift a suspension if the account had lapsed.
+        // RENEWAL — extend the term and bring the sites back if they'd been paused.
         const subExpires = Math.max(Date.now(), existing.subExpires || 0) + addMs;
-        if (existing.suspended) { try { await hestiaDo('v-unsuspend-user', [existing.username]); } catch {} }
-        hostdb.upsertCustomer({ tgUserId: inv.tgUserId, username: existing.username, plan: inv.plan, subStart: existing.subStart || Date.now(), subExpires, suspended: false });
+        if (existing.suspended) { await unsuspendSite(existing.username); }
+        hostdb.upsertCustomer({ tgUserId: inv.tgUserId, username: existing.username, plan: inv.plan, subStart: existing.subStart || Date.now(), subExpires, suspended: false, remindedOn: '' });
         hostdb.markInvoicePaid(inv, existing.username);
         return { username: existing.username, password: null, isNew: false, plan, subExpires };
       }
@@ -892,13 +910,14 @@ if (HH_BOT_TOKEN) {
       const r = await hestiaDo('v-add-user', [username, password, email, HESTIA_PACKAGE, 'HatchHosting'], 60000);
       if (!r.ok) throw new Error('v-add-user: ' + r.error);
       const subExpires = Date.now() + addMs;
-      hostdb.upsertCustomer({ tgUserId: inv.tgUserId, username, plan: inv.plan, subStart: Date.now(), subExpires, suspended: false });
+      hostdb.upsertCustomer({ tgUserId: inv.tgUserId, username, plan: inv.plan, subStart: Date.now(), subExpires, suspended: false, remindedOn: '' });
       hostdb.markInvoicePaid(inv, username);
       return { username, password, isNew: true, plan, subExpires };
     }
     bot.start({ provision: provisionHosting });
-    // Hourly expiry sweep: suspend accounts whose term has lapsed (renewal lifts it).
-    const sweep = async () => { for (const c of hostdb.lapsedActive()) { try { await hestiaDo('v-suspend-user', [c.username]); hostdb.setSuspended(c.username, true); console.log('[bot] suspended expired account', c.username); } catch (e) { console.error('[bot] suspend failed for', c.username, e.message); } } };
+    // Hourly expiry sweep: a day after a term lapses, pause the customer's SITES so
+    // their pages stop loading (login stays open). Renewal lifts it automatically.
+    const sweep = async () => { for (const c of hostdb.lapsedActive()) { try { await suspendSite(c.username); hostdb.setSuspended(c.username, true); console.log('[bot] paused sites for expired account', c.username); } catch (e) { console.error('[bot] suspend failed for', c.username, e.message); } } };
     setInterval(sweep, 60 * 60 * 1000).unref?.();
     setTimeout(sweep, 30000).unref?.();
   }

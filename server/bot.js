@@ -212,6 +212,29 @@ function notifyPaid(inv, creds) {
   }
 }
 
+// Renewal reminders: DM customers daily during the last 3 days before expiry, and a
+// single notice once access is blocked. Throttled via each account's `remindedOn`.
+function remindSweep() {
+  try {
+    const dayKey = new Date().toISOString().slice(0, 10);
+    for (const s of db.subscriberReminders()) {
+      const d = s.daysLeft;
+      const P = db.plans()[s.plan];
+      const tag = P ? (' (' + esc(P.label) + ')') : '';
+      if (d < 0) {
+        if (s.remindedOn === 'expired') continue;
+        send(s.tgChat, `⛔ <b>Subscription expired</b>\nYour HatchConnect access${tag} is now paused. Renew to switch it back on — tap <b>Get Started</b>. Your login stays the same. 🔓`, mainMenuKeyboard());
+        db.setReminded(s.id, 'expired');
+      } else if (d <= 3) {
+        if (s.remindedOn === dayKey) continue;
+        const when = d <= 0 ? '<b>today</b>' : ('in <b>' + d + ' day' + (d === 1 ? '' : 's') + '</b>');
+        send(s.tgChat, `⏳ <b>Renewal reminder</b>\nYour HatchConnect subscription${tag} expires ${when}.\n\nRenew now to keep your access — tap <b>Get Started</b>. 🚀`, mainMenuKeyboard());
+        db.setReminded(s.id, dayKey);
+      }
+    }
+  } catch (e) { console.error('[bot] remind sweep error:', e.message); }
+}
+
 let running = false;
 let offset = 0;
 async function poll(onCheck) {
@@ -230,6 +253,7 @@ function start() {
   const runCheck = () => payments.checkPayments(notifyPaid).catch((e) => console.error('[pay] check error:', e.message));
   poll(runCheck);
   setInterval(runCheck, 45000); // watch the chain every 45s
+  setTimeout(remindSweep, 20000); setInterval(remindSweep, 6 * 60 * 60 * 1000); // renewal reminders
   console.log('[bot] Telegram bot started (long-polling); watching USDT payments every 45s');
 }
 

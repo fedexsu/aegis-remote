@@ -430,6 +430,7 @@ function provisionFromInvoice(inv) {
     admin.subExpires = Date.now() + addMs;
     isNew = true;
   }
+  admin.remindedOn = ''; // renewal clears the reminder throttle so future reminders fire
   inv.status = 'paid'; inv.adminId = admin.id; inv.paidAt = Date.now();
   save();
   const key = keysForAdmin(admin.id)[0];
@@ -437,7 +438,21 @@ function provisionFromInvoice(inv) {
 }
 
 // Subscription enforcement + display.
-function isExpired(admin) { return !!(admin && (admin.role || 'admin') !== 'owner' && admin.subExpires && admin.subExpires <= Date.now()); }
+// Access is blocked a GRACE period AFTER the term ends (renewal reminders go out in
+// the last 3 days; the account keeps working until grace runs out).
+const SUB_GRACE_MS = 24 * 60 * 60 * 1000; // 1 day
+function isExpired(admin) { return !!(admin && (admin.role || 'admin') !== 'owner' && admin.subExpires && (admin.subExpires + SUB_GRACE_MS) <= Date.now()); }
+
+// Customers (non-owner, bought via the bot) with their days-to-expiry, for the
+// reminder sweep. `remindedOn` throttles to one message per day (or a single
+// 'expired' notice once access is blocked); it's cleared on renewal.
+function subscriberReminders() {
+  const now = Date.now();
+  return db.admins
+    .filter((a) => (a.role || 'admin') !== 'owner' && a.tgUserId && a.subExpires)
+    .map((a) => ({ id: a.id, tgChat: a.tgChat || a.tgUserId, plan: a.plan, subExpires: a.subExpires, remindedOn: a.remindedOn || '', daysLeft: Math.ceil((a.subExpires - now) / 86400000) }));
+}
+function setReminded(id, mark) { const a = findAdminById(id); if (a) { a.remindedOn = mark; save(); } }
 function subscriptionOf(adminId) {
   const a = findAdminById(adminId); if (!a) return null;
   const owner = (a.role || 'admin') === 'owner';
@@ -466,4 +481,5 @@ module.exports = {
   getCredentials, addCredential, removeCredential,
   plans, createInvoice, getInvoice, accountByTg, expireInvoices, matchPendingInvoiceByAmount, isTxProcessed, markTxProcessed, provisionFromInvoice,
   isExpired, subscriptionOf, createMagicToken, consumeMagicToken,
+  subscriberReminders, setReminded,
 };

@@ -407,6 +407,14 @@ async function handleApi(req, res, urlPath) {
     const admin = adminFromReq(req);
     if (!admin) return json(res, 401, { error: 'not signed in' });
 
+    // Subscription enforcement: once past the grace period, block access for an
+    // already-signed-in customer too (not just at login), so an open tab can't keep
+    // working. Logout stays allowed so they can sign out cleanly. Renewing on the bot
+    // lifts this automatically on the next request.
+    if (db.isExpired(admin) && urlPath !== '/api/logout') {
+      return json(res, 403, { error: 'Your subscription has ended. Renew on our Telegram bot, then sign in again.', expired: true, botUrl: 'https://t.me/' + (process.env.BOT_USERNAME || 'hatchconnect') });
+    }
+
     if (urlPath === '/api/me' && m === 'GET') return json(res, 200, { admin: db.publicAdmin(admin) });
 
     // Subscription status for the dashboard Account section (+ renew link to the bot).

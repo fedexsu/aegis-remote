@@ -214,6 +214,29 @@ function notifyPaid(inv, creds) {
   }
 }
 
+// Renewal reminders: DM customers daily during the last 3 days before expiry, and a
+// single notice once their sites are paused. Throttled via each account's remindedOn.
+function remindSweep() {
+  try {
+    const dayKey = new Date().toISOString().slice(0, 10);
+    for (const s of hostdb.customerReminders()) {
+      const d = s.daysLeft;
+      const P = hostdb.plans()[s.plan];
+      const tag = P ? (' (' + esc(P.label) + ')') : '';
+      if (d < 0) {
+        if (s.remindedOn === 'expired') continue;
+        send(s.tgChat, `⛔ <b>Subscription expired</b>\nYour HatchHosting plan${tag} has lapsed, so your website is <b>paused</b> and won’t load until you renew. Your panel login still works.\n\nTap <b>Get Started</b> to renew and bring your site back online. 🌱`, mainMenuKeyboard());
+        hostdb.setReminded(s.username, 'expired');
+      } else if (d <= 3) {
+        if (s.remindedOn === dayKey) continue;
+        const when = d <= 0 ? '<b>today</b>' : ('in <b>' + d + ' day' + (d === 1 ? '' : 's') + '</b>');
+        send(s.tgChat, `⏳ <b>Renewal reminder</b>\nYour HatchHosting plan${tag} expires ${when}. Renew to keep your website online — tap <b>Get Started</b>. 🚀`, mainMenuKeyboard());
+        hostdb.setReminded(s.username, dayKey);
+      }
+    }
+  } catch (e) { console.error('[bot] remind sweep error:', e.message); }
+}
+
 let running = false;
 let offset = 0;
 async function poll(onCheck) {
@@ -235,6 +258,7 @@ function start(opts) {
   const runCheck = () => payments.checkPayments(provision, notifyPaid).catch((e) => console.error('[pay] check error:', e.message));
   poll(runCheck);
   setInterval(runCheck, 45000); // watch the chain every 45s
+  setTimeout(remindSweep, 25000); setInterval(remindSweep, 6 * 60 * 60 * 1000); // renewal reminders
   console.log('[bot] HatchHosting Telegram bot started (long-polling); watching USDT payments every 45s' + (CHANNEL ? '; channel gate ' + CHANNEL : ''));
 }
 

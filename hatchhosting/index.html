@@ -212,6 +212,7 @@ tbody tr:hover{background:var(--panel-2)}
     </div>
 
     <div class="content">
+      <div id="renew-banner" style="display:none;margin-bottom:16px;padding:13px 16px;border-radius:12px;border:1px solid var(--line-2);background:var(--panel-2);align-items:center;gap:12px;font-size:13.5px"></div>
       <!-- OVERVIEW -->
       <section class="page on" data-page="overview">
         <h1 class="page-title">Overview</h1>
@@ -1062,6 +1063,24 @@ tbody tr:hover{background:var(--panel-2)}
 
   // --- loaders ---
   async function loadOverview(){ try{ fillAccount(await getJSON('/api/account')); fillSites(await getJSON('/api/websites')); renderGetStarted(); }catch(e){} }
+  async function loadSubscription(){
+    var el=document.getElementById('renew-banner'); if(!el) return;
+    var btn='style="padding:7px 13px;font-size:12.5px"';
+    try{
+      var r=await getJSON('/api/subscription'); var s=r.subscription||{};
+      var bot=s.botUrl||'https://t.me/hatchhostingbot';
+      if(!s.managed){ el.style.display='none'; return; }
+      if(s.suspended||s.expired){
+        el.style.borderColor='var(--crit)'; el.style.background='var(--crit-soft)';
+        el.innerHTML='<span style="font-size:18px">⛔</span><div style="flex:1"><b>Your subscription has ended'+(s.suspended?' — your website is paused and won’t load':'')+'.</b> Renew to bring it back online. Your panel login still works.</div><a class="btn primary" '+btn+' href="'+esc(bot)+'" target="_blank" rel="noopener">Renew on Telegram</a>';
+        el.style.display='flex';
+      } else if(s.daysLeft!=null && s.daysLeft<=3){
+        el.style.borderColor='var(--warn)'; el.style.background='var(--warn-soft)';
+        el.innerHTML='<span style="font-size:18px">⏳</span><div style="flex:1"><b>Your plan expires '+(s.daysLeft<=0?'today':('in '+s.daysLeft+' day'+(s.daysLeft===1?'':'s')))+'.</b> Renew to keep your website online.</div><a class="btn primary" '+btn+' href="'+esc(bot)+'" target="_blank" rel="noopener">Renew on Telegram</a>';
+        el.style.display='flex';
+      } else { el.style.display='none'; }
+    }catch(e){ el.style.display='none'; }
+  }
   async function loadWebsites(){ try{ fillSites(await getJSON('/api/websites')); }catch(e){ empty(document.getElementById('ws-sites'),6,'Could not load websites.'); } try{ fillAccount(await getJSON('/api/account')); }catch(e){} }
   async function loadDatabases(){ loading(tbody('databases'),5); try{ fillDatabases(await getJSON('/api/databases')); }catch(e){ empty(tbody('databases'),5,'Could not load databases.'); } }
   async function loadMail(){ loading(tbody('email'),5); try{ fillMail(await getJSON('/api/mail')); }catch(e){ empty(tbody('email'),5,'Could not load mailboxes.'); } }
@@ -1143,7 +1162,7 @@ tbody tr:hover{background:var(--panel-2)}
   if(nav) nav.addEventListener('click',function(e){ var b=e.target.closest('.nav-item'); if(b) ensureSection(b.getAttribute('data-p')); });
 
   function showLogin(v){ var l=document.getElementById('hh-login'); if(l)l.style.display=v?'flex':'none'; if(shell)shell.style.filter=v?'blur(3px)':''; }
-  function afterLogin(){ showLogin(false); loaded={}; loadOverview(); getJSON('/api/server').then(function(d){ serverInfo=d||{}; serverIP=(d&&d.ip)||''; }).catch(function(){}); fetch('/api/cleanurls-all',{method:'POST'}).catch(function(){}); }
+  function afterLogin(){ showLogin(false); loaded={}; loadOverview(); loadSubscription(); getJSON('/api/server').then(function(d){ serverInfo=d||{}; serverIP=(d&&d.ip)||''; }).catch(function(){}); fetch('/api/cleanurls-all',{method:'POST'}).catch(function(){}); }
 
   async function init(){
     wireButtons();

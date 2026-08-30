@@ -90,11 +90,22 @@ function setSuspended(username, val) {
   const c = db.customers.find((x) => x.username === username);
   if (c) { c.suspended = !!val; save(); }
 }
-// Customers whose term has lapsed but are not yet suspended (for the expiry sweep).
-const lapsedActive = () => db.customers.filter((c) => !c.suspended && c.subExpires && c.subExpires <= Date.now());
+// Customers whose term lapsed more than a day ago and aren't suspended yet (the
+// expiry sweep pauses their sites; login stays open). 1-day grace after expiry.
+const SUB_GRACE_MS = 24 * 60 * 60 * 1000;
+const lapsedActive = () => db.customers.filter((c) => !c.suspended && c.subExpires && (c.subExpires + SUB_GRACE_MS) <= Date.now());
+
+// For the renewal-reminder sweep (DM in the last 3 days + one 'expired' notice).
+function customerReminders() {
+  const now = Date.now();
+  return db.customers.filter((c) => c.tgUserId && c.subExpires)
+    .map((c) => ({ tgChat: c.tgChat || c.tgUserId, username: c.username, plan: c.plan, subExpires: c.subExpires, remindedOn: c.remindedOn || '', daysLeft: Math.ceil((c.subExpires - now) / 86400000) }));
+}
+function setReminded(username, mark) { const c = db.customers.find((x) => x.username === username); if (c) { c.remindedOn = mark; save(); } }
 
 module.exports = {
   DATA_DIR, plans,
   createInvoice, getInvoice, expireInvoices, matchPendingInvoiceByAmount, isTxProcessed, markTxProcessed,
   customerByTg, customerByUser, upsertCustomer, markInvoicePaid, setSuspended, lapsedActive,
+  customerReminders, setReminded,
 };

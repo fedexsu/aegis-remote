@@ -636,7 +636,7 @@ tbody tr:hover{background:var(--panel-2)}
       +'<tr>'+cell('A')+cell('www')+cell(ip)+'</tr>'
       +'</table></div>'
       +'<button class="btn ghost sm" data-copy="'+esc(ip)+'">Copy IP address</button>'
-      +'<p style="margin-top:14px;color:var(--ink-2)">DNS can take from 5 minutes up to a few hours to update. Once it points here, open this site and click <b>SSL</b> to switch it to secure HTTPS. To publish content, use <b>WordPress</b> (one click) or the <b>File manager</b>.</p>';
+      +'<p style="margin-top:14px;color:var(--ink-2)">DNS can take from 5 minutes up to a few hours to update. Once it points here, <b>HTTPS/SSL turns on automatically</b> within a few minutes — you don’t need to do anything. To publish content, use <b>WordPress</b> (one click) or the <b>File manager</b>.</p>';
     var ov=openInfo('Point '+domain+' to your site', body);
     var cp=ov.querySelector('[data-copy]');
     if(cp) cp.onclick=function(){ try{ navigator.clipboard.writeText(cp.getAttribute('data-copy')); toast('IP copied'); }catch(e){ toast('Copy failed — select it manually',false); } };
@@ -1002,8 +1002,9 @@ tbody tr:hover{background:var(--panel-2)}
       loadWebsites(); if(lastAccount) loadOverview();
       openInfo('Website created',
         '<p><b>'+esc(v.domain)+'</b> is ready'+(wp?' with WordPress':'')+'.</p>'
-        +'<p style="margin-top:10px">Two steps to make it live for everyone:</p>'
-        +'<ol style="margin:8px 0 0 18px;font-size:13px;line-height:1.7"><li><b>Point your domain</b> — on the website, open <b>Manage → DNS setup</b> and add the records at your domain provider.</li><li><b>Turn on SSL</b> — once your domain points here, open <b>Manage → Turn on SSL</b> for the padlock.</li></ol>');
+        +'<p style="margin-top:10px">One step to make it live for everyone:</p>'
+        +'<ol style="margin:8px 0 0 18px;font-size:13px;line-height:1.7"><li><b>Point your domain</b> — on the website, open <b>Manage → DNS setup</b> and add the records at your domain provider.</li></ol>'
+        +'<p style="margin-top:10px;color:var(--ink-2)">🔒 Once your domain points here, <b>HTTPS/SSL turns on automatically</b> — no extra step.</p>');
     });
   }
 
@@ -1019,7 +1020,7 @@ tbody tr:hover{background:var(--panel-2)}
       {k:'site',done:hasSite,title:'Add your first website',desc:'Just your domain name, like mysite.com.',act:function(){openCreateWebsite();}},
       {k:'dns',done:dnsOk,title:'Point your domain to this server',desc:'Add the records at your domain provider so visitors reach your site.',act:function(){ if(sites[0]) showDns(sites[0].domain); else toast('Add a website first'); }},
       {k:'content',done:hasContent,title:'Put your content online',desc:'Install WordPress in one click, or upload your files.',act:function(){ installWpPick(); }},
-      {k:'ssl',done:hasSsl,title:'Turn on secure HTTPS (the padlock)',desc:'Keeps your visitors and their data safe.',act:function(){ goTab('websites'); toast('Click "SSL" on your website to turn it on'); }}
+      {k:'ssl',done:hasSsl,title:'Secure HTTPS (the padlock)',desc:'Turns on automatically once your domain points here — nothing to do.',act:function(){ toast('SSL turns on automatically after your domain points here.'); }}
     ];
     if(steps.every(function(s){return s.done;})){ el.innerHTML=''; return; }
     var done=steps.filter(function(s){return s.done;}).length;
@@ -1065,7 +1066,7 @@ tbody tr:hover{background:var(--panel-2)}
       h.querySelectorAll('[data-sp]').forEach(function(tr){ tr.onclick=function(){ var k=tr.getAttribute('data-sp');
         if(k==='add') openCreateWebsite();
         else if(k==='dns'){ if(lastSites[0]) showDns(lastSites[0].domain); else { goTab('websites'); toast('Add a website first.'); } }
-        else if(k==='ssl'){ goTab('websites'); toast('Open Manage ▾ on your site and choose "Turn on SSL".'); }
+        else if(k==='ssl'){ goTab('websites'); toast('SSL turns on automatically once your domain points here — no action needed.'); }
         else if(k==='wp') installWpPick();
         else if(k==='files') goTab('files');
       }; });

@@ -870,6 +870,63 @@ const server = http.createServer(async (req, res) => {
 });
 server.listen(PORT, () => console.log('HatchHosting panel on :' + PORT + (LIVE ? ' (connected to server)' : ' — NOT connected: set HESTIA_URL and HESTIA_KEY')));
 
+// ---- Auto-SSL: issue Let's Encrypt automatically once a domain points here --------
+// Background job: for every site without a certificate, the moment its domain
+// (apex + www) resolves to THIS server, it issues LE and forces HTTPS — no manual
+// step for the customer. The DNS pre-check means we only ever call LE when it will
+// succeed, keeping us well within its rate limits; failures back off and retry.
+if (LIVE) {
+  const dns = require('dns').promises;
+  let cachedIp = SERVER_IP;
+  const sslState = new Map();               // domain -> { attempts, nextTry }
+  const BACKOFF_MIN = [30, 120, 360, 1440]; // retry gaps (minutes) after a failure
+  async function serverIp() {
+    if (cachedIp) return cachedIp;
+    try { const ips = await hestiaJson('v-list-sys-ips'); cachedIp = ips ? Object.keys(ips)[0] : ''; } catch {}
+    return cachedIp;
+  }
+  const resolvesHere = async (host, ip) => { try { return (await dns.resolve4(host)).includes(ip); } catch { return false; } };
+  async function autoSslSweep() {
+    try {
+      const ip = await serverIp();
+      if (!ip) return; // can't verify DNS without knowing our own IP (set SERVER_IP)
+      const users = (await hestiaJson('v-list-users').catch(() => ({}))) || {};
+      for (const u of Object.keys(users)) {
+        let doms = {}; try { doms = (await hestiaJson('v-list-web-domains', [u])) || {}; } catch { continue; }
+        for (const [domain, w] of Object.entries(doms)) {
+          if (!okDomain(domain)) continue;
+          if (w.SSL === 'yes' || w.LETSENCRYPT === 'yes') { sslState.delete(domain); continue; } // already secured
+          const st = sslState.get(domain);
+          if (st && (st.attempts > BACKOFF_MIN.length || Date.now() < st.nextTry)) continue; // throttled / gave up
+          // Only attempt once the domain actually points here (apex + www) so LE can't fail validation.
+          if (!(await resolvesHere(domain, ip))) continue;
+          if (!(await resolvesHere('www.' + domain, ip))) continue;
+          const attempts = (st ? st.attempts : 0) + 1;
+          try {
+            const r = await hestiaDo('v-add-letsencrypt-domain', [u, domain], 160000);
+            if (r.ok) {
+              console.log('[auto-ssl] issued certificate for', domain);
+              if (apacheStack()) { try { await setForceHttps(u, domain, true); } catch {} }
+              sslState.delete(domain);
+            } else {
+              const wait = BACKOFF_MIN[Math.min(attempts - 1, BACKOFF_MIN.length - 1)];
+              sslState.set(domain, { attempts, nextTry: Date.now() + wait * 60000 });
+              console.log('[auto-ssl] issue failed for', domain, '-', r.error, '(retry ~' + wait + 'min)');
+            }
+          } catch (e) {
+            const wait = BACKOFF_MIN[Math.min(attempts - 1, BACKOFF_MIN.length - 1)];
+            sslState.set(domain, { attempts, nextTry: Date.now() + wait * 60000 });
+            console.log('[auto-ssl] error for', domain, '-', e.message);
+          }
+        }
+      }
+    } catch (e) { console.error('[auto-ssl] sweep error:', e.message); }
+  }
+  setTimeout(autoSslSweep, 60000).unref?.();
+  setInterval(autoSslSweep, 10 * 60 * 1000).unref?.();
+  console.log('[auto-ssl] enabled — certificates issue automatically once a domain points here');
+}
+
 // ---- Telegram sales bot + USDT auto-provisioning (APP mode, needs Hestia) ----
 // Runs only where a bot token is set AND Hestia is reachable (the VPS). On a
 // confirmed USDT payment it creates a HestiaCP account and the bot DMs the login.

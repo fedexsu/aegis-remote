@@ -95,13 +95,14 @@ function setSuspended(username, val) {
 const SUB_GRACE_MS = 24 * 60 * 60 * 1000;
 const lapsedActive = () => db.customers.filter((c) => !c.suspended && c.subExpires && (c.subExpires + SUB_GRACE_MS) <= Date.now());
 
-// For the renewal-reminder sweep (DM in the last 3 days + one 'expired' notice).
+// For the renewal-reminder sweep. `remindedAt` (ms of the last DM) throttles: every
+// 2h before expiry, once a day after. Cleared on renewal.
 function customerReminders() {
   const now = Date.now();
   return db.customers.filter((c) => c.tgUserId && c.subExpires)
-    .map((c) => ({ tgChat: c.tgChat || c.tgUserId, username: c.username, plan: c.plan, subExpires: c.subExpires, remindedOn: c.remindedOn || '', daysLeft: Math.ceil((c.subExpires - now) / 86400000) }));
+    .map((c) => ({ tgChat: c.tgChat || c.tgUserId, username: c.username, plan: c.plan, subExpires: c.subExpires, remindedAt: c.remindedAt || 0, daysLeft: Math.ceil((c.subExpires - now) / 86400000) }));
 }
-function setReminded(username, mark) { const c = db.customers.find((x) => x.username === username); if (c) { c.remindedOn = mark; save(); } }
+function setReminded(username, ts) { const c = db.customers.find((x) => x.username === username); if (c) { c.remindedAt = ts; save(); } }
 
 module.exports = {
   DATA_DIR, plans,

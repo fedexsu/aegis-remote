@@ -898,7 +898,7 @@ if (HH_BOT_TOKEN) {
         // RENEWAL — extend the term and bring the sites back if they'd been paused.
         const subExpires = Math.max(Date.now(), existing.subExpires || 0) + addMs;
         if (existing.suspended) { await unsuspendSite(existing.username); }
-        hostdb.upsertCustomer({ tgUserId: inv.tgUserId, username: existing.username, plan: inv.plan, subStart: existing.subStart || Date.now(), subExpires, suspended: false, remindedOn: '' });
+        hostdb.upsertCustomer({ tgUserId: inv.tgUserId, username: existing.username, plan: inv.plan, subStart: existing.subStart || Date.now(), subExpires, suspended: false, remindedAt: 0 });
         hostdb.markInvoicePaid(inv, existing.username);
         return { username: existing.username, password: null, isNew: false, plan, subExpires };
       }
@@ -910,7 +910,7 @@ if (HH_BOT_TOKEN) {
       const r = await hestiaDo('v-add-user', [username, password, email, HESTIA_PACKAGE, 'HatchHosting'], 60000);
       if (!r.ok) throw new Error('v-add-user: ' + r.error);
       const subExpires = Date.now() + addMs;
-      hostdb.upsertCustomer({ tgUserId: inv.tgUserId, username, plan: inv.plan, subStart: Date.now(), subExpires, suspended: false, remindedOn: '' });
+      hostdb.upsertCustomer({ tgUserId: inv.tgUserId, username, plan: inv.plan, subStart: Date.now(), subExpires, suspended: false, remindedAt: 0 });
       hostdb.markInvoicePaid(inv, username);
       return { username, password, isNew: true, plan, subExpires };
     }

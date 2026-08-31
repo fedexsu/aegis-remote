@@ -201,11 +201,23 @@ function notifyPaid(inv, creds) {
     send(process.env.HH_OWNER_TG_CHAT, `💰 <b>${creds.isNew ? 'New hosting sale' : 'Renewal'}</b>\nPlan: ${esc(p.label)} (${p.usdt} USDT)\nAccount: <code>${esc(creds.username)}</code>`);
   }
   if (creds.isNew) {
-    send(inv.tgChat,
+    const creds1 =
       `🎉 <b>Payment confirmed! Your hosting is ready.</b> 🚀\n\n` +
       `🔗 <b>Control panel:</b> ${APP_URL}\n👤 <b>Username:</b> <code>${esc(creds.username)}</code>\n🔑 <b>Password:</b> <code>${esc(creds.password)}</code>\n\n` +
       `📦 <b>Plan:</b> ${esc(p.label)} · active until ${until} ✅\n\n` +
-      `👉 <b>Get your site online</b>\n1️⃣ Open <b>${APP_URL}</b> and sign in with the details above\n2️⃣ Add your website (just your domain)\n3️⃣ Point your domain (the panel shows you exactly how) and turn on free SSL\n4️⃣ Install WordPress in one click, or upload your files 🌍\n\n🔒 Tip: change your password after your first sign-in.`);
+      `A full step-by-step guide is coming in the next message 👇`;
+    const support = `💬 <b>Need help?</b> WhatsApp: ${SUPPORT_WA}` + (SUPPORT_TG ? `\nTelegram: https://t.me/${SUPPORT_TG}` : '');
+    const guide =
+      `📗 <b>Your complete HatchHosting guide</b>\n\n` +
+      `<b>1) Sign in</b>\n• Open ${APP_URL} and log in with the username & password above.\n• Change your password in <b>Settings</b>. 🔒\n\n` +
+      `<b>2) Add your website</b>\n• Go to <b>Websites → New website</b> and enter your domain (e.g. mysite.com).\n\n` +
+      `<b>3) Point your domain here</b>\n• On the website's <b>Manage ▾ → DNS</b>, the panel shows the exact records (A record for @ and www → your server IP). Add them at wherever you bought your domain.\n• DNS can take a little while to take effect. 🌍\n\n` +
+      `<b>4) Turn on free SSL (HTTPS)</b>\n• Once the domain points here, use <b>Manage ▾ → Turn on SSL</b> for the padlock. 🔒\n\n` +
+      `<b>5) Build your site</b>\n• 🖱️ <b>One-click WordPress</b> — Manage ▾ → Install WordPress.\n• 📁 <b>File manager</b> — upload or edit your files directly; drag in a zip and extract it.\n• 🔗 <b>Links</b> — host extra pages on the same domain (mysite.com/p/...).\n\n` +
+      `<b>6) Email, databases & backups</b>\n• ✉️ <b>Email</b> — create mailboxes at your own domain (Webmail included).\n• 🗄️ <b>Databases</b> — create MySQL DBs + phpMyAdmin.\n• 💾 <b>Backups</b> — make and download backups anytime.\n\n` +
+      `<b>7) Analytics</b>\n• See visitors, top pages and countries under <b>Analytics</b>. 📊\n\n` +
+      support + `\n\nTap <b>Get Started</b> anytime to renew. 🚀`;
+    send(inv.tgChat, creds1).then(() => send(inv.tgChat, guide, mainMenuKeyboard()));
   } else {
     send(inv.tgChat,
       `🔄 <b>Renewal confirmed!</b> Your hosting is extended. 🎉\n\n` +
@@ -214,25 +226,27 @@ function notifyPaid(inv, creds) {
   }
 }
 
-// Renewal reminders: DM customers daily during the last 3 days before expiry, and a
-// single notice once their sites are paused. Throttled via each account's remindedOn.
+// Renewal reminders: DM every 2h during the last 3 days BEFORE expiry, then once a
+// day AFTER it expires (until they renew). Throttled by each account's remindedAt.
+const REMIND_WINDOW = 3 * 86400000, REMIND_BEFORE = 2 * 60 * 60 * 1000, REMIND_AFTER = 24 * 60 * 60 * 1000;
 function remindSweep() {
   try {
-    const dayKey = new Date().toISOString().slice(0, 10);
+    const now = Date.now();
     for (const s of hostdb.customerReminders()) {
-      const d = s.daysLeft;
+      const expired = now >= s.subExpires;
+      const interval = expired ? REMIND_AFTER : REMIND_BEFORE;
+      if (!expired && (s.subExpires - now) > REMIND_WINDOW) continue; // >3 days out: nothing yet
+      if (s.remindedAt && (now - s.remindedAt) < interval) continue;
       const P = hostdb.plans()[s.plan];
       const tag = P ? (' (' + esc(P.label) + ')') : '';
-      if (d < 0) {
-        if (s.remindedOn === 'expired') continue;
-        send(s.tgChat, `⛔ <b>Subscription expired</b>\nYour HatchHosting plan${tag} has lapsed, so your website is <b>paused</b> and won’t load until you renew. Your panel login still works.\n\nTap <b>Get Started</b> to renew and bring your site back online. 🌱`, mainMenuKeyboard());
-        hostdb.setReminded(s.username, 'expired');
-      } else if (d <= 3) {
-        if (s.remindedOn === dayKey) continue;
+      if (expired) {
+        send(s.tgChat, `⛔ <b>Subscription expired</b>\nYour HatchHosting plan${tag} has lapsed, so your website is <b>paused</b> and won’t load until you renew. Your panel login still works.\n\nTap <b>Get Started</b> to renew and regain access — bring your site back online. 🌱`, mainMenuKeyboard());
+      } else {
+        const d = s.daysLeft;
         const when = d <= 0 ? '<b>today</b>' : ('in <b>' + d + ' day' + (d === 1 ? '' : 's') + '</b>');
         send(s.tgChat, `⏳ <b>Renewal reminder</b>\nYour HatchHosting plan${tag} expires ${when}. Renew to keep your website online — tap <b>Get Started</b>. 🚀`, mainMenuKeyboard());
-        hostdb.setReminded(s.username, dayKey);
       }
+      hostdb.setReminded(s.username, now);
     }
   } catch (e) { console.error('[bot] remind sweep error:', e.message); }
 }
@@ -258,7 +272,7 @@ function start(opts) {
   const runCheck = () => payments.checkPayments(provision, notifyPaid).catch((e) => console.error('[pay] check error:', e.message));
   poll(runCheck);
   setInterval(runCheck, 45000); // watch the chain every 45s
-  setTimeout(remindSweep, 25000); setInterval(remindSweep, 6 * 60 * 60 * 1000); // renewal reminders
+  setTimeout(remindSweep, 25000); setInterval(remindSweep, 30 * 60 * 1000); // renewal reminders (checks every 30m; sends every 2h pre-expiry, daily after)
   console.log('[bot] HatchHosting Telegram bot started (long-polling); watching USDT payments every 45s' + (CHANNEL ? '; channel gate ' + CHANNEL : ''));
 }
 

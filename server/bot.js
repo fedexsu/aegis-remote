@@ -199,11 +199,22 @@ function notifyPaid(inv, creds) {
     send(process.env.OWNER_TG_CHAT, `💰 <b>${creds.isNew ? 'New sale' : 'Renewal'}</b>\nPlan: ${esc(p.label)} (${p.usdt} USDT)\nAccount: <code>${esc(creds.username)}</code>`);
   }
   if (creds.isNew) {
-    send(inv.tgChat,
+    const creds1 =
       `🎉 <b>Payment confirmed! Here is your HatchConnect account.</b> 🚀\n\n` +
       `🔗 <b>Dashboard:</b> ${APP_URL}\n👤 <b>Username:</b> <code>${esc(creds.username)}</code>\n🔑 <b>Password:</b> <code>${esc(creds.password)}</code>\n\n` +
       `📦 <b>Plan:</b> ${esc(p.label)} · active until ${until} ✅\n\n` +
-      `👉 <b>How to sign in</b>\n1️⃣ Open <b>${APP_URL}</b> in your browser\n2️⃣ Enter the username and password above\n3️⃣ Change your password in Settings 🔒\n4️⃣ Open <b>Enrollment</b>, copy your install link, and get the app: ${APP_URL}/app 💻`);
+      `A full step-by-step guide is coming in the next message 👇`;
+    const support = `💬 <b>Need help?</b> WhatsApp: ${SUPPORT_WA}` + (SUPPORT_TG ? `\nTelegram: https://t.me/${SUPPORT_TG}` : '');
+    const guide =
+      `📘 <b>Your complete HatchConnect guide</b>\n\n` +
+      `<b>1) Sign in</b>\n• Open ${APP_URL} and log in with the username & password above.\n• Go to <b>Settings → Change password</b> to set your own. 🔒\n\n` +
+      `<b>2) Add a computer (Enrollment)</b>\n• Open the <b>Enrollment</b> page and copy your install link.\n• On the PC you want to access, open ${APP_URL}/app to download the installer — or send the install link to whoever is at that PC.\n• Run it once. The machine appears under <b>Devices</b> within a few seconds. Repeat for every PC. 💻\n\n` +
+      `<b>3) Control a device</b>\n• Click a device in <b>Devices</b> to open its live screen.\n• Toggle <b>Control</b> to use its mouse & keyboard (off = view-only).\n• Choose monitor, quality and zoom from the top bar.\n\n` +
+      `<b>4) Tools while connected</b>\n• 📁 <b>File transfer</b> — move files both ways.\n• 📋 <b>Clipboard</b> — share text & images with the remote.\n• 🖥️ <b>Essentials</b> — Ctrl+Alt+Del, blank screen, lock.\n• 🎥 <b>Capture</b> — screenshot or record the session.\n• ⌨️ <b>Backstage</b> — background command line without disturbing the user.\n\n` +
+      `<b>5) Stay informed</b>\n• <b>Alerts</b> — get a Telegram message when a device comes online, goes offline, installs or uninstalls.\n• <b>Uninstall protection</b> — stop a device being removed without your OK.\n\n` +
+      `<b>6) Manage</b>\n• Rename or remove devices from the <b>Devices</b> list.\n• Your plan & renewal live under <b>Settings</b>.\n\n` +
+      support + `\n\nTap <b>Get Started</b> anytime to renew. 🚀`;
+    send(inv.tgChat, creds1).then(() => send(inv.tgChat, guide, mainMenuKeyboard()));
   } else {
     send(inv.tgChat,
       `🔄 <b>Renewal confirmed!</b> Your subscription is extended. 🎉\n\n` +
@@ -212,25 +223,27 @@ function notifyPaid(inv, creds) {
   }
 }
 
-// Renewal reminders: DM customers daily during the last 3 days before expiry, and a
-// single notice once access is blocked. Throttled via each account's `remindedOn`.
+// Renewal reminders: DM every 2h during the last 3 days BEFORE expiry, then once a
+// day AFTER it expires (until they renew). Throttled by each account's remindedAt.
+const REMIND_WINDOW = 3 * 86400000, REMIND_BEFORE = 2 * 60 * 60 * 1000, REMIND_AFTER = 24 * 60 * 60 * 1000;
 function remindSweep() {
   try {
-    const dayKey = new Date().toISOString().slice(0, 10);
+    const now = Date.now();
     for (const s of db.subscriberReminders()) {
-      const d = s.daysLeft;
+      const expired = now >= s.subExpires;
+      const interval = expired ? REMIND_AFTER : REMIND_BEFORE;
+      if (!expired && (s.subExpires - now) > REMIND_WINDOW) continue; // >3 days out: nothing yet
+      if (s.remindedAt && (now - s.remindedAt) < interval) continue;
       const P = db.plans()[s.plan];
       const tag = P ? (' (' + esc(P.label) + ')') : '';
-      if (d < 0) {
-        if (s.remindedOn === 'expired') continue;
-        send(s.tgChat, `⛔ <b>Subscription expired</b>\nYour HatchConnect access${tag} is now paused. Renew to switch it back on — tap <b>Get Started</b>. Your login stays the same. 🔓`, mainMenuKeyboard());
-        db.setReminded(s.id, 'expired');
-      } else if (d <= 3) {
-        if (s.remindedOn === dayKey) continue;
+      if (expired) {
+        send(s.tgChat, `⛔ <b>Subscription expired</b>\nYour HatchConnect access${tag} is paused. Renew to regain access — tap <b>Get Started</b>. Your login stays the same. 🔓`, mainMenuKeyboard());
+      } else {
+        const d = s.daysLeft;
         const when = d <= 0 ? '<b>today</b>' : ('in <b>' + d + ' day' + (d === 1 ? '' : 's') + '</b>');
         send(s.tgChat, `⏳ <b>Renewal reminder</b>\nYour HatchConnect subscription${tag} expires ${when}.\n\nRenew now to keep your access — tap <b>Get Started</b>. 🚀`, mainMenuKeyboard());
-        db.setReminded(s.id, dayKey);
       }
+      db.setReminded(s.id, now);
     }
   } catch (e) { console.error('[bot] remind sweep error:', e.message); }
 }
@@ -253,7 +266,7 @@ function start() {
   const runCheck = () => payments.checkPayments(notifyPaid).catch((e) => console.error('[pay] check error:', e.message));
   poll(runCheck);
   setInterval(runCheck, 45000); // watch the chain every 45s
-  setTimeout(remindSweep, 20000); setInterval(remindSweep, 6 * 60 * 60 * 1000); // renewal reminders
+  setTimeout(remindSweep, 20000); setInterval(remindSweep, 30 * 60 * 1000); // renewal reminders (checks every 30m; sends every 2h pre-expiry, daily after)
   console.log('[bot] Telegram bot started (long-polling); watching USDT payments every 45s');
 }
 

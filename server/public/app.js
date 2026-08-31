@@ -176,6 +176,16 @@ function showApp(a) {
 }
 function showAuth() { $('#auth-view').hidden = false; $('#app-view').hidden = true; }
 
+async function fillAuthSupport() {
+  try {
+    const s = await api('/api/support');
+    const wrap = document.getElementById('auth-support');
+    const wa = document.getElementById('auth-wa'), tg = document.getElementById('auth-tg');
+    if (wa && s.wa) wa.href = s.wa;
+    if (tg && s.tg) { tg.href = 'https://t.me/' + s.tg; tg.hidden = false; }
+    if (wrap) wrap.hidden = false;
+  } catch {}
+}
 async function fillSupport() {
   try {
     const s = await api('/api/support');
@@ -192,6 +202,7 @@ $$('.nav-item').forEach((n) => n.addEventListener('click', () => goto(n.dataset.
 document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto]'); if (g) goto(g.dataset.goto); });
 
 (async function init() {
+  fillAuthSupport(); // populate the login-screen support links (public endpoint)
   showSoloLoader(); // cover the dashboard until we attach (app/solo windows only)
   // Already signed in (browser, or the app's own persisted login)? Go straight in.
   try { const { admin: a } = await api('/api/me'); return showApp(a); } catch {}

@@ -417,6 +417,41 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { subscription: { managed: true, plan: c.plan, planLabel: (hostdb.plans()[c.plan] || {}).label || c.plan, suspended: !!c.suspended, subExpires: c.subExpires, daysLeft, expired: daysLeft < 0, botUrl } });
     }
 
+    // Notification center: important, actionable status for the signed-in user —
+    // domains not pointing here / missing DNS / SSL still pending, plus renewal
+    // notices. Computed live (DNS lookups + Hestia), nothing stored.
+    if (url === '/api/notifications') {
+      const u = sessionUser(req); if (!u) return json(res, 401, { error: 'not signed in' });
+      const items = [];
+      const botUrl = 'https://t.me/' + (process.env.HH_BOT_USERNAME || 'hatchhostingbot');
+      const c = hostdb.customerByUser(u);
+      if (c && c.subExpires) {
+        const daysLeft = Math.ceil((c.subExpires - Date.now()) / 86400000);
+        if (c.suspended || daysLeft < 0) items.push({ level: 'crit', title: 'Subscription ended', body: 'Your plan has lapsed and your website is paused. Renew to bring it back online.', action: { kind: 'url', label: 'Renew on Telegram', url: botUrl } });
+        else if (daysLeft <= 3) items.push({ level: 'warn', title: 'Renewal due', body: 'Your plan expires ' + (daysLeft <= 0 ? 'today' : ('in ' + daysLeft + ' day' + (daysLeft === 1 ? '' : 's'))) + '. Renew to avoid interruption.', action: { kind: 'url', label: 'Renew', url: botUrl } });
+      }
+      if (LIVE) {
+        let ip = SERVER_IP;
+        if (!ip) { try { ip = Object.keys((await hestiaJson('v-list-sys-ips')) || {})[0] || ''; } catch {} }
+        let doms = {}; try { doms = (await hestiaJson('v-list-web-domains', [u])) || {}; } catch {}
+        const dnsp = require('dns').promises;
+        const resolveA = async (h) => { try { return await dnsp.resolve4(h); } catch { return null; } };
+        for (const [domain, w] of Object.entries(doms)) {
+          if (!okDomain(domain)) continue;
+          if (w.SSL === 'yes' || w.LETSENCRYPT === 'yes') continue; // secured — nothing to flag
+          const apex = await resolveA(domain);
+          const apexHere = ip && apex && apex.includes(ip);
+          if (!apex) { items.push({ level: 'warn', title: domain + ' has no DNS yet', body: 'This domain isn’t set up. Add the DNS records at your domain provider so people can reach your site.', action: { kind: 'dns', label: 'DNS setup', domain } }); continue; }
+          if (!apexHere) { items.push({ level: 'warn', title: domain + ' isn’t pointing here', body: 'Its DNS points somewhere else. Update the A record to this server so your site loads and SSL can turn on.', action: { kind: 'dns', label: 'DNS setup', domain } }); continue; }
+          const www = await resolveA('www.' + domain);
+          const wwwHere = ip && www && www.includes(ip);
+          if (!wwwHere) { items.push({ level: 'warn', title: 'Add the www record for ' + domain, body: 'Your domain points here, but the www record is missing — add an A record for www → this server so HTTPS can turn on.', action: { kind: 'dns', label: 'DNS setup', domain } }); continue; }
+          items.push({ level: 'info', title: 'Securing ' + domain, body: 'Your domain points here — HTTPS/SSL is being issued automatically and should be active within a few minutes.', action: { kind: 'tab', label: 'Websites', tab: 'websites' } });
+        }
+      }
+      return json(res, 200, { notifications: items });
+    }
+
     if (url === '/login' && req.method === 'POST') {
       if (!LIVE) return json(res, 503, { error: 'Server not connected yet' });
       const ip = clientIp(req);

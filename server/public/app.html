@@ -225,15 +225,18 @@
             </div>
             <div class="field">
               <span>Chat ID</span>
-              <input id="al-chat" type="text" placeholder="e.g. 123456789 (your chat with the bot)" autocomplete="off" spellcheck="false" />
+              <div style="display:flex;gap:8px;align-items:stretch">
+                <input id="al-chat" type="text" placeholder="e.g. 123456789 (your chat with the bot)" autocomplete="off" spellcheck="false" style="flex:1" />
+                <button id="al-detect" type="button" class="btn ghost" title="Auto-detect your Chat ID from your bot">Find my Chat ID</button>
+              </div>
             </div>
-            <details class="alerts-help">
-              <summary>How do I get these?</summary>
+            <details class="alerts-help" open>
+              <summary>How do I set this up?</summary>
               <ol>
-                <li>In Telegram, message <b>@BotFather</b> → <code>/newbot</code> → copy the <b>bot token</b>.</li>
-                <li>Open a chat with your new bot and send it any message (e.g. "hi").</li>
-                <li>Message <b>@userinfobot</b> to get your <b>Chat ID</b> (or use a group's ID).</li>
-                <li>Paste both above, hit <b>Send test</b> to confirm, then <b>Save</b>.</li>
+                <li>In Telegram, message <b>@BotFather</b> → <code>/newbot</code> → copy the <b>bot token</b> and paste it above.</li>
+                <li><b>Open your new bot in Telegram and tap Start</b> (or send it any message). This step is required — a bot can't message you until you do.</li>
+                <li>Click <b>Find my Chat ID</b> above — it fills in your Chat ID automatically.</li>
+                <li>Hit <b>Send test</b> to confirm, then <b>Save</b>.</li>
               </ol>
             </details>
           </div>

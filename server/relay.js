@@ -232,6 +232,34 @@ function tgSend(token, chatId, text) {
     req.write(body); req.end();
   });
 }
+function tgGet(token, method) {
+  return new Promise((resolve) => {
+    const https = require('https');
+    const r = https.request({ hostname: 'api.telegram.org', path: `/bot${token}/${method}`, method: 'GET' },
+      (res) => { let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(null); } }); });
+    r.on('error', () => resolve(null));
+    r.setTimeout(10000, () => r.destroy(new Error('timeout')));
+    r.end();
+  });
+}
+// Auto-detect the operator's chat id from their bot: they message the bot, we read
+// getUpdates and return the most recent private chat. Removes the #1 setup snag
+// (people not knowing their numeric chat id, or not messaging the bot first).
+async function tgDetectChat(token) {
+  const j = await tgGet(token, 'getUpdates');
+  if (!j) return { error: 'Could not reach Telegram — check your connection and try again.' };
+  if (!j.ok) return { error: /unauthorized/i.test(j.description || '') ? 'That bot token looks wrong — copy it exactly from @BotFather.' : (j.description || 'Telegram error') };
+  const ups = j.result || [];
+  for (let i = ups.length - 1; i >= 0; i--) {
+    const msg = ups[i].message || ups[i].edited_message;
+    if (msg && msg.chat && msg.chat.type === 'private') return { chatId: String(msg.chat.id), name: (msg.chat.first_name || msg.chat.username || 'you') };
+  }
+  for (let i = ups.length - 1; i >= 0; i--) {
+    const msg = ups[i].message || ups[i].channel_post || ups[i].my_chat_member;
+    if (msg && msg.chat) return { chatId: String(msg.chat.id), name: msg.chat.title || msg.chat.type };
+  }
+  return { error: 'No messages found yet. Open your bot in Telegram, tap Start (or send it any message), then click “Find my Chat ID” again.' };
+}
 function fmtAlert(tpl, device) {
   const m = (device && device.meta) || {};
   return (tpl || '').replace(/{device}/g, (device && device.name) || 'device')
@@ -663,9 +691,23 @@ async function handleApi(req, res, urlPath) {
     if (urlPath === '/api/alerts/test' && m === 'POST') {
       const b = await readBody(req);
       const token = (b.botToken || '').trim(), chatId = (b.chatId || '').trim();
-      if (!token || !chatId) return json(res, 400, { error: 'Enter both a bot token and a chat ID first.' });
-      const r = await tgSend(token, chatId, '🛡️ Aegis Remote test alert — your Telegram alerts are working.');
-      return json(res, r.ok ? 200 : 400, r.ok ? { ok: true } : { error: r.desc || 'Telegram rejected the message' });
+      if (!token) return json(res, 400, { error: 'Enter your bot token first.' });
+      if (!chatId) return json(res, 400, { error: 'Enter your Chat ID — or click “Find my Chat ID” to fill it automatically.' });
+      const r = await tgSend(token, chatId, '🛡️ HatchConnect test alert — your Telegram alerts are working. ✅');
+      if (r.ok) return json(res, 200, { ok: true });
+      let error = r.desc || 'Telegram rejected the message';
+      if (/chat not found/i.test(error)) error = 'Telegram couldn’t find that chat. Open your bot in Telegram and tap Start (send it any message) first — a bot can’t message you until you do — then click “Find my Chat ID” and try again.';
+      else if (/unauthorized/i.test(error) || /not found.*bot|bot.*not found/i.test(error)) error = 'That bot token looks wrong — copy it exactly from @BotFather.';
+      else if (/bot was blocked/i.test(error)) error = 'You’ve blocked this bot in Telegram. Unblock it, then try again.';
+      return json(res, 400, { error });
+    }
+    if (urlPath === '/api/alerts/detect-chat' && m === 'POST') {
+      const b = await readBody(req);
+      const token = (b.botToken || '').trim();
+      if (!token) return json(res, 400, { error: 'Enter your bot token first.' });
+      const r = await tgDetectChat(token);
+      if (r.error) return json(res, 400, { error: r.error });
+      return json(res, 200, { chatId: r.chatId, name: r.name });
     }
     return json(res, 404, { error: 'not found' });
   } catch (e) {

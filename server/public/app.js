@@ -902,6 +902,17 @@ $('#alerts-test').addEventListener('click', async () => {
   try { await api('/api/alerts/test', 'POST', { botToken: c.botToken, chatId: c.chatId }); toast('Test sent - check Telegram', 'ok'); }
   catch (e) { toast(e.message, 'err'); }
 });
+$('#al-detect').addEventListener('click', async () => {
+  const token = $('#al-token').value.trim();
+  if (!token) { toast('Enter your bot token first', 'err'); return; }
+  const btn = $('#al-detect'), label = btn.textContent; btn.disabled = true; btn.textContent = 'Detecting…';
+  try {
+    const r = await api('/api/alerts/detect-chat', 'POST', { botToken: token });
+    $('#al-chat').value = r.chatId;
+    toast('Found your Chat ID' + (r.name ? ' (' + r.name + ')' : '') + ' — now hit Send test', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+  finally { btn.disabled = false; btn.textContent = label; }
+});
 
 // ---------------------------------------------------------------------------
 // Accounts (owner)

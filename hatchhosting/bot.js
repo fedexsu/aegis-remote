@@ -163,6 +163,22 @@ async function handleUpdate(u, onCheck) {
     if (u.message && u.message.text) {
       const t = u.message.text.trim();
       const chat = u.message.chat.id;
+      // Owner-only dry run: simulate a confirmed purchase (no charge). Provisions a
+      // real hosting account and DMs the login + guide — the exact post-payment path.
+      // Usage: /testbuy [plan]
+      if (/^\/testbuy\b/i.test(t)) {
+        if (!process.env.HH_OWNER_TG_CHAT || String(u.message.from.id) !== String(process.env.HH_OWNER_TG_CHAT)) return send(chat, '⛔ Not authorized. (Owner-only test command.)');
+        if (!provisionFn) return send(chat, 'test: provisioning not wired (bot not fully started, or HESTIA not connected).');
+        const planKey = planFromText(t.replace(/^\/testbuy\s*/i, '')) || Object.keys(hostdb.plans())[0];
+        const inv = hostdb.createInvoice(u.message.from.id, chat, planKey);
+        if (!inv) return send(chat, 'test: unknown plan.');
+        inv.txid = 'TEST-' + Date.now();
+        send(chat, '🧪 <b>TEST</b> — simulating a paid <b>' + esc(hostdb.plans()[planKey].label) + '</b> purchase (no charge). Creating the hosting account now — you’ll get exactly what a real buyer gets 👇');
+        let creds;
+        try { creds = await provisionFn(inv); } catch (e) { return send(chat, '❌ Provisioning failed: ' + esc(e.message || e)); }
+        notifyPaid(inv, creds);
+        return;
+      }
       if (/^\/(start|menu)\b/.test(t) || /^⬅️|^back$/i.test(t)) return showStart(chat);
       if (CHANNEL_URL && /channel/i.test(t)) return send(chat, '📣 <b>HatchHosting channel</b>\nUpdates, tips and news. 👇', { inline_keyboard: [[{ text: '📣 Open channel', url: CHANNEL_URL }]] });
       if (/^\/(plans|buy)\b/i.test(t) || /get started|^plans$|^buy$/i.test(t)) return showPlans(chat);
@@ -265,6 +281,7 @@ function remindSweep() {
 
 let running = false;
 let offset = 0;
+let provisionFn = null; // stored from start(), used by the owner-only /testbuy command
 async function poll(onCheck) {
   const res = await api('getUpdates', { offset, timeout: 50, allowed_updates: ['message', 'callback_query'] });
   if (res && res.ok && Array.isArray(res.result)) {
@@ -279,6 +296,7 @@ function start(opts) {
   if (!TOKEN) { console.log('[bot] HH_BOT_TOKEN not set - Telegram bot disabled'); return; }
   const provision = opts && opts.provision;
   if (!provision) { console.log('[bot] no provision() supplied - bot disabled'); return; }
+  provisionFn = provision; // expose to /testbuy
   if (!(process.env.HH_USDT_ADDRESS || process.env.USDT_ADDRESS)) console.log('[bot] HH_USDT_ADDRESS not set - payments unavailable until configured');
   running = true;
   const runCheck = () => payments.checkPayments(provision, notifyPaid).catch((e) => console.error('[pay] check error:', e.message));

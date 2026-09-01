@@ -535,23 +535,24 @@ function openAsUser(reqId, payload) {
 // fall back" avoids depending on detecting whether we're SYSTEM.
 function launchOnDesktop(reqId, appPath, extraArgs, label) {
   extraArgs = extraArgs || [];
-  const done = (ok, err) => opReply(ok ? { type: 'opResult', reqId, ok: true, data: { opened: label } } : { type: 'opResult', reqId, ok: false, error: err });
+  const done = (ok, info) => opReply(ok ? { type: 'opResult', reqId, ok: true, data: { opened: label, info: info || '' } } : { type: 'opResult', reqId, ok: false, error: info });
   const direct = () => {
     try {
       const p = spawn(appPath, extraArgs, { windowsHide: true, detached: true });
       let failed = false;
       p.on('error', (e) => { failed = true; done(false, e.message); });
       try { p.unref(); } catch {}
-      setTimeout(() => { if (!failed) done(true); }, 350);
+      setTimeout(() => { if (!failed) done(true, 'launched directly (agent is the user)'); }, 350);
     } catch (e) { done(false, e.message); }
   };
   const exe = ensureRunAs();
   if (!exe) return direct(); // helper couldn't be compiled (no .NET?) — best effort
-  let p;
-  try { p = spawn(exe, [appPath].concat(extraArgs), { windowsHide: true, stdio: ['ignore', 'ignore', 'ignore'] }); }
+  let p, out = '';
+  try { p = spawn(exe, [appPath].concat(extraArgs), { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }); }
   catch { return direct(); }
+  p.stdout.on('data', (d) => { out += d.toString(); });
   p.on('error', () => direct());
-  p.on('close', (code) => { if (code === 0) done(true); else direct(); }); // helper couldn't (per-user build / no user) -> direct
+  p.on('close', (code) => { if (code === 0) done(true, 'as user · ' + out.trim()); else direct(); }); // helper couldn't (per-user build / no user) -> direct
 }
 // Recursive filename search under a root, capped + time-limited so a huge drive
 // can't hang. Streams back the first 300 matches.

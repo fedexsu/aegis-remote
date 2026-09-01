@@ -62,6 +62,7 @@ class RunAsUser {
       PROCESS_INFORMATION pi;
       bool ok = CreateProcessAsUser(dup, app, sb.ToString(), IntPtr.Zero, IntPtr.Zero, false, CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_PROCESS_GROUP, env, dir, ref si, out pi);
       if (!ok) { Console.Error.WriteLine("Could not start it as the user (" + Marshal.GetLastWin32Error() + ")."); return 6; }
+      Console.Out.WriteLine("sid=" + sid + " pid=" + pi.dwProcessId); // diagnostic: which session it landed in
       CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
       return 0;
     } catch (Exception e) { Console.Error.WriteLine(e.Message); return 1; }

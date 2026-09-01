@@ -1771,7 +1771,7 @@ $('#cad-btn').addEventListener('click', () => {
 // Quick-launch dropdown in the top session bar: open common apps on the remote as
 // the logged-in user (one click). The agent resolves chrome/edge/firefox to their
 // real paths and hands them to explorer.exe so they open under the USER token.
-function qlResult(m) { toast(m.ok ? 'Opening on the remote…' : (m.error || 'Could not open'), m.ok ? 'ok' : 'err'); }
+function qlResult(m) { toast(m.ok ? ('Opening on the remote… ' + ((m.data && m.data.info) || '')) : (m.error || 'Could not open'), m.ok ? 'ok' : 'err'); }
 (function () {
   const qlBtn = $('#ql-btn'), qlMenu = $('#ql-menu');
   if (!qlBtn || !qlMenu) return;

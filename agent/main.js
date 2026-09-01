@@ -390,6 +390,7 @@ ipcMain.on('op', (_e, msg) => {
     else if (op === 'paths') opReply({ type: 'opResult', reqId, ok: true, data: { desktop: safePath('desktop'), downloads: safePath('downloads'), documents: safePath('documents'), temp: safePath('temp') } });
     else if (op === 'fs-search') fsSearch(reqId, payload.root, payload.query);
     else if (op === 'deploy-run') deployRun(reqId, payload || {});
+    else if (op === 'launch') openAsUser(reqId, payload || {});
     else if (op === 'hw-info') hwInfo(reqId);
     else if (op === 'keepawake') setKeepAwake(reqId, !!payload.on);
     else if (op === 'power') powerAction(reqId, payload.action);
@@ -449,6 +450,26 @@ function deployRun(reqId, payload) {
     proc.on('close', (code) => { clearTimeout(to); cleanup(); opReply({ type: 'opResult', reqId, ok: true, data: { exitCode: code, output: out.trim() || ('Finished with exit code ' + code + '.') } }); });
     proc.on('error', (e) => { clearTimeout(to); cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
   } catch (e) { cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
+}
+// Open an app or URL ON THE REMOTE as the LOGGED-IN USER — even though the agent
+// runs as SYSTEM (service build). Browsers (Chrome/Edge/Firefox) and lots of user
+// software refuse to run under the SYSTEM account, so launching them directly from
+// the agent silently fails. Trick: hand the target to explorer.exe — the user's
+// already-running shell launches it under the USER token (medium integrity), so it
+// opens normally on their desktop. Works for a program path OR a URL (opens their
+// default browser). Falls back gracefully if no interactive shell is present.
+function openAsUser(reqId, payload) {
+  const t = String((payload && payload.target) || '').trim().replace(/[\r\n]/g, '');
+  if (!t || t.length > 2048) return opReply({ type: 'opResult', reqId, ok: false, error: 'Enter an app path or a URL to open.' });
+  try {
+    const p = spawn('explorer.exe', [t], { windowsHide: true, detached: true });
+    let failed = false;
+    p.on('error', (e) => { failed = true; opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
+    try { p.unref(); } catch {}
+    // explorer.exe returns immediately (and often a non-zero code even on success),
+    // so we don't wait on exit — report ok once the spawn itself didn't error.
+    setTimeout(() => { if (!failed) opReply({ type: 'opResult', reqId, ok: true, data: { opened: t } }); }, 350);
+  } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
 }
 // Recursive filename search under a root, capped + time-limited so a huge drive
 // can't hang. Streams back the first 300 matches.

@@ -333,6 +333,8 @@ function renderDevices() {
     if (filter === 'sleep' && st !== 'sleep') return false;
     if (filter === 'offline' && st !== 'offline') return false;
     if (filter === 'uninstalled' && st !== 'uninstalled') return false;
+    if (filter === 'new' && !(d.firstSeen && Date.now() - d.firstSeen < 7 * 86400000)) return false;   // installed in the last 7 days
+    if (filter === 'old' && !(d.firstSeen && Date.now() - d.firstSeen > 30 * 86400000)) return false;  // installed over 30 days ago
     if (q) {
       const hay = (d.name + ' ' + (d.meta?.host || '') + ' ' + (d.meta?.os || '') + ' ' + (d.meta?.user || '')).toLowerCase();
       if (!hay.includes(q)) return false;

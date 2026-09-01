@@ -404,7 +404,7 @@ function updateDeviceCard(el, d, st) {
   nameEl.textContent = d.name; nameEl.title = d.id;
   el.querySelector('.dr-status').className = 'dr-status st-' + st;
   el.querySelector('.dr-status').title = statusLabel(st);
-  el.querySelector('.dr-sub').textContent = [(m.user || ''), (m.host || '')].filter(Boolean).join(' · ') + (m.os ? '  ·  ' + m.os : '');
+  el.querySelector('.dr-sub').textContent = [(m.user || ''), (m.host || '')].filter(Boolean).join(' · ') + (m.os ? '  ·  ' + m.os : '') + (m.build ? '  ·  Agent v' + m.build : '');
   const pres = presenceInfo(d);
   const pe = el.querySelector('.dr-presence');
   pe.className = 'dr-presence' + (pres ? ' presence ' + pres.cls : '');

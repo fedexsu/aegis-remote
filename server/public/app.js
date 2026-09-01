@@ -1768,14 +1768,6 @@ $('#cad-btn').addEventListener('click', () => {
   if (!attachedId) return;
   deviceOp(attachedId, 'cad', {}, { onResult: (m) => toast(m.ok ? 'Ctrl+Alt+Del sent' : (m.error || 'failed'), m.ok ? 'ok' : 'err') });
 });
-function doLaunch() {
-  if (!attachedId) return;
-  const t = ($('#launch-input').value || '').trim();
-  if (!t) { toast('Enter an app path or a URL', 'err'); return; }
-  deviceOp(attachedId, 'launch', { target: t }, { onResult: (m) => toast(m.ok ? ('Opened on the remote: ' + ((m.data && m.data.opened) || t)) : (m.error || 'Could not open'), m.ok ? 'ok' : 'err') });
-}
-$('#launch-btn').addEventListener('click', doLaunch);
-$('#launch-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLaunch(); });
 // Quick-launch dropdown in the top session bar: open common apps on the remote as
 // the logged-in user (one click). The agent resolves chrome/edge/firefox to their
 // real paths and hands them to explorer.exe so they open under the USER token.

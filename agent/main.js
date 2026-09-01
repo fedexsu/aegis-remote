@@ -106,6 +106,24 @@ function inject(cmd) {
 ipcMain.handle('injector:status', () => injectorOk);
 
 // ---------------------------------------------------------------------------
+// Run-as-user helper — launch apps as the LOGGED-IN USER (see openAsUser). Needed
+// because the service build runs this agent as SYSTEM, and a SYSTEM-launched
+// browser starts but never shows its window. Same runtime-compile trick as the
+// injector so an AV quarantine self-heals.
+// ---------------------------------------------------------------------------
+let IS_SYSTEM = false;
+try { IS_SYSTEM = /nt authority\\system/i.test(require('child_process').execFileSync('whoami', [], { windowsHide: true }).toString()); } catch {}
+function compileRunAs() {
+  const dir = path.join(__dirname, 'runas');
+  const src = path.join(dir, 'RunAsUser.cs');
+  const out = path.join(dir, 'RunAsUser.exe');
+  const csc = ['C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe', 'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe'].find((p) => fs.existsSync(p));
+  if (!csc || !fs.existsSync(src)) return false;
+  try { require('child_process').execFileSync(csc, ['/nologo', '/optimize+', '/target:exe', '/out:' + out, src], { stdio: 'ignore', windowsHide: true }); return fs.existsSync(out); } catch { return false; }
+}
+function ensureRunAs() { const exe = path.join(__dirname, 'runas', 'RunAsUser.exe'); if (fs.existsSync(exe)) return exe; return (compileRunAs() && fs.existsSync(exe)) ? exe : ''; }
+
+// ---------------------------------------------------------------------------
 // Window + tray
 // ---------------------------------------------------------------------------
 let win = null;
@@ -496,26 +514,48 @@ function resolveApp(name) {
 // path or URL. Falls back gracefully if no interactive shell is present.
 function openAsUser(reqId, payload) {
   const appKey = String((payload && payload.app) || '').trim().toLowerCase();
-  let args = null, label = '';
-  if (appKey === 'files' || appKey === 'explorer') { args = []; label = 'File Explorer'; } // new Explorer window as the user
+  const WIN = process.env['WINDIR'] || 'C:\\Windows';
+  let appPath = '', extraArgs = [], label = '';
+  if (appKey === 'files' || appKey === 'explorer') { appPath = WIN + '\\explorer.exe'; label = 'File Explorer'; }
   else if (appKey) {
     const p = resolveApp(appKey);
     if (!p) return opReply({ type: 'opResult', reqId, ok: false, error: (appKey.charAt(0).toUpperCase() + appKey.slice(1)) + " isn't installed on this PC." });
-    args = [p]; label = p;
+    appPath = p; label = p.split('\\').pop();
   } else {
     const t = String((payload && payload.target) || '').trim().replace(/[\r\n]/g, '');
     if (!t || t.length > 2048) return opReply({ type: 'opResult', reqId, ok: false, error: 'Enter an app path or a URL to open.' });
-    args = [t]; label = t;
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) { appPath = WIN + '\\System32\\rundll32.exe'; extraArgs = ['url.dll,FileProtocolHandler', t]; label = t; } // URL -> default browser, as the user
+    else { appPath = t; label = t; }
+  }
+  launchOnDesktop(reqId, appPath, extraArgs, label);
+}
+// Launch a program on the visible desktop AS THE LOGGED-IN USER. When the agent is
+// SYSTEM (service build) we go through RunAsUser.exe (real user token + winsta0\
+// default) so browsers actually render. When the agent already runs as the user
+// (per-user build), or the helper can't be built, we launch directly.
+function launchOnDesktop(reqId, appPath, extraArgs, label) {
+  extraArgs = extraArgs || [];
+  const done = (ok, err) => opReply(ok ? { type: 'opResult', reqId, ok: true, data: { opened: label } } : { type: 'opResult', reqId, ok: false, error: err });
+  if (IS_SYSTEM) {
+    const exe = ensureRunAs();
+    if (exe) {
+      let out = '', p;
+      try { p = spawn(exe, [appPath].concat(extraArgs), { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] }); }
+      catch (e) { return done(false, e.message); }
+      p.stderr.on('data', (d) => { out += d.toString(); });
+      p.on('error', (e) => done(false, e.message));
+      p.on('close', (code) => { if (code === 0) done(true); else done(false, out.trim() || ('Could not open it (' + code + ').')); });
+      return;
+    }
+    // helper couldn't be built — fall through to a best-effort direct launch
   }
   try {
-    const p = spawn('explorer.exe', args, { windowsHide: true, detached: true });
+    const p = spawn(appPath, extraArgs, { windowsHide: true, detached: true });
     let failed = false;
-    p.on('error', (e) => { failed = true; opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
+    p.on('error', (e) => { failed = true; done(false, e.message); });
     try { p.unref(); } catch {}
-    // explorer.exe returns immediately (often a non-zero code even on success), so
-    // we don't wait on exit — report ok once the spawn itself didn't error.
-    setTimeout(() => { if (!failed) opReply({ type: 'opResult', reqId, ok: true, data: { opened: label } }); }, 350);
-  } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
+    setTimeout(() => { if (!failed) done(true); }, 350);
+  } catch (e) { done(false, e.message); }
 }
 // Recursive filename search under a root, capped + time-limited so a huge drive
 // can't hang. Streams back the first 300 matches.
@@ -813,7 +853,7 @@ async function checkForUpdate() {
     const entries = Object.entries(data.files);
     if (!entries.length || entries.some(([, c]) => typeof c !== 'string' || !c.length)) return;
     updating = true;
-    let injectorChanged = false, blankerChanged = false;
+    let injectorChanged = false, blankerChanged = false, runasChanged = false;
     for (const [name, content] of entries) {
       const dest = path.join(__dirname, name);
       try { fs.mkdirSync(path.dirname(dest), { recursive: true }); } catch {}
@@ -822,7 +862,11 @@ async function checkForUpdate() {
       fs.renameSync(tmp, dest); // atomic swap
       if (name === 'injector/Injector.cs') injectorChanged = true;
       if (name === 'blanker/Blanker.cs') blankerChanged = true;
+      if (name === 'runas/RunAsUser.cs') runasChanged = true;
     }
+    // The run-as-user helper is a compiled binary too — drop the stale .exe so it
+    // recompiles from the new source on next use.
+    if (runasChanged) { try { fs.unlinkSync(path.join(__dirname, 'runas', 'RunAsUser.exe')); } catch {} }
     // The injector is a compiled binary, not JS — if its source changed, kill the
     // running one (to unlock the .exe) and recompile so the update actually ships.
     if (injectorChanged) {

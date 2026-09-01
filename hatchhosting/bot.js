@@ -23,6 +23,7 @@ const payments = require('./payments');
 
 const TOKEN = process.env.HH_BOT_TOKEN || process.env.TG_BOT_TOKEN;
 const APP_URL = process.env.PANEL_URL || process.env.PUBLIC_URL || 'https://hatchhosting.up.railway.app';
+const SITE_URL = process.env.HH_SITE_URL || process.env.SITE_URL || APP_URL; // site link shown in the bot
 const CHANNEL_USER = (process.env.HH_CHANNEL_USERNAME || '').replace(/^@/, '');
 const CHANNEL = CHANNEL_USER ? '@' + CHANNEL_USER : '';
 const CHANNEL_URL = CHANNEL_USER ? 'https://t.me/' + CHANNEL_USER : '';
@@ -98,17 +99,28 @@ function planFromText(t) {
 }
 function showStart(chat) {
   send(chat,
-    '🌱 <b>HatchHosting</b>\nGet your website online — the simple way. ⚡\n\n' +
-    '🖥️ One-click WordPress  •  🔒 Free SSL  •  ✉️ Email at your domain  •  🗄️ Databases  •  💾 Daily backups\n\n' +
+    '🌱 <b>HatchHosting</b>\nGet your website online — the simple way. ⚡️\n\n' +
+    '🖥️ One-click WordPress • 🔒 Free auto SSL • ✉️ Email at your domain • 🗄️ Databases • 📁 File manager + code editor • 🔗 Extra page links • 💾 Daily backups • 📊 Analytics <b>and more…</b>\n\n' +
+    '🌐 <a href="' + SITE_URL + '">' + SITE_URL.replace(/^https?:\/\//, '') + '</a>\n\n' +
     '👉 Tap <b>Get Started</b> to see plans, or <b>About</b> to learn more.',
     mainMenuKeyboard());
 }
 function showAbout(chat) {
   send(chat,
-    'ℹ️ <b>About HatchHosting</b>\n\n' +
+    'ℹ️ <b>About HatchHosting</b>\n' +
     'Fast, friendly web hosting with an easy control panel — built for people who just want their site online. 🌍\n\n' +
-    '✅ One-click WordPress\n🔒 Free HTTPS/SSL certificates\n✉️ Email at your own domain\n🗄️ Databases & phpMyAdmin\n📁 File manager, FTP, extra pages\n💾 Automatic daily backups\n\n' +
-    '💳 You pay in <b>USDT (TRC-20)</b> and your hosting account + login are created and sent here automatically. 🚀\n\n' +
+    '<b>Everything included</b>\n' +
+    '🖥️ <b>One-click WordPress</b>\n' +
+    '🔒 <b>Free HTTPS/SSL</b> — issued automatically once your domain points here\n' +
+    '✉️ <b>Email</b> at your own domain (+ Webmail)\n' +
+    '🗄️ <b>Databases</b> & phpMyAdmin\n' +
+    '📁 <b>File manager</b> with a built-in code editor\n' +
+    '🔗 <b>Extra pages</b> on the same domain (yoursite.com/p/…)\n' +
+    '🤖 <b>Bot protection</b> & clean URLs\n' +
+    '💾 <b>Automatic daily backups</b>\n' +
+    '📊 <b>Visitor analytics</b> <b>and more…</b>\n\n' +
+    '💳 Pay in <b>USDT (TRC-20)</b> — your hosting account + login are created and sent here automatically. 🚀\n' +
+    '🌐 <a href="' + SITE_URL + '">' + SITE_URL.replace(/^https?:\/\//, '') + '</a>\n\n' +
     '👉 Tap <b>Get Started</b> to choose a plan.',
     mainMenuKeyboard());
 }

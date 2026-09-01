@@ -17,6 +17,7 @@ const payments = require('./payments');
 
 const TOKEN = process.env.TG_BOT_TOKEN;
 const APP_URL = process.env.PUBLIC_URL || 'https://aegis-relay-production.up.railway.app';
+const SITE_URL = process.env.SITE_URL || APP_URL; // marketing/site link shown in the bot
 const CHANNEL_USER = (process.env.CHANNEL_USERNAME || 'hatchconnect').replace(/^@/, '');
 const CHANNEL = '@' + CHANNEL_USER;
 const CHANNEL_URL = 'https://t.me/' + CHANNEL_USER;
@@ -94,17 +95,29 @@ function planFromText(t) {
 // /start: a welcome + menu, NOT the payment list.
 function showStart(chat) {
   send(chat,
-    '🖥️ <b>HatchConnect</b>\nControl any Windows PC from anywhere, in seconds. ⚡\n\n' +
-    '🔓 Unattended access  •  🎧 On-demand support  •  📁 File transfer  •  💻 Backstage  •  🛡️ Uninstall protection\n\n' +
+    '🖥️ <b>HatchConnect</b> — a <b>Privately-Owned RMM</b>\nSecurely control any Windows PC from anywhere, in seconds. ⚡️\n\n' +
+    '🔓 Unattended access • 🎧 On-demand support • 🖱️ Full remote control • 📁 File transfer • 📋 Clipboard sync • 🎥 Screen record • 💻 Backstage command line • 🛡️ Uninstall protection <b>and more…</b>\n\n' +
+    '🔐 AES-256 encrypted, works through any firewall.\n🌐 <a href="' + SITE_URL + '">' + SITE_URL.replace(/^https?:\/\//, '') + '</a>\n\n' +
     '👉 Tap <b>Get Started</b> to see plans, or <b>About</b> to learn more.',
     mainMenuKeyboard());
 }
 function showAbout(chat) {
   send(chat,
-    'ℹ️ <b>About HatchConnect</b>\n\n' +
-    'Secure remote support and unattended access for your PCs. 🖥️\n\n' +
-    '✅ Control any Windows machine through any firewall\n🔐 AES-256 encrypted, end to end\n💻 One-click silent install\n📁 File transfer, recording, background command line, and more\n\n' +
-    '💳 You pay in <b>USDT (TRC-20)</b> and your login is created and sent here automatically. 🚀\n\n' +
+    'ℹ️ <b>About HatchConnect</b>\n' +
+    'HatchConnect is a <b>Privately-Owned RMM</b> (Remote Monitoring &amp; Management) for secure remote support and unattended access to your Windows PCs. 🖥️\n\n' +
+    '<b>What you can do</b>\n' +
+    '🔓 <b>Unattended access</b> — reach your machines anytime, no one needed on the other end\n' +
+    '🎧 <b>On-demand support</b> — help someone in one click\n' +
+    '🖱️ <b>Full remote control</b> — mouse, keyboard, multi-monitor\n' +
+    '📁 <b>File transfer</b> — send &amp; receive files both ways\n' +
+    '📋 <b>Clipboard sync</b> — copy/paste between you and the remote\n' +
+    '🎥 <b>Screen capture</b> — screenshot or record sessions\n' +
+    '💻 <b>Backstage</b> — background command line without disturbing the user\n' +
+    '🛡️ <b>Uninstall protection</b> — devices can’t be removed without your OK\n' +
+    '🔔 <b>Telegram alerts</b> — online / offline / install / uninstall <b>and more…</b>\n\n' +
+    '🔐 AES-256 encrypted end-to-end • one-click silent install • works through any firewall.\n' +
+    '💳 Pay in <b>USDT (TRC-20)</b> — your login is created and sent here automatically. 🚀\n' +
+    '🌐 <a href="' + SITE_URL + '">' + SITE_URL.replace(/^https?:\/\//, '') + '</a>\n\n' +
     '👉 Tap <b>Get Started</b> to choose a plan.',
     mainMenuKeyboard());
 }

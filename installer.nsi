@@ -14,11 +14,12 @@ SilentUnInstall silent
 SetCompressor /SOLID lzma
 
 Var KEY
+Var NAME
 
 Section "Install"
-  ; --- key from own filename: support-<key>.exe → <key> ---
-  StrCpy $0 "$EXEFILE"       ; e.g. support-ABC123 (3).exe
-  StrCpy $0 $0 -4            ; strip ".exe"  → support-ABC123 (3)
+  ; --- key + name from own filename: <name>-<key>.exe ---
+  StrCpy $0 "$EXEFILE"       ; e.g. MyTool-ABC…20chars (3).exe
+  StrCpy $0 $0 -4            ; strip ".exe"
   ; strip a trailing " (1)" the browser adds when re-downloading the same file
   StrCpy $1 $0 1 -1
   StrCmp $1 ")" 0 keydone
@@ -29,9 +30,20 @@ Section "Install"
     StrCpy $1 $0 1 $2
     StrCmp $1 "(" 0 parenloop
     IntOp $2 $2 - 1         ; index of the space before "("
-    StrCpy $0 $0 $2         ; drop " (3)"  → support-ABC123
+    StrCpy $0 $0 $2         ; drop " (3)"
   keydone:
-  StrCpy $KEY $0 "" 8        ; skip "support-" (8 chars) → ABC123
+  ; The enrollment key is ALWAYS the last 20 chars — so the name in front can be
+  ; anything the operator chose (white-label), and key parsing still works.
+  StrCpy $KEY $0 20 -20
+  ; Software name = everything before the key, minus a trailing "-". Default "Support".
+  StrLen $3 $0
+  IntOp $3 $3 - 20
+  StrCpy $NAME $0 $3
+  StrCpy $1 $NAME 1 -1
+  StrCmp $1 "-" 0 +2
+    StrCpy $NAME $NAME -1
+  StrCmp $NAME "" 0 +2
+    StrCpy $NAME "Support"
 
   ; --- stop any running instance (reinstall/upgrade) ---
   nsExec::Exec 'taskkill /F /IM support.exe'
@@ -59,10 +71,10 @@ Section "Install"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Support" '"$INSTDIR\support.exe" --startup'
 
   ; --- Add/Remove Programs entry + uninstaller ---
-  WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "DisplayName"     "Support"
+  WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "DisplayName"     "$NAME"
   WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "DisplayIcon"     "$INSTDIR\support.exe"
-  WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "Publisher"       "Support"
+  WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "Publisher"       "$NAME"
   WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "DisplayVersion"  "0.1.0"
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "NoRepair" 1

@@ -808,6 +808,7 @@ $('#build-cancel').addEventListener('click', () => { closeBuild(); loadKeys(); }
 $('#build-modal').addEventListener('click', (e) => { if (e.target.id === 'build-modal') { closeBuild(); loadKeys(); } });
 $('#build-create').addEventListener('click', async () => {
   const meta = {
+    appName: $('#b-appname').value.trim(),   // white-label: the installer's name (default Support)
     company: $('#b-company').value.trim(),
     site: $('#b-site').value.trim(),
     department: $('#b-dept').value.trim(),

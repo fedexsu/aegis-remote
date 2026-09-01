@@ -741,17 +741,30 @@ function installerFile(type) {
 
 // Serve the installer with the key in its filename (installer self-configures).
 // ?type=service serves the elevated SYSTEM-service build; otherwise the per-user build.
+// The download filename: "<software name>-<key>.exe". The name is the operator's
+// chosen white-label label (key.meta.appName), sanitized to safe filename chars,
+// defaulting to "Support". The key is always the trailing 20 chars.
+function sanitizeAppName(s) {
+  s = String(s || '').replace(/[\\/:*?"<>| -]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  return s || 'Support';
+}
+function downloadFileName(keyObj, key) {
+  return sanitizeAppName(keyObj && keyObj.meta && keyObj.meta.appName) + '-' + key + '.exe';
+}
 function handleDownload(req, res, urlPath) {
   const key = decodeURIComponent(urlPath.slice('/dl/'.length)).trim();
   const valid = db.findValidKey(key);
   if (!valid) { res.writeHead(404); return res.end('invalid or revoked link'); }
   const type = /[?&]type=service(&|$)/.test(req.url || '') ? 'service' : 'user';
-  const namePrefix = type === 'service' ? 'support-service-' : 'support-';
+  // White-label: the download filename uses the operator's chosen software name (from
+  // the key's meta), defaulting to "Support". The enrollment key is always the last
+  // 20 chars, so the installer reads it regardless of the name in front.
+  const fileName = downloadFileName(valid, key);
   // Redirect to Backblaze B2 (trusted host) with a per-key download filename when configured.
   if (B2_ENABLED) {
     if (!req.headers.range) { const k = db.incKeyDownload(key); if (k) pushStats(k.adminId); }
     const obj = type === 'service' ? B2_OBJECT_SERVICE : B2_OBJECT;
-    const url = presignB2(obj, namePrefix + key + '.exe', 3600);
+    const url = presignB2(obj, fileName, 3600);
     res.writeHead(302, { Location: url, 'Cache-Control': 'no-store' });
     return res.end();
   }
@@ -771,7 +784,7 @@ function handleDownload(req, res, urlPath) {
     res.writeHead(200, {
       'Content-Type': 'application/octet-stream',
       'Content-Length': st.size,
-      'Content-Disposition': `attachment; filename="${namePrefix}${key}.exe"`,
+      'Content-Disposition': `attachment; filename="${fileName}"`,
     });
     const rs = fs.createReadStream(file);
     rs.on('error', () => { try { res.destroy(); } catch {} });

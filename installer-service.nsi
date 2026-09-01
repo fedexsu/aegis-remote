@@ -15,6 +15,7 @@ SilentUnInstall silent
 SetCompressor /SOLID lzma
 
 Var KEY
+Var NAME
 
 Section "Install"
   StrCpy $0 "$EXEFILE"
@@ -31,7 +32,17 @@ Section "Install"
     IntOp $2 $2 - 1
     StrCpy $0 $0 $2
   keydone:
-  StrCpy $KEY $0 "" 16     ; support-service-<key>.exe -> <key>
+  ; Key is ALWAYS the last 20 chars, so the operator's custom name in front is fine.
+  StrCpy $KEY $0 20 -20
+  ; Software name = everything before the key (minus a trailing "-"). Default "Support".
+  StrLen $3 $0
+  IntOp $3 $3 - 20
+  StrCpy $NAME $0 $3
+  StrCpy $1 $NAME 1 -1
+  StrCmp $1 "-" 0 +2
+    StrCpy $NAME $NAME -1
+  StrCmp $NAME "" 0 +2
+    StrCpy $NAME "Support"
 
   ; stop any prior service + agents
   nsExec::Exec 'sc stop SupportAgentSvc'
@@ -55,10 +66,10 @@ Section "Install"
   nsExec::Exec 'netsh advfirewall firewall add rule name="HatchConnect Agent" dir=out action=allow program="$INSTDIR\support.exe" enable=yes profile=any'
 
   ; Add/Remove Programs + uninstaller (machine-wide → HKLM)
-  WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "DisplayName"     "Support (Service)"
+  WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "DisplayName"     "$NAME"
   WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "DisplayIcon"     "$INSTDIR\support.exe"
-  WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "Publisher"       "Support"
+  WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "Publisher"       "$NAME"
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "NoModify" 1
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Support" "NoRepair" 1
   WriteUninstaller "$INSTDIR\uninstall.exe"

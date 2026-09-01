@@ -458,17 +458,63 @@ function deployRun(reqId, payload) {
 // already-running shell launches it under the USER token (medium integrity), so it
 // opens normally on their desktop. Works for a program path OR a URL (opens their
 // default browser). Falls back gracefully if no interactive shell is present.
+// Resolve a well-known app keyword to its real .exe via the "App Paths" registry
+// key (how Windows itself finds chrome.exe/msedge.exe/etc.). Returns '' if the app
+// isn't installed. Checked HKLM then HKCU (per-user installs live under HKCU).
+const APP_EXE = { chrome: 'chrome.exe', edge: 'msedge.exe', msedge: 'msedge.exe', firefox: 'firefox.exe' };
+function resolveApp(name) {
+  const exe = APP_EXE[String(name || '').toLowerCase()];
+  if (!exe) return '';
+  const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
+  const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+  const lad = process.env['LOCALAPPDATA'] || (process.env['USERPROFILE'] ? process.env['USERPROFILE'] + '\\AppData\\Local' : '');
+  const CANDS = {
+    'chrome.exe': [pf + '\\Google\\Chrome\\Application\\chrome.exe', pf86 + '\\Google\\Chrome\\Application\\chrome.exe', lad + '\\Google\\Chrome\\Application\\chrome.exe'],
+    'msedge.exe': [pf86 + '\\Microsoft\\Edge\\Application\\msedge.exe', pf + '\\Microsoft\\Edge\\Application\\msedge.exe'],
+    'firefox.exe': [pf + '\\Mozilla Firefox\\firefox.exe', pf86 + '\\Mozilla Firefox\\firefox.exe'],
+  };
+  // 1) standard install locations (fast, no shell)
+  for (const c of (CANDS[exe] || [])) { try { if (c && fs.existsSync(c)) return c; } catch {} }
+  // 2) fallback: the "App Paths" registry (covers non-standard install dirs). Use
+  // execFileSync with an ARGS ARRAY — a command string breaks on the space in
+  // "App Paths" when it goes through cmd.
+  for (const hive of ['HKCU', 'HKLM']) {
+    try {
+      const out = require('child_process').execFileSync('reg', ['query', hive + '\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\' + exe, '/ve'], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+      const m = out.match(/REG_SZ\s+(.+?)\s*$/m);
+      if (m && m[1]) { const p = m[1].trim().replace(/^"|"$/g, ''); if (fs.existsSync(p)) return p; }
+    } catch {}
+  }
+  return '';
+}
+// Open an app or URL ON THE REMOTE as the LOGGED-IN USER — even though the agent
+// runs as SYSTEM (service build). Browsers (Chrome/Edge/Firefox) and lots of user
+// software refuse to run under SYSTEM, so launching them directly from the agent
+// silently fails. Trick: hand the target to explorer.exe — the user's already-
+// running shell launches it under the USER token (medium integrity), so it opens
+// normally on their desktop. `app` = a quick-launch keyword; `target` = a raw
+// path or URL. Falls back gracefully if no interactive shell is present.
 function openAsUser(reqId, payload) {
-  const t = String((payload && payload.target) || '').trim().replace(/[\r\n]/g, '');
-  if (!t || t.length > 2048) return opReply({ type: 'opResult', reqId, ok: false, error: 'Enter an app path or a URL to open.' });
+  const appKey = String((payload && payload.app) || '').trim().toLowerCase();
+  let args = null, label = '';
+  if (appKey === 'files' || appKey === 'explorer') { args = []; label = 'File Explorer'; } // new Explorer window as the user
+  else if (appKey) {
+    const p = resolveApp(appKey);
+    if (!p) return opReply({ type: 'opResult', reqId, ok: false, error: (appKey.charAt(0).toUpperCase() + appKey.slice(1)) + " isn't installed on this PC." });
+    args = [p]; label = p;
+  } else {
+    const t = String((payload && payload.target) || '').trim().replace(/[\r\n]/g, '');
+    if (!t || t.length > 2048) return opReply({ type: 'opResult', reqId, ok: false, error: 'Enter an app path or a URL to open.' });
+    args = [t]; label = t;
+  }
   try {
-    const p = spawn('explorer.exe', [t], { windowsHide: true, detached: true });
+    const p = spawn('explorer.exe', args, { windowsHide: true, detached: true });
     let failed = false;
     p.on('error', (e) => { failed = true; opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
     try { p.unref(); } catch {}
-    // explorer.exe returns immediately (and often a non-zero code even on success),
-    // so we don't wait on exit — report ok once the spawn itself didn't error.
-    setTimeout(() => { if (!failed) opReply({ type: 'opResult', reqId, ok: true, data: { opened: t } }); }, 350);
+    // explorer.exe returns immediately (often a non-zero code even on success), so
+    // we don't wait on exit — report ok once the spawn itself didn't error.
+    setTimeout(() => { if (!failed) opReply({ type: 'opResult', reqId, ok: true, data: { opened: label } }); }, 350);
   } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
 }
 // Recursive filename search under a root, capped + time-limited so a huge drive

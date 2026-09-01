@@ -1776,6 +1776,27 @@ function doLaunch() {
 }
 $('#launch-btn').addEventListener('click', doLaunch);
 $('#launch-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLaunch(); });
+// Quick-launch dropdown in the top session bar: open common apps on the remote as
+// the logged-in user (one click). The agent resolves chrome/edge/firefox to their
+// real paths and hands them to explorer.exe so they open under the USER token.
+function qlResult(m) { toast(m.ok ? 'Opening on the remote…' : (m.error || 'Could not open'), m.ok ? 'ok' : 'err'); }
+(function () {
+  const qlBtn = $('#ql-btn'), qlMenu = $('#ql-menu');
+  if (!qlBtn || !qlMenu) return;
+  qlBtn.addEventListener('click', (e) => { e.stopPropagation(); qlMenu.hidden = !qlMenu.hidden; });
+  document.addEventListener('click', (e) => { if (!qlMenu.hidden && !e.target.closest('.ql-wrap')) qlMenu.hidden = true; });
+  $$('#ql-menu .ql-item').forEach((b) => b.addEventListener('click', () => {
+    qlMenu.hidden = true;
+    if (!attachedId) { toast('Connect to a device first', 'err'); return; }
+    const app = b.dataset.app;
+    if (app === 'url') {
+      const t = (window.prompt('Open on the remote — enter an app path or a URL:') || '').trim();
+      if (t) deviceOp(attachedId, 'launch', { target: t }, { onResult: qlResult });
+      return;
+    }
+    deviceOp(attachedId, 'launch', { app }, { onResult: qlResult });
+  }));
+})();
 $('#shot-btn').addEventListener('click', () => {
   try {
     const tmp = document.createElement('canvas'); tmp.width = canvas.width; tmp.height = canvas.height;

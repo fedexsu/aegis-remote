@@ -644,3 +644,10 @@ body.solo .sidebar{display:none}
   .main{padding:18px 16px 30px}
   .device-grid{grid-template-columns:1fr}
 }
+
+/* quick-launch: open an app / URL on the remote as the logged-in user */
+.ql-wrap{position:relative}
+.ql-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:60;min-width:200px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;box-shadow:0 14px 36px rgba(0,0,0,.5);padding:6px}
+.ql-item{display:block;width:100%;text-align:left;padding:8px 10px;border:0;border-radius:7px;background:transparent;color:var(--txt);font-size:13px;cursor:pointer}
+.ql-item:hover{background:var(--panel3)}
+.ql-sep{height:1px;background:var(--line);margin:5px 4px}

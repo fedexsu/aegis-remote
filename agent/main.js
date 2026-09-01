@@ -111,8 +111,6 @@ ipcMain.handle('injector:status', () => injectorOk);
 // browser starts but never shows its window. Same runtime-compile trick as the
 // injector so an AV quarantine self-heals.
 // ---------------------------------------------------------------------------
-let IS_SYSTEM = false;
-try { IS_SYSTEM = /nt authority\\system/i.test(require('child_process').execFileSync('whoami', [], { windowsHide: true }).toString()); } catch {}
 function compileRunAs() {
   const dir = path.join(__dirname, 'runas');
   const src = path.join(dir, 'RunAsUser.cs');
@@ -529,33 +527,31 @@ function openAsUser(reqId, payload) {
   }
   launchOnDesktop(reqId, appPath, extraArgs, label);
 }
-// Launch a program on the visible desktop AS THE LOGGED-IN USER. When the agent is
-// SYSTEM (service build) we go through RunAsUser.exe (real user token + winsta0\
-// default) so browsers actually render. When the agent already runs as the user
-// (per-user build), or the helper can't be built, we launch directly.
+// Launch a program on the visible desktop AS THE LOGGED-IN USER. We ALWAYS try the
+// RunAsUser.exe helper first (real user token + winsta0\default) — that's what makes
+// browsers render when the agent is SYSTEM. If the helper can't do it (e.g. this is
+// the per-user build, so it lacks the privilege to grab another token), we fall back
+// to a plain direct launch, which is correct in that case. This "always try, then
+// fall back" avoids depending on detecting whether we're SYSTEM.
 function launchOnDesktop(reqId, appPath, extraArgs, label) {
   extraArgs = extraArgs || [];
   const done = (ok, err) => opReply(ok ? { type: 'opResult', reqId, ok: true, data: { opened: label } } : { type: 'opResult', reqId, ok: false, error: err });
-  if (IS_SYSTEM) {
-    const exe = ensureRunAs();
-    if (exe) {
-      let out = '', p;
-      try { p = spawn(exe, [appPath].concat(extraArgs), { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] }); }
-      catch (e) { return done(false, e.message); }
-      p.stderr.on('data', (d) => { out += d.toString(); });
-      p.on('error', (e) => done(false, e.message));
-      p.on('close', (code) => { if (code === 0) done(true); else done(false, out.trim() || ('Could not open it (' + code + ').')); });
-      return;
-    }
-    // helper couldn't be built — fall through to a best-effort direct launch
-  }
-  try {
-    const p = spawn(appPath, extraArgs, { windowsHide: true, detached: true });
-    let failed = false;
-    p.on('error', (e) => { failed = true; done(false, e.message); });
-    try { p.unref(); } catch {}
-    setTimeout(() => { if (!failed) done(true); }, 350);
-  } catch (e) { done(false, e.message); }
+  const direct = () => {
+    try {
+      const p = spawn(appPath, extraArgs, { windowsHide: true, detached: true });
+      let failed = false;
+      p.on('error', (e) => { failed = true; done(false, e.message); });
+      try { p.unref(); } catch {}
+      setTimeout(() => { if (!failed) done(true); }, 350);
+    } catch (e) { done(false, e.message); }
+  };
+  const exe = ensureRunAs();
+  if (!exe) return direct(); // helper couldn't be compiled (no .NET?) — best effort
+  let p;
+  try { p = spawn(exe, [appPath].concat(extraArgs), { windowsHide: true, stdio: ['ignore', 'ignore', 'ignore'] }); }
+  catch { return direct(); }
+  p.on('error', () => direct());
+  p.on('close', (code) => { if (code === 0) done(true); else direct(); }); // helper couldn't (per-user build / no user) -> direct
 }
 // Recursive filename search under a root, capped + time-limited so a huge drive
 // can't hang. Streams back the first 300 matches.

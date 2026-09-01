@@ -158,20 +158,6 @@ async function handleUpdate(u, onCheck) {
     if (u.message && u.message.text) {
       const t = u.message.text.trim();
       const chat = u.message.chat.id;
-      // Owner-only dry run: simulate a confirmed purchase (no charge). Runs the exact
-      // post-payment path — provisions an account and DMs the login + guide — so you
-      // can verify the whole flow without sending USDT. Usage: /testbuy [plan]
-      if (/^\/testbuy\b/i.test(t)) {
-        if (!process.env.OWNER_TG_CHAT || String(u.message.from.id) !== String(process.env.OWNER_TG_CHAT)) return send(chat, '⛔ Not authorized. (Owner-only test command.)');
-        const planKey = planFromText(t.replace(/^\/testbuy\s*/i, '')) || Object.keys(db.plans())[0];
-        const inv = db.createInvoice(u.message.from.id, chat, planKey);
-        if (!inv) return send(chat, 'test: unknown plan.');
-        inv.txid = 'TEST-' + Date.now();
-        const creds = db.provisionFromInvoice(inv);
-        send(chat, '🧪 <b>TEST</b> — simulating a paid <b>' + esc(db.plans()[planKey].label) + '</b> purchase (no charge). You should now receive exactly what a real buyer gets 👇');
-        notifyPaid(inv, creds);
-        return;
-      }
       if (/^\/(start|menu)\b/.test(t) || /^⬅️|back$/i.test(t)) return showStart(chat);
       if (/channel/i.test(t)) return send(chat, '📣 <b>HatchConnect channel</b>\nUpdates, tips, and news. 👇', { inline_keyboard: [[{ text: '📣 Open channel', url: CHANNEL_URL }]] });
       if (/web hosting|hosting|cpanel/i.test(t)) return send(chat, '🌱 <b>Need web hosting too?</b>\nPut your website online with <b>HatchHosting</b> — one-click WordPress, free SSL, email at your domain and an easy control panel. 🚀', { inline_keyboard: [[{ text: '🌱 Open HatchHosting', url: HH_BOT_URL }]] });

@@ -543,9 +543,8 @@ const server = http.createServer(async (req, res) => {
         let ip = SERVER_IP;
         if (!ip) { try { const ips = await hestiaJson('v-list-sys-ips', []); ip = Object.keys(ips)[0] || ''; } catch { ip = ''; } }
         const host = HOSTNAME || ip;
-        const supportWa = process.env.SUPPORT_WA || process.env.HH_SUPPORT_WA || 'https://wa.me/message/DNZEI62CNT67P1';
-        const supportTg = (process.env.SUPPORT_TG || process.env.HH_SUPPORT_TG || '').replace(/^@/, '');
-        return json(res, 200, { ip, hostname: HOSTNAME, pmaUrl: 'https://' + host + '/phpmyadmin/', webmailUrl: 'https://' + host + '/webmail/', supportWa, supportTg, webStack: apacheStack() ? 'apache' : 'nginx' });
+        const supportTg = (process.env.HH_SUPPORT_TG || process.env.SUPPORT_TG || 'hatchadmin').replace(/^@/, '');
+        return json(res, 200, { ip, hostname: HOSTNAME, pmaUrl: 'https://' + host + '/phpmyadmin/', webmailUrl: 'https://' + host + '/webmail/', supportTg, webStack: apacheStack() ? 'apache' : 'nginx' });
       }
       if (url === '/api/php-versions') {
         let out = [];

@@ -21,8 +21,7 @@ const SITE_URL = process.env.SITE_URL || APP_URL; // marketing/site link shown i
 const CHANNEL_USER = (process.env.CHANNEL_USERNAME || 'hatchconnect').replace(/^@/, '');
 const CHANNEL = '@' + CHANNEL_USER;
 const CHANNEL_URL = 'https://t.me/' + CHANNEL_USER;
-const SUPPORT_WA = process.env.SUPPORT_WA || 'https://wa.me/message/DNZEI62CNT67P1';
-const SUPPORT_TG = (process.env.SUPPORT_TG || '').replace(/^@/, ''); // Telegram support handle (set later)
+const SUPPORT_TG = (process.env.SUPPORT_TG || 'hatchadmin').replace(/^@/, ''); // Telegram support handle
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 // Force-join: a user must be a member of our channel to use the bot. (The bot must
@@ -74,9 +73,7 @@ function mainMenuKeyboard() {
   ], resize_keyboard: true, is_persistent: true, input_field_placeholder: '👇 Tap to begin' };
 }
 function showSupport(chat) {
-  const rows = [[{ text: '💬 WhatsApp support', url: SUPPORT_WA }]];
-  if (SUPPORT_TG) rows.push([{ text: '✈️ Telegram support', url: 'https://t.me/' + SUPPORT_TG }]);
-  send(chat, '💬 <b>Support</b>\nNeed a hand — setup, billing, or a question? Tap below to reach a human. 👇', { inline_keyboard: rows });
+  send(chat, '💬 <b>Support</b>\nNeed a hand — setup, billing, or a question? Message us on Telegram. 👇', { inline_keyboard: [[{ text: '✈️ Message support', url: 'https://t.me/' + SUPPORT_TG }]] });
 }
 function plansKeyboard() {
   const P = db.plans();
@@ -231,7 +228,7 @@ function notifyPaid(inv, creds) {
       `🔗 <b>Dashboard:</b> ${APP_URL}\n👤 <b>Username:</b> <code>${esc(creds.username)}</code>\n🔑 <b>Password:</b> <code>${esc(creds.password)}</code>\n\n` +
       `📦 <b>Plan:</b> ${esc(p.label)} · active until ${until} ✅\n\n` +
       `A full step-by-step guide is coming in the next message 👇`;
-    const support = `💬 <b>Need help?</b> WhatsApp: ${SUPPORT_WA}` + (SUPPORT_TG ? `\nTelegram: https://t.me/${SUPPORT_TG}` : '');
+    const support = `💬 <b>Need help?</b> Message us on Telegram: https://t.me/${SUPPORT_TG}`;
     const guide =
       `📘 <b>Your complete HatchConnect guide</b>\n\n` +
       `<b>1) Sign in</b>\n• Open ${APP_URL} and log in with the username & password above.\n• Go to <b>Settings → Change password</b> to set your own. 🔒\n\n` +

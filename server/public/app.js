@@ -180,8 +180,7 @@ async function fillAuthSupport() {
   try {
     const s = await api('/api/support');
     const wrap = document.getElementById('auth-support');
-    const wa = document.getElementById('auth-wa'), tg = document.getElementById('auth-tg');
-    if (wa && s.wa) wa.href = s.wa;
+    const tg = document.getElementById('auth-tg');
     if (tg && s.tg) { tg.href = 'https://t.me/' + s.tg; tg.hidden = false; }
     if (wrap) wrap.hidden = false;
   } catch {}
@@ -189,9 +188,8 @@ async function fillAuthSupport() {
 async function fillSupport() {
   try {
     const s = await api('/api/support');
-    const wa = document.querySelector('#support-wa'); if (wa && s.wa) wa.href = s.wa;
     const tg = document.getElementById('sup-tg');
-    if (tg && s.tg) tg.innerHTML = '<a class="btn ghost small" target="_blank" rel="noopener" href="https://t.me/' + encodeURIComponent(s.tg) + '">Message on Telegram</a>';
+    if (tg && s.tg) tg.innerHTML = '<a class="btn primary small" target="_blank" rel="noopener" href="https://t.me/' + encodeURIComponent(s.tg) + '">Message on Telegram</a>';
   } catch {}
 }
 function goto(view) {

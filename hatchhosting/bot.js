@@ -27,8 +27,7 @@ const SITE_URL = process.env.HH_SITE_URL || process.env.SITE_URL || APP_URL; // 
 const CHANNEL_USER = (process.env.HH_CHANNEL_USERNAME || '').replace(/^@/, '');
 const CHANNEL = CHANNEL_USER ? '@' + CHANNEL_USER : '';
 const CHANNEL_URL = CHANNEL_USER ? 'https://t.me/' + CHANNEL_USER : '';
-const SUPPORT_WA = process.env.HH_SUPPORT_WA || process.env.SUPPORT_WA || 'https://wa.me/message/DNZEI62CNT67P1';
-const SUPPORT_TG = (process.env.HH_SUPPORT_TG || process.env.SUPPORT_TG || '').replace(/^@/, ''); // Telegram support handle (set later)
+const SUPPORT_TG = (process.env.HH_SUPPORT_TG || process.env.SUPPORT_TG || 'hatchadmin').replace(/^@/, ''); // Telegram support handle
 const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function api(method, params) {
@@ -79,9 +78,7 @@ function mainMenuKeyboard() {
   return { keyboard: rows, resize_keyboard: true, is_persistent: true, input_field_placeholder: '👇 Tap to begin' };
 }
 function showSupport(chat) {
-  const rows = [[{ text: '💬 WhatsApp support', url: SUPPORT_WA }]];
-  if (SUPPORT_TG) rows.push([{ text: '✈️ Telegram support', url: 'https://t.me/' + SUPPORT_TG }]);
-  send(chat, '💬 <b>Support</b>\nWe’re happy to help — setup, your domain, billing, or any question. Tap below to reach a human. 👇', { inline_keyboard: rows });
+  send(chat, '💬 <b>Support</b>\nWe’re happy to help — setup, your domain, billing, or any question. Message us on Telegram. 👇', { inline_keyboard: [[{ text: '✈️ Message support', url: 'https://t.me/' + SUPPORT_TG }]] });
 }
 function plansKeyboard() {
   const P = hostdb.plans();
@@ -234,7 +231,7 @@ function notifyPaid(inv, creds) {
       `🔗 <b>Control panel:</b> ${APP_URL}\n👤 <b>Username:</b> <code>${esc(creds.username)}</code>\n🔑 <b>Password:</b> <code>${esc(creds.password)}</code>\n\n` +
       `📦 <b>Plan:</b> ${esc(p.label)} · active until ${until} ✅\n\n` +
       `A full step-by-step guide is coming in the next message 👇`;
-    const support = `💬 <b>Need help?</b> WhatsApp: ${SUPPORT_WA}` + (SUPPORT_TG ? `\nTelegram: https://t.me/${SUPPORT_TG}` : '');
+    const support = `💬 <b>Need help?</b> Message us on Telegram: https://t.me/${SUPPORT_TG}`;
     const guide =
       `📗 <b>Your complete HatchHosting guide</b>\n\n` +
       `<b>1) Sign in</b>\n• Open ${APP_URL} and log in with the username & password above.\n• Change your password in <b>Settings</b>. 🔒\n\n` +

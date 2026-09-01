@@ -366,10 +366,7 @@ async function handleApi(req, res, urlPath) {
 
     // Public: support contact links for the dashboard Support page (env-driven).
     if (urlPath === '/api/support' && m === 'GET') {
-      return json(res, 200, {
-        wa: process.env.SUPPORT_WA || 'https://wa.me/message/DNZEI62CNT67P1',
-        tg: (process.env.SUPPORT_TG || '').replace(/^@/, ''),
-      });
+      return json(res, 200, { tg: (process.env.SUPPORT_TG || 'hatchadmin').replace(/^@/, '') });
     }
 
     // Public: agents poll this to self-update their JS. `have` is the agent's

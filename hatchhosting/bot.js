@@ -71,14 +71,38 @@ const PLAN_TAG = { biannual: '  🔥', annual: '  💎 best value' };
 function mainMenuKeyboard() {
   const rows = [
     [{ text: '🚀 Get Started' }],
-    [{ text: 'ℹ️ About' }, { text: '📊 My Account' }],
+    [{ text: '✨ Features' }, { text: 'ℹ️ About' }],
+    [{ text: '📊 My Account' }, { text: '❓ Help' }],
   ];
-  rows.push(CHANNEL_URL ? [{ text: '📣 Channel' }, { text: '❓ Help' }] : [{ text: '❓ Help' }]);
-  rows.push([{ text: '💬 Support' }]);
+  rows.push(CHANNEL_URL ? [{ text: '📣 Channel' }, { text: '💬 Support' }] : [{ text: '💬 Support' }]);
   return { keyboard: rows, resize_keyboard: true, is_persistent: true, input_field_placeholder: '👇 Tap to begin' };
 }
 function showSupport(chat) {
   send(chat, '💬 <b>Support</b>\nWe’re happy to help — setup, your domain, billing, or any question. Message us on Telegram. 👇', { inline_keyboard: [[{ text: '✈️ Message support', url: 'https://t.me/' + SUPPORT_TG }]] });
+}
+function showFeatures(chat) {
+  send(chat,
+    '✨ <b>Everything HatchHosting includes</b>\n\n' +
+    '🖥️ <b>One-click WordPress</b> — install a full WordPress site in a single click.\n' +
+    '🔒 <b>Free auto SSL</b> — HTTPS turns on by itself once your domain points here.\n' +
+    '🌐 <b>Host websites</b> — run one or many domains from a single account.\n' +
+    '🧭 <b>DNS helper</b> — shows the exact records to point your domain here.\n' +
+    '✉️ <b>Email at your domain</b> — mailboxes, forwarders and auto-reply, plus webmail.\n' +
+    '🗄️ <b>Databases</b> — MySQL databases with phpMyAdmin.\n' +
+    '📁 <b>File manager</b> — upload, edit, zip/unzip; a built-in code editor with search & colours.\n' +
+    '🔗 <b>Extra page links</b> — host more pages on the same domain (yoursite.com/p/…).\n' +
+    '🧩 <b>Domain aliases</b> — point extra domains at the same site.\n' +
+    '🐘 <b>PHP versions</b> — switch the PHP version per website.\n' +
+    '🧹 <b>Clean URLs</b> — hide the “.html” at the end of your pages.\n' +
+    '🤖 <b>Bot protection</b> — block bad bots and scrapers.\n' +
+    '💾 <b>Daily backups</b> — automatic, and you can make/download your own anytime.\n' +
+    '📊 <b>Analytics</b> — visitors, top pages, referrers and countries.\n' +
+    '⏰ <b>Cron jobs</b> — schedule tasks to run automatically.\n' +
+    '🔑 <b>FTP access</b> — classic FTP if you prefer it.\n' +
+    '🔔 <b>Notifications</b> — alerts when a domain isn’t pointed yet or SSL is still pending.\n' +
+    '🙂 <b>Easy control panel</b> — built for non-techies, with quick help throughout.\n\n' +
+    '👉 Tap <b>Get Started</b> to choose a plan.',
+    mainMenuKeyboard());
 }
 function plansKeyboard() {
   const P = hostdb.plans();
@@ -163,6 +187,7 @@ async function handleUpdate(u, onCheck) {
       if (/^\/(start|menu)\b/.test(t) || /^⬅️|^back$/i.test(t)) return showStart(chat);
       if (CHANNEL_URL && /channel/i.test(t)) return send(chat, '📣 <b>HatchHosting channel</b>\nUpdates, tips and news. 👇', { inline_keyboard: [[{ text: '📣 Open channel', url: CHANNEL_URL }]] });
       if (/^\/(plans|buy)\b/i.test(t) || /get started|^plans$|^buy$/i.test(t)) return showPlans(chat);
+      if (/^\/features\b/i.test(t) || /features/i.test(t)) return showFeatures(chat);
       if (/^\/about\b/i.test(t) || /about/i.test(t)) return showAbout(chat);
       if (/^\/panel\b/i.test(t) || /open panel|control panel/i.test(t)) return send(chat, `🖥️ <b>Your control panel</b>\n${APP_URL}\n\nSign in with the username and password the bot sent you.`, mainMenuKeyboard());
       if (/^\/(account|status)\b/i.test(t) || /account|status/i.test(t)) {

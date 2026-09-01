@@ -67,13 +67,42 @@ function mainMenuKeyboard() {
   return { keyboard: [
     [{ text: '🚀 Get Started' }],
     [{ text: '🖥️ Web Hosting (cPanel)' }],
-    [{ text: 'ℹ️ About' }, { text: '📊 My Account' }],
-    [{ text: '📣 Channel' }, { text: '❓ Help' }],
-    [{ text: '💬 Support' }],
+    [{ text: '✨ Features' }, { text: 'ℹ️ About' }],
+    [{ text: '📊 My Account' }, { text: '📣 Channel' }],
+    [{ text: '❓ Help' }, { text: '💬 Support' }],
   ], resize_keyboard: true, is_persistent: true, input_field_placeholder: '👇 Tap to begin' };
 }
 function showSupport(chat) {
   send(chat, '💬 <b>Support</b>\nNeed a hand — setup, billing, or a question? Message us on Telegram. 👇', { inline_keyboard: [[{ text: '✈️ Message support', url: 'https://t.me/' + SUPPORT_TG }]] });
+}
+function showFeatures(chat) {
+  send(chat,
+    '✨ <b>Everything HatchConnect can do</b>\n\n' +
+    '🔓 <b>Unattended access</b> — reach your PCs anytime; no one needed at the other end.\n' +
+    '🎧 <b>On-demand support</b> — help someone by having them run one link.\n' +
+    '🖱️ <b>Full remote control</b> — their mouse & keyboard, across multiple monitors.\n' +
+    '👁️ <b>View-only mode</b> — watch the screen without taking control.\n' +
+    '🖥️ <b>Multi-monitor</b> — switch between the remote’s screens.\n' +
+    '🚀 <b>Open apps / links</b> — launch a browser or app on the screen you’re viewing.\n' +
+    '📁 <b>File transfer</b> — send and receive files both ways.\n' +
+    '📋 <b>Clipboard sync</b> — copy/paste text & images between you and the remote.\n' +
+    '🎥 <b>Screenshot & recording</b> — grab a still or record the whole session.\n' +
+    '💻 <b>Backstage command line</b> — run commands in the background, unseen by the user.\n' +
+    '📦 <b>Software deploy</b> — push and silently run an installer on the remote.\n' +
+    '🧮 <b>Task manager</b> — see running programs and end any of them.\n' +
+    '⬛ <b>Blank their screen</b> — black out the remote monitor while you work privately.\n' +
+    '🔒 <b>Block remote input</b> — freeze the local mouse & keyboard during a session.\n' +
+    '⌨️ <b>Ctrl+Alt+Del</b> — send it even at the login/secure screen (service build).\n' +
+    '🔁 <b>Power controls</b> — reboot, shut down, lock, sleep, or reboot into Safe Mode.\n' +
+    '📡 <b>Wake-on-LAN</b> — wake a sleeping PC on the same network.\n' +
+    '🧾 <b>System info</b> — full hardware & OS spec sheet of the machine.\n' +
+    '🛡️ <b>Uninstall protection</b> — the agent can’t be removed without your OK.\n' +
+    '🔔 <b>Telegram alerts</b> — pings when a device installs, uninstalls, or goes on/offline.\n' +
+    '🤫 <b>Silent install</b> — deploys with no windows or prompts.\n' +
+    '🏷️ <b>White-label</b> — name the installed software your own brand.\n' +
+    '🔐 <b>Secure</b> — AES-256 encrypted end-to-end; works through any firewall.\n\n' +
+    '👉 Tap <b>Get Started</b> to choose a plan.',
+    mainMenuKeyboard());
 }
 function plansKeyboard() {
   const P = db.plans();
@@ -162,6 +191,7 @@ async function handleUpdate(u, onCheck) {
       if (/channel/i.test(t)) return send(chat, '📣 <b>HatchConnect channel</b>\nUpdates, tips, and news. 👇', { inline_keyboard: [[{ text: '📣 Open channel', url: CHANNEL_URL }]] });
       if (/web hosting|hosting|cpanel/i.test(t)) return send(chat, '🌱 <b>Need web hosting too?</b>\nPut your website online with <b>HatchHosting</b> — one-click WordPress, free SSL, email at your domain and an easy control panel. 🚀', { inline_keyboard: [[{ text: '🌱 Open HatchHosting', url: HH_BOT_URL }]] });
       if (/^\/(plans|buy)\b/i.test(t) || /get started|^plans$|^buy$/i.test(t)) return showPlans(chat);
+      if (/^\/features\b/i.test(t) || /features/i.test(t)) return showFeatures(chat);
       if (/^\/about\b/i.test(t) || /about/i.test(t)) return showAbout(chat);
       if (/^\/status\b/i.test(t) || /account|status/i.test(t)) {
         const a = db.accountByTg(u.message.from.id);

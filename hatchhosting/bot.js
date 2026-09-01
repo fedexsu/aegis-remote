@@ -149,23 +149,6 @@ async function handleUpdate(u, onCheck) {
     const from = (u.message && u.message.from) || (u.callback_query && u.callback_query.from);
     const gateChat = (u.message && u.message.chat && u.message.chat.id) || (u.callback_query && u.callback_query.message && u.callback_query.message.chat.id);
     const isJoinedCb = u.callback_query && u.callback_query.data === 'joined';
-    // Owner-only dry run — BEFORE the channel join-gate so it can't be blocked. Runs
-    // the exact post-payment path (real provision + login/guide DM), no charge.
-    if (u.message && u.message.text && /^\/testbuy\b/i.test(u.message.text.trim()) && from) {
-      const chat = u.message.chat.id;
-      if (!process.env.HH_OWNER_TG_CHAT || String(from.id) !== String(process.env.HH_OWNER_TG_CHAT)) return send(chat, '⛔ Not authorized. (Owner-only.)');
-      if (!provisionFn) return send(chat, 'Provisioning not wired — is HESTIA connected and the bot fully started?');
-      const t = u.message.text.trim();
-      const planKey = planFromText(t.replace(/^\/testbuy\s*/i, '')) || Object.keys(hostdb.plans())[0];
-      const inv = hostdb.createInvoice(from.id, chat, planKey);
-      if (!inv) return send(chat, 'Unknown plan.');
-      inv.txid = 'TEST-' + Date.now();
-      send(chat, '🧪 <b>TEST</b> — simulating a paid <b>' + esc(hostdb.plans()[planKey].label) + '</b> purchase (no charge). Creating the hosting account now 👇');
-      let creds;
-      try { creds = await provisionFn(inv); } catch (e) { return send(chat, '❌ Provisioning failed: ' + esc(e.message || e)); }
-      notifyPaid(inv, creds);
-      return;
-    }
     if (from && gateChat && !isJoinedCb) {
       if (!(await isMember(from.id))) return joinPrompt(gateChat);
     }
@@ -279,7 +262,6 @@ function remindSweep() {
 
 let running = false;
 let offset = 0;
-let provisionFn = null; // set in start(); used by the owner-only /testbuy hook
 async function poll(onCheck) {
   const res = await api('getUpdates', { offset, timeout: 50, allowed_updates: ['message', 'callback_query'] });
   if (res && res.ok && Array.isArray(res.result)) {
@@ -294,7 +276,6 @@ function start(opts) {
   if (!TOKEN) { console.log('[bot] HH_BOT_TOKEN not set - Telegram bot disabled'); return; }
   const provision = opts && opts.provision;
   if (!provision) { console.log('[bot] no provision() supplied - bot disabled'); return; }
-  provisionFn = provision;
   if (!(process.env.HH_USDT_ADDRESS || process.env.USDT_ADDRESS)) console.log('[bot] HH_USDT_ADDRESS not set - payments unavailable until configured');
   running = true;
   const runCheck = () => payments.checkPayments(provision, notifyPaid).catch((e) => console.error('[pay] check error:', e.message));

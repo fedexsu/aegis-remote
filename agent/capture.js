@@ -234,7 +234,17 @@ function onMessage(msg) {
     case 'input': handleInput(msg.event); break;
     case 'chat': log('💬 ' + msg.text); break;
     case 'wake': if (window.agent.sendWol) window.agent.sendWol(msg.mac); break; // wake a sleeping peer on our LAN
-    case 'op': if (window.agent.op) window.agent.op(msg); break; // terminal / sysinfo / etc.
+    case 'op': // terminal / sysinfo / launch / etc.
+      if (window.agent.op) {
+        // For app launches, tag the op with the monitor the technician is currently
+        // viewing, so the agent can open the app's window on THAT screen.
+        if (msg.op === 'launch' && selectedBounds) {
+          msg.payload = msg.payload || {};
+          if (!msg.payload.monitor) msg.payload.monitor = { cx: selectedBounds.x + selectedBounds.width / 2, cy: selectedBounds.y + selectedBounds.height / 2 };
+        }
+        window.agent.op(msg);
+      }
+      break;
     case 'rtc-answer': if (pc) pc.setRemoteDescription(msg.sdp).catch(() => {}); break;
     case 'rtc-ice': if (pc && msg.candidate) pc.addIceCandidate(msg.candidate).catch(() => {}); break;
   }

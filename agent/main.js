@@ -525,7 +525,8 @@ function openAsUser(reqId, payload) {
     if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) { appPath = WIN + '\\System32\\rundll32.exe'; extraArgs = ['url.dll,FileProtocolHandler', t]; label = t; } // URL -> default browser, as the user
     else { appPath = t; label = t; }
   }
-  launchOnDesktop(reqId, appPath, extraArgs, label);
+  const mon = (payload && payload.monitor) || null; // { cx, cy } of the monitor the technician is viewing
+  launchOnDesktop(reqId, appPath, extraArgs, label, mon);
 }
 // Launch a program on the visible desktop AS THE LOGGED-IN USER. We ALWAYS try the
 // RunAsUser.exe helper first (real user token + winsta0\default) — that's what makes
@@ -533,7 +534,7 @@ function openAsUser(reqId, payload) {
 // the per-user build, so it lacks the privilege to grab another token), we fall back
 // to a plain direct launch, which is correct in that case. This "always try, then
 // fall back" avoids depending on detecting whether we're SYSTEM.
-function launchOnDesktop(reqId, appPath, extraArgs, label) {
+function launchOnDesktop(reqId, appPath, extraArgs, label, monitor) {
   extraArgs = extraArgs || [];
   const done = (ok, info) => opReply(ok ? { type: 'opResult', reqId, ok: true, data: { opened: label, info: info || '' } } : { type: 'opResult', reqId, ok: false, error: info });
   const direct = () => {
@@ -547,8 +548,11 @@ function launchOnDesktop(reqId, appPath, extraArgs, label) {
   };
   const exe = ensureRunAs();
   if (!exe) return direct(); // helper couldn't be compiled (no .NET?) — best effort
+  // Prefix "--at cx cy" so the helper moves the app's window onto the monitor the
+  // technician is viewing (multi-monitor). Skipped when we don't know the monitor.
+  const at = (monitor && Number.isFinite(monitor.cx) && Number.isFinite(monitor.cy)) ? ['--at', String(Math.round(monitor.cx)), String(Math.round(monitor.cy))] : [];
   let p, out = '';
-  try { p = spawn(exe, [appPath].concat(extraArgs), { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }); }
+  try { p = spawn(exe, at.concat([appPath], extraArgs), { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }); }
   catch { return direct(); }
   p.stdout.on('data', (d) => { out += d.toString(); });
   p.on('error', () => direct());

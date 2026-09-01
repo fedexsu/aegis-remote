@@ -172,6 +172,16 @@ function pageStarter(title, domain) {
     '',
   ].join('\n');
 }
+// Each link folder gets its OWN .htaccess that turns inherited rewrites OFF, so the
+// domain's WordPress / clean-URL rules can't hijack /p/<slug> (that hijack is what
+// makes the link bounce to a weird URL or 404). It just serves its index.html.
+function pageHtaccess() {
+  return ['DirectoryIndex index.html', 'Options -Indexes', '<IfModule mod_rewrite.c>', 'RewriteEngine Off', '</IfModule>', ''].join('\n');
+}
+async function ensurePageHtaccess(u, pdir) {
+  const hp = path.join(pdir, '.htaccess');
+  try { if (!fs.existsSync(hp)) { await fsp.writeFile(hp, pageHtaccess()); try { await execFileP('chown', [u + ':' + u, hp]); } catch {} } } catch {}
+}
 async function listPages(u, domain) {
   const base = await ensureSite(u, domain);
   const dir = path.join(base, 'p');
@@ -183,6 +193,7 @@ async function listPages(u, domain) {
     try {
       const st = await fsp.stat(path.join(dir, n));
       if (!st.isDirectory()) continue;
+      await ensurePageHtaccess(u, path.join(dir, n)); // heal existing links
       let title = '';
       try { const h = await fsp.readFile(path.join(dir, n, 'index.html'), 'utf8'); const m = h.match(/<title>([^<]*)<\/title>/i); if (m) title = m[1].trim().slice(0, 100); } catch {}
       out.push({ slug: n, url: 'https://' + domain + '/p/' + n, link: domain + '/p/' + n, title, mtime: st.mtimeMs });
@@ -534,7 +545,7 @@ const server = http.createServer(async (req, res) => {
         const host = HOSTNAME || ip;
         const supportWa = process.env.SUPPORT_WA || process.env.HH_SUPPORT_WA || 'https://wa.me/message/DNZEI62CNT67P1';
         const supportTg = (process.env.SUPPORT_TG || process.env.HH_SUPPORT_TG || '').replace(/^@/, '');
-        return json(res, 200, { ip, hostname: HOSTNAME, pmaUrl: 'https://' + host + '/phpmyadmin/', webmailUrl: 'https://' + host + '/webmail/', supportWa, supportTg });
+        return json(res, 200, { ip, hostname: HOSTNAME, pmaUrl: 'https://' + host + '/phpmyadmin/', webmailUrl: 'https://' + host + '/webmail/', supportWa, supportTg, webStack: apacheStack() ? 'apache' : 'nginx' });
       }
       if (url === '/api/php-versions') {
         let out = [];
@@ -630,6 +641,7 @@ const server = http.createServer(async (req, res) => {
           try {
             await fsp.mkdir(pdir);
             await fsp.writeFile(path.join(pdir, 'index.html'), pageStarter(title, domain));
+            await fsp.writeFile(path.join(pdir, '.htaccess'), pageHtaccess()); // shield from the domain's rewrites
             await execFileP('chown', ['-R', u + ':' + u, pagesDir]);
           } catch (e) { return json(res, 200, { ok: false, error: 'Could not create the page: ' + (e.message || e) }); }
           return json(res, 200, { ok: true, slug: final, path: 'p/' + final, link: domain + '/p/' + final, url: 'https://' + domain + '/p/' + final });

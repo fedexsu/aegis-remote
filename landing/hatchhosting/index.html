@@ -32,7 +32,7 @@
   header{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.86);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
   nav{display:flex;align-items:center;gap:26px;height:64px}
   .brand{display:flex;align-items:center;gap:10px;font-family:"Archivo";font-weight:800;font-size:18px}
-  .brand .tile{width:28px;height:28px;border-radius:7px;background:#0f1826;display:grid;place-items:center}
+  .brand .tile{width:28px;height:28px;border-radius:7px;background:#000000;display:grid;place-items:center}
   .nav-links{display:flex;gap:24px;margin-left:14px}
   .nav-links a{color:var(--ink2);font-size:14.5px;font-weight:500}
   .nav-links a:hover{color:var(--ink)}
@@ -64,6 +64,14 @@
   .mrow .nm{font-weight:600;font-size:14px}
   .mrow .meta{font-size:12.5px;color:var(--ink3)}
   .badge{margin-left:auto;font-family:"IBM Plex Mono";font-size:11px;font-weight:500;padding:4px 9px;border-radius:20px;background:var(--accent-soft);color:var(--accent2)}
+  /* screenshot frame (drop a real screenshot in as screenshot.png) */
+  .shot{border:1px solid var(--line2);border-radius:14px;overflow:hidden;box-shadow:0 40px 80px -44px rgba(15,30,60,.35);background:#fff}
+  .shot-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);background:var(--panel2)}
+  .shot-bar .d{width:10px;height:10px;border-radius:50%;background:#cfd8e6}
+  .shot-bar .u{margin-left:8px;flex:1;background:#fff;border:1px solid var(--line);border-radius:7px;padding:5px 10px;font-family:"IBM Plex Mono";font-size:12px;color:var(--ink2)}
+  .shot-img{position:relative;aspect-ratio:16/10;background:linear-gradient(160deg,#f7fafd,#eaf1f8);display:grid;place-items:center}
+  .shot-img img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+  .shot-ph{color:var(--ink3);font-family:"IBM Plex Mono";font-size:12.5px;line-height:1.7;text-align:center;padding:24px}
 
   section{padding:88px 0}
   .sec-head{max-width:62ch;margin-bottom:44px}
@@ -87,11 +95,10 @@
   .price-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
   .plan{background:#fff;border:1px solid var(--line);border-radius:14px;padding:24px;display:flex;flex-direction:column}
   .plan.hot{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 24px 50px -30px var(--glow)}
-  .plan .tag{font-family:"IBM Plex Mono";font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
-  .plan.hot .tag{color:var(--accent2)}
-  .plan .amt{font-family:"Archivo";font-weight:800;font-size:34px;margin:14px 0 2px;letter-spacing:-.02em}
+  .plan .tag{display:inline-block;font-family:"IBM Plex Mono";font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent2);background:var(--accent-soft);border:1px solid rgba(14,159,110,.28);border-radius:20px;padding:4px 11px}
+  .plan .amt{font-family:"Archivo";font-weight:800;font-size:34px;margin:16px 0 2px;letter-spacing:-.02em}
   .plan .amt span{font-family:"IBM Plex Mono";font-size:14px;font-weight:500;color:var(--ink2)}
-  .plan .per{color:var(--ink3);font-size:13px;font-family:"IBM Plex Mono"}
+  .plan .per{color:var(--accent2);font-size:13px;font-family:"IBM Plex Mono";font-weight:500}
   .plan .li{color:var(--ink2);font-size:14px;margin:16px 0;flex:1}
   .plan .li div{padding:5px 0;display:flex;gap:8px;align-items:flex-start}
   .plan .li svg{width:15px;height:15px;color:var(--accent);flex:0 0 auto;margin-top:3px}
@@ -174,14 +181,9 @@
             <span class="spec">Email included</span>
           </div>
         </div>
-        <div class="mock" aria-hidden="true">
-          <div class="mock-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>https://yoursite.com</span></div>
-          <div class="mock-body">
-            <div class="mrow"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 3.8 6 3.8 9s-1.3 6.5-3.8 9-3.8-6-3.8-9S9.5 5.5 12 3z"/></svg></span><div><div class="nm">yoursite.com</div><div class="meta">WordPress installed</div></div><span class="badge">SSL active</span></div>
-            <div class="mrow"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5 12 13l8.5-6.5"/></svg></span><div><div class="nm">hello@yoursite.com</div><div class="meta">Mailbox and webmail</div></div><span class="badge">Ready</span></div>
-            <div class="mrow"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5.5" rx="7.5" ry="3"/><path d="M4.5 5.5v13c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-13"/></svg></span><div><div class="nm">app_db</div><div class="meta">MySQL database</div></div><span class="badge">Online</span></div>
-            <div class="mrow"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v14H4z"/><path d="M4 9h16"/><path d="M9 13l2 2 4-4"/></svg></span><div><div class="nm">Backup</div><div class="meta">Last night, 02:00</div></div><span class="badge">Saved</span></div>
-          </div>
+        <div class="shot" aria-hidden="true">
+          <div class="shot-bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="u">cpanel.hatchhosting.app</span></div>
+          <div class="shot-img"><span class="shot-ph">Your panel screenshot goes here.<br>Save it as <b>screenshot.png</b> next to this page.</span><img src="screenshot.png" alt="HatchHosting control panel" onerror="this.remove()"></div>
         </div>
       </div>
     </div>

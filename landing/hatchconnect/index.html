@@ -34,7 +34,7 @@
   header{position:sticky;top:0;z-index:50;background:rgba(9,12,18,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
   nav{display:flex;align-items:center;gap:26px;height:64px}
   .brand{display:flex;align-items:center;gap:10px;font-family:"Archivo";font-weight:800;font-size:18px}
-  .brand .tile{width:28px;height:28px;border-radius:7px;background:#0a0d14;border:1px solid #262f41;display:grid;place-items:center}
+  .brand .tile{width:28px;height:28px;border-radius:7px;background:#2f6bff;display:grid;place-items:center}
   .nav-links{display:flex;gap:24px;margin-left:14px}
   .nav-links a{color:var(--ink2);font-size:14.5px;font-weight:500}
   .nav-links a:hover{color:var(--ink)}
@@ -70,6 +70,14 @@
   .drow .nm{font-weight:600;font-size:14px}
   .drow .meta{font-family:"IBM Plex Mono";font-size:12px;color:var(--ink3)}
   .drow .act{margin-left:auto;font-size:12.5px;font-weight:600;color:var(--accent2);border:1px solid var(--line2);border-radius:7px;padding:5px 11px}
+  /* screenshot frame (drop a real screenshot in as screenshot.png) */
+  .shot{border:1px solid var(--line2);border-radius:14px;overflow:hidden;box-shadow:0 40px 80px -40px rgba(0,0,0,.8);background:var(--panel)}
+  .shot-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);background:var(--bg2)}
+  .shot-bar .d{width:10px;height:10px;border-radius:50%;background:#2a3446}
+  .shot-bar .u{margin-left:8px;font-family:"IBM Plex Mono";font-size:12px;color:var(--ink3)}
+  .shot-img{position:relative;aspect-ratio:16/10;background:linear-gradient(160deg,var(--panel),var(--bg2));display:grid;place-items:center}
+  .shot-img img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+  .shot-ph{color:var(--ink3);font-family:"IBM Plex Mono";font-size:12.5px;line-height:1.7;text-align:center;padding:24px}
 
   section{padding:88px 0}
   .sec-head{max-width:60ch;margin-bottom:44px}
@@ -95,11 +103,10 @@
   .price-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
   .plan{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;display:flex;flex-direction:column}
   .plan.hot{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 24px 50px -30px var(--glow)}
-  .plan .tag{font-family:"IBM Plex Mono";font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
-  .plan.hot .tag{color:var(--accent2)}
-  .plan .amt{font-family:"Archivo";font-weight:800;font-size:34px;margin:14px 0 2px;letter-spacing:-.02em}
+  .plan .tag{display:inline-block;font-family:"IBM Plex Mono";font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent2);background:rgba(77,132,255,.13);border:1px solid rgba(77,132,255,.3);border-radius:20px;padding:4px 11px}
+  .plan .amt{font-family:"Archivo";font-weight:800;font-size:34px;margin:16px 0 2px;letter-spacing:-.02em}
   .plan .amt span{font-family:"IBM Plex Mono";font-size:14px;font-weight:500;color:var(--ink2)}
-  .plan .per{color:var(--ink3);font-size:13px;font-family:"IBM Plex Mono"}
+  .plan .per{color:var(--accent2);font-size:13px;font-family:"IBM Plex Mono";font-weight:500}
   .plan .li{color:var(--ink2);font-size:14px;margin:16px 0;flex:1}
   .plan .li div{padding:5px 0}
   .plan .btn{width:100%;justify-content:center}
@@ -185,14 +192,9 @@
             <span class="spec">Windows</span>
           </div>
         </div>
-        <div class="mock" aria-hidden="true">
-          <div class="mock-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="ttl">console.hatchconnect.app</span></div>
-          <div class="mock-body">
-            <div class="drow"><span class="st on"></span><div><div class="nm">FINANCE-WS01</div><div class="meta">jane@finance . Windows 11</div></div><span class="act">Connect</span></div>
-            <div class="drow"><span class="st on"></span><div><div class="nm">RECEPTION-PC</div><div class="meta">front-desk . online 2m</div></div><span class="act">Connect</span></div>
-            <div class="drow"><span class="st off"></span><div><div class="nm">WAREHOUSE-03</div><div class="meta">offline 14m</div></div><span class="act" style="color:var(--ink3)">Wake</span></div>
-            <div class="drow"><span class="st on"></span><div><div class="nm">DEV-LAPTOP</div><div class="meta">sam@dev . in session</div></div><span class="act">View</span></div>
-          </div>
+        <div class="shot" aria-hidden="true">
+          <div class="shot-bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="u">console.hatchconnect.app</span></div>
+          <div class="shot-img"><span class="shot-ph">Your dashboard screenshot goes here.<br>Save it as <b>screenshot.png</b> next to this page.</span><img src="screenshot.png" alt="HatchConnect dashboard" onerror="this.remove()"></div>
         </div>
       </div>
     </div>
@@ -218,6 +220,12 @@
         <div class="feat"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h18M3 6h18M3 18h12"/></svg></span><h3>Multi-monitor</h3><p>Switch between the remote screens and open apps on the one you are viewing.</p></div>
         <div class="feat"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/></svg></span><h3>Encrypted end to end</h3><p>AES-256 across the wire, through firewalls, with no port forwarding.</p></div>
         <div class="feat"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16v13H4z"/><path d="M4 7l4-4h8l4 4"/><path d="M9 12h6"/></svg></span><h3>White-label installer</h3><p>Ship the agent under your own product name.</p></div>
+        <div class="feat"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M2.5 4.5l19 13M8 21h8M12 17v4"/></svg></span><h3>Blank the screen</h3><p>Black out the remote monitor and hide the cursor while you work in private.</p></div>
+        <div class="feat"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M8 5H5v16h14V5h-3"/><path d="M9 12h6M9 16h4"/></svg></span><h3>Clipboard sync</h3><p>Copy and paste text and images between you and the remote.</p></div>
+        <div class="feat"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v10m0 0l-4-4m4 4l4-4"/><rect x="4" y="17" width="16" height="4" rx="1"/></svg></span><h3>Silent install</h3><p>The agent installs with no windows and no prompts, on a plain double-click.</p></div>
+        <div class="feat"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h6M7 16h8"/></svg></span><h3>Task manager</h3><p>See every running program and end any of them remotely.</p></div>
+        <div class="feat"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v9"/><path d="M6.4 6.4a8 8 0 1011.2 0"/></svg></span><h3>Power controls</h3><p>Reboot, shut down, lock, sleep, or reboot straight into Safe Mode.</p></div>
+        <div class="feat"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12.5a10 10 0 0114 0"/><path d="M8.5 15.5a5 5 0 017 0"/><path d="M12 19h.01"/></svg></span><h3>Wake-on-LAN</h3><p>Wake a sleeping PC through another agent on the same network.</p></div>
       </div>
     </div>
   </section>

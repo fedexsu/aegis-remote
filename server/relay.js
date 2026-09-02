@@ -963,17 +963,21 @@ wss.on('connection', (ws, req) => {
         // owned by a DIFFERENT admin.
         const priorOwner = db.ownerOfDevice(id);
         if (priorOwner && priorOwner !== k.adminId) {
-          // The platform OWNER can reclaim any device (they run everything); a normal
-          // customer cannot steal another customer's device.
+          // Whoever physically installs an agent on a machine can claim it, so a
+          // device reassigned to a new customer just re-enrolls. The ONLY case we
+          // still block is a non-owner trying to grab a machine that is currently
+          // LIVE (connected) under another account — the actual hijack scenario.
+          // The platform owner can always reclaim.
           const claiming = db.findAdminById(k.adminId);
           const ownerClaim = claiming && (claiming.role || 'admin') === 'owner';
-          if (!ownerClaim) {
-            console.log('[ENROLL DENIED] device=%s owned by admin=%s (attempted by admin=%s)', id, priorOwner, k.adminId);
-            logEnroll({ device: id, name: msg.name || null, key: (k.key || '').slice(0, 8), ip: ws.ip, result: 'denied', reason: 'device already enrolled to another account' });
-            send(ws, { type: 'denied', reason: 'this device is already enrolled to another account' });
+          const priorLive = agents.has(id); // prior owner's agent is connected right now
+          if (!ownerClaim && priorLive) {
+            console.log('[ENROLL DENIED] device=%s LIVE under admin=%s (attempt by admin=%s)', id, priorOwner, k.adminId);
+            logEnroll({ device: id, name: msg.name || null, key: (k.key || '').slice(0, 8), ip: ws.ip, result: 'denied', reason: 'device active under another account' });
+            send(ws, { type: 'denied', reason: 'this device is currently in use under another account. Ask them to uninstall it first.' });
             return ws.close();
           }
-          console.log('[ENROLL] owner reclaiming device=%s from admin=%s', id, priorOwner);
+          console.log('[ENROLL] re-parenting device=%s from admin=%s to admin=%s (owner=%s live=%s)', id, priorOwner, k.adminId, ownerClaim, priorLive);
         }
         // Trial anti-abuse: cap how many machines a trial account can enroll.
         // Paid/owner accounts skip this entirely (no paying customer is ever blocked).

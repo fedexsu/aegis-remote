@@ -373,7 +373,7 @@ const plans = () => PLANS;
 // Create a pending invoice with a UNIQUE amount (base price + a tiny per-invoice tag
 // in the last micro-USDT digits) so one receiving address can serve everyone: the
 // watcher matches an incoming transfer to exactly one invoice by amount.
-function createInvoice(tgUserId, tgChat, planKey) {
+function createInvoice(tgUserId, tgChat, planKey, tgUsername, tgName) {
   const p = PLANS[planKey]; if (!p) return null;
   if (!Array.isArray(db.invoices)) db.invoices = [];
   const baseMicro = p.usdt * 1000000;
@@ -381,7 +381,7 @@ function createInvoice(tgUserId, tgChat, planKey) {
   let amountMicro, tries = 0;
   do { amountMicro = baseMicro + 1 + Math.floor(Math.random() * 9999); tries++; } while (used.has(amountMicro) && tries < 5000);
   const now = Date.now();
-  const inv = { id: genId(), tgUserId, tgChat, plan: planKey, amountMicro, status: 'pending', txid: null, adminId: null, createdAt: now, expiresAt: now + 60 * 60 * 1000 };
+  const inv = { id: genId(), tgUserId, tgChat, tgUsername: tgUsername || '', tgName: tgName || '', plan: planKey, amountMicro, status: 'pending', txid: null, adminId: null, createdAt: now, expiresAt: now + 60 * 60 * 1000 };
   db.invoices.push(inv); save();
   return inv;
 }

@@ -23,6 +23,15 @@ const CHANNEL = '@' + CHANNEL_USER;
 const CHANNEL_URL = 'https://t.me/' + CHANNEL_USER;
 const SUPPORT_TG = (process.env.SUPPORT_TG || 'hatchadmin').replace(/^@/, ''); // Telegram support handle
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// A readable identifier for owner alerts: @username plus name plus id (whatever exists).
+function tgHandle(username, name, id) {
+  const parts = [];
+  if (username) parts.push('@' + String(username).replace(/^@/, ''));
+  if (name) parts.push(esc(name));
+  if (id) parts.push('id ' + id);
+  return parts.join(' · ') || 'unknown';
+}
+const fromHandle = (from) => from ? tgHandle(from.username, [from.first_name, from.last_name].filter(Boolean).join(' '), from.id) : 'unknown';
 
 // Force-join: a user must be a member of our channel to use the bot. (The bot must
 // be an ADMIN of the channel for this check to work; if it can't verify, it fails
@@ -229,7 +238,7 @@ async function handleUpdate(u, onCheck) {
       const planKey = planFromText(t);
       if (planKey) {
         if (!process.env.USDT_ADDRESS) return send(chat, 'Payments are not configured yet. Please try again shortly.');
-        const inv = db.createInvoice(u.message.from.id, chat, planKey);
+        const inv = db.createInvoice(u.message.from.id, chat, planKey, u.message.from.username, [u.message.from.first_name, u.message.from.last_name].filter(Boolean).join(' '));
         if (!inv) return send(chat, 'That plan is not available. Send /start to try again.');
         return showInvoice(chat, inv);
       }
@@ -271,7 +280,7 @@ function notifyPaid(inv, creds) {
   const p = creds.plan;
   const until = new Date(creds.subExpires).toISOString().slice(0, 10);
   if (process.env.OWNER_TG_CHAT) {
-    send(process.env.OWNER_TG_CHAT, `💰 <b>${creds.isNew ? 'New sale' : 'Renewal'}</b>\nPlan: ${esc(p.label)} (${p.usdt} USDT)\nAccount: <code>${esc(creds.username)}</code>`);
+    send(process.env.OWNER_TG_CHAT, `💰 <b>${creds.wasTrial ? 'Trial upgrade' : (creds.isNew ? 'New sale' : 'Renewal')}</b>\n👤 User: ${tgHandle(inv.tgUsername, inv.tgName, inv.tgUserId)}\nPlan: ${esc(p.label)} (${p.usdt} USDT)\nAccount: <code>${esc(creds.username)}</code>`);
   }
   if (creds.isNew) {
     const creds1 =
@@ -323,7 +332,7 @@ function finishTrial(chat, from, phone) {
   if (r.already) return alreadyHasAccountMsg(chat, r);
   const days = db.trialDays();
   const until = new Date(r.subExpires).toISOString().slice(0, 10);
-  if (process.env.OWNER_TG_CHAT) send(process.env.OWNER_TG_CHAT, `🎁 <b>New free trial</b>\nAccount: <code>${esc(r.username)}</code> · ends ${until}`);
+  if (process.env.OWNER_TG_CHAT) send(process.env.OWNER_TG_CHAT, `🎁 <b>New free trial</b>\n👤 User: ${fromHandle(from)}\nAccount: <code>${esc(r.username)}</code> · ends ${until}`);
   const creds1 =
     `🎁 <b>Your ${days}-day free trial is ready!</b> Full access, no payment. 🚀\n\n` +
     `🔗 <b>Dashboard:</b> ${APP_URL}\n👤 <b>Username:</b> <code>${esc(r.username)}</code>\n🔑 <b>Password:</b> <code>${esc(r.password)}</code>\n\n` +

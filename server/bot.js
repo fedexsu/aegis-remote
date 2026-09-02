@@ -186,6 +186,17 @@ async function handleUpdate(u, onCheck) {
       if (await isMember(from.id)) return showStart(gateChat);
       return joinPrompt(gateChat);
     }
+    // Shared contact -> the free-trial phone verification step.
+    if (u.message && u.message.contact) {
+      const chat = u.message.chat.id;
+      const c = u.message.contact;
+      // Must be THEIR OWN number: Telegram sets contact.user_id only when a user shares
+      // their own contact via the request_contact button (a forwarded contact has none / a different id).
+      if (!c.user_id || String(c.user_id) !== String(from.id)) {
+        return send(chat, '⚠️ Please share <b>your own</b> number using the <b>Share my number</b> button — not another contact.', mainMenuKeyboard());
+      }
+      return finishTrial(chat, from, c.phone_number);
+    }
     if (u.message && u.message.text) {
       const t = u.message.text.trim();
       const chat = u.message.chat.id;
@@ -266,6 +277,11 @@ function notifyPaid(inv, creds) {
       `A full step-by-step guide is coming in the next message 👇`;
     const guide = setupGuide('Tap <b>Get Started</b> anytime to renew. 🚀');
     send(inv.tgChat, creds1).then(() => send(inv.tgChat, guide, mainMenuKeyboard()));
+  } else if (creds.wasTrial) {
+    send(inv.tgChat,
+      `🎉 <b>You are upgraded to ${esc(p.label)}!</b> Your free trial is now a full paid plan. 🚀\n\n` +
+      `📦 <b>Active until:</b> <b>${until}</b> ✅\n\n` +
+      `Nothing else to do — sign in with the <b>same username and password</b> at ${APP_URL}. Your devices and settings are exactly as you left them. 🙌`);
   } else {
     send(inv.tgChat,
       `🔄 <b>Renewal confirmed!</b> Your subscription is extended. 🎉\n\n` +
@@ -274,17 +290,32 @@ function notifyPaid(inv, creds) {
   }
 }
 
-// Free 3-day trial: one full-featured account per Telegram user, ever. No payment.
-// If they already have an account (trial or paid) we send them to Get Started instead.
+// Free 3-day trial: one full-featured account per Telegram user (and per phone number),
+// ever. No payment. Phone verification is required by default (set TRIAL_REQUIRE_PHONE=false
+// to skip it). Sharing the number is Telegram-verified, so it can't be faked, and one
+// number = one trial forever — a fresh Telegram account alone can't farm trials.
+const REQUIRE_TRIAL_PHONE = process.env.TRIAL_REQUIRE_PHONE !== 'false';
+function alreadyHasAccountMsg(chat, r) {
+  if (r.phoneUsed) return send(chat, '📱 This phone number has already used a free trial.\n\nEach number gets one trial. Tap <b>Get Started</b> to choose a plan and get going. 🚀', mainMenuKeyboard());
+  if (r.trialUsed && !r.username) return send(chat, '🎁 You have already used your free trial.\n\nTo keep using HatchConnect, tap <b>Get Started</b> and choose a plan — your login stays the same. 🚀', mainMenuKeyboard());
+  const u2 = r.subExpires ? new Date(r.subExpires).toISOString().slice(0, 10) : '';
+  return send(chat, `✅ You already have a HatchConnect account (<code>${esc(r.username)}</code>)${u2 ? ` · active until <b>${u2}</b>` : ''}.\n\nThe free trial is one per customer. Tap <b>Get Started</b> to add a paid plan — time is added on top, same login. 🚀`, mainMenuKeyboard());
+}
+// Step 1: they tapped the trial button. Pre-check eligibility, then ask to verify a number.
 function startTrial(chat, from) {
-  const r = db.provisionTrial(from.id, chat);
-  if (r.already) {
-    if (r.trialUsed && !r.username) {
-      return send(chat, '🎁 You have already used your free trial.\n\nTo keep using HatchConnect, tap <b>Get Started</b> and choose a plan — your login stays the same. 🚀', mainMenuKeyboard());
-    }
-    const u2 = r.subExpires ? new Date(r.subExpires).toISOString().slice(0, 10) : '';
-    return send(chat, `✅ You already have a HatchConnect account (<code>${esc(r.username)}</code>)${u2 ? ` · active until <b>${u2}</b>` : ''}.\n\nThe free trial is one per customer. Tap <b>Get Started</b> to add a paid plan — time is added on top. 🚀`, mainMenuKeyboard());
+  if (db.hasUsedTrial(from.id)) {
+    const acct = db.accountByTg(from.id);
+    return alreadyHasAccountMsg(chat, acct ? { username: acct.username, subExpires: acct.subExpires } : { trialUsed: true });
   }
+  if (!REQUIRE_TRIAL_PHONE) return finishTrial(chat, from, '');
+  return send(chat,
+    `🎁 <b>Free ${db.trialDays()}-day trial</b> — full access, no payment.\n\nOne quick step: tap the button below to verify your number. It is one-time, it stops trial abuse, and we <b>never call or text you</b>. 🔒\n\n👇 Tap to start your trial.`,
+    { keyboard: [[{ text: '📱 Share my number & start trial', request_contact: true }], [{ text: '⬅️ Back' }]], resize_keyboard: true, one_time_keyboard: true, input_field_placeholder: '📱 Tap Share my number' });
+}
+// Step 2: they shared their contact. Provision the trial and DM the login + guide.
+function finishTrial(chat, from, phone) {
+  const r = db.provisionTrial(from.id, chat, phone);
+  if (r.already) return alreadyHasAccountMsg(chat, r);
   const days = db.trialDays();
   const until = new Date(r.subExpires).toISOString().slice(0, 10);
   if (process.env.OWNER_TG_CHAT) send(process.env.OWNER_TG_CHAT, `🎁 <b>New free trial</b>\nAccount: <code>${esc(r.username)}</code> · ends ${until}`);

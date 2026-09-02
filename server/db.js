@@ -411,9 +411,10 @@ function provisionFromInvoice(inv) {
   const p = PLANS[inv.plan] || PLANS.monthly;
   const addMs = p.days * 86400000;
   let admin = db.admins.find((a) => a.tgUserId === inv.tgUserId && (a.role || 'admin') !== 'owner');
-  let username, password, isNew = false;
+  let username, password, isNew = false, wasTrial = false;
   if (admin) {
-    // RENEWAL: add the term onto whichever is later - now or the current expiry.
+    // RENEWAL / trial upgrade: add the term onto whichever is later - now or current expiry.
+    wasTrial = !!admin.trial; // trial -> paid conversion (same account), for the DM wording
     const base = Math.max(Date.now(), admin.subExpires || 0);
     admin.subExpires = base + addMs;
     admin.plan = inv.plan;
@@ -435,7 +436,7 @@ function provisionFromInvoice(inv) {
   inv.status = 'paid'; inv.adminId = admin.id; inv.paidAt = Date.now();
   save();
   const key = keysForAdmin(admin.id)[0];
-  return { username, password, isNew, key: key ? key.key : null, plan: p, subExpires: admin.subExpires, adminId: admin.id };
+  return { username, password, isNew, wasTrial, key: key ? key.key : null, plan: p, subExpires: admin.subExpires, adminId: admin.id };
 }
 
 // ---- free trial: one full-featured 3-day account per Telegram user, ever ----------
@@ -447,10 +448,18 @@ function hasUsedTrial(tgUserId) {
   if (Array.isArray(db.trialsUsed) && db.trialsUsed.includes(tgUserId)) return true;
   return !!db.admins.find((a) => a.tgUserId === tgUserId && (a.role || 'admin') !== 'owner');
 }
-function provisionTrial(tgUserId, tgChat) {
+const normPhone = (p) => String(p || '').replace(/[^0-9]/g, '');
+// One trial per PHONE NUMBER too — a fresh Telegram account needs a fresh number.
+function phoneUsedTrial(phone) {
+  const ph = normPhone(phone);
+  return !!ph && Array.isArray(db.trialPhones) && db.trialPhones.includes(ph);
+}
+function provisionTrial(tgUserId, tgChat, phone) {
+  const ph = normPhone(phone);
   const existing = db.admins.find((a) => a.tgUserId === tgUserId && (a.role || 'admin') !== 'owner');
   if (existing) return { already: true, username: existing.email, plan: existing.plan, subExpires: existing.subExpires, expired: isExpired(existing) };
   if (Array.isArray(db.trialsUsed) && db.trialsUsed.includes(tgUserId)) return { already: true, trialUsed: true };
+  if (ph && Array.isArray(db.trialPhones) && db.trialPhones.includes(ph)) return { already: true, phoneUsed: true };
   let username, password, tries = 0;
   do { username = 'hc-' + crypto.randomBytes(3).toString('hex'); tries++; } while (findAdminByEmail(username) && tries < 50);
   password = crypto.randomBytes(6).toString('base64url'); // ~8 chars
@@ -458,6 +467,7 @@ function provisionTrial(tgUserId, tgChat) {
   const admin = created.admin;
   admin.tgUserId = tgUserId;
   admin.tgChat = tgChat;
+  admin.tgPhone = ph || '';
   admin.plan = 'trial';
   admin.trial = true;
   admin.subStart = Date.now();
@@ -465,6 +475,7 @@ function provisionTrial(tgUserId, tgChat) {
   admin.remindedAt = 0;
   if (!Array.isArray(db.trialsUsed)) db.trialsUsed = [];
   db.trialsUsed.push(tgUserId);
+  if (ph) { if (!Array.isArray(db.trialPhones)) db.trialPhones = []; db.trialPhones.push(ph); }
   save();
   const key = keysForAdmin(admin.id)[0];
   return { username, password, isNew: true, trial: true, subExpires: admin.subExpires, adminId: admin.id, key: key ? key.key : null };
@@ -518,7 +529,7 @@ module.exports = {
   setDeviceProtection, allowUninstall, uninstallAllowed,
   getCredentials, addCredential, removeCredential,
   plans, createInvoice, getInvoice, accountByTg, expireInvoices, matchPendingInvoiceByAmount, isTxProcessed, markTxProcessed, provisionFromInvoice,
-  trialDays, hasUsedTrial, provisionTrial,
+  trialDays, hasUsedTrial, phoneUsedTrial, provisionTrial,
   isExpired, subscriptionOf, createMagicToken, consumeMagicToken,
   subscriberReminders, setReminded,
 };

@@ -242,23 +242,6 @@ function tgGet(token, method) {
     r.end();
   });
 }
-// Cloudflare Turnstile: verify a login challenge token. No secret set -> never blocks.
-const TS_SITEKEY = process.env.TURNSTILE_SITEKEY || '';
-const TS_SECRET = process.env.TURNSTILE_SECRET || '';
-function verifyTurnstile(token, ip) {
-  return new Promise((resolve) => {
-    if (!TS_SECRET) return resolve(true);
-    if (!token) return resolve(false);
-    const https = require('https');
-    const body = new URLSearchParams({ secret: TS_SECRET, response: String(token), remoteip: ip || '' }).toString();
-    const req = https.request('https://challenges.cloudflare.com/turnstile/v0/siteverify',
-      { method: 'POST', timeout: 8000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) } },
-      (res) => { let b = ''; res.on('data', (c) => (b += c)); res.on('end', () => { try { const j = JSON.parse(b); resolve(j.success === true && (!j.action || j.action === 'cc_login')); } catch { resolve(false); } }); });
-    req.on('error', () => resolve(false));
-    req.setTimeout(8000, () => req.destroy());
-    req.write(body); req.end();
-  });
-}
 // Auto-detect the operator's chat id from their bot: they message the bot, we read
 // getUpdates and return the most recent private chat. Removes the #1 setup snag
 // (people not knowing their numeric chat id, or not messaging the bot first).
@@ -361,15 +344,11 @@ async function handleApi(req, res, urlPath) {
       return json(res, 200, { admin: db.publicAdmin(admin), key: key.key },
         { 'Set-Cookie': sessionCookie(token) });
     }
-    if (urlPath === '/api/pubconfig' && m === 'GET') {
-      return json(res, 200, { turnstileSiteKey: TS_SITEKEY });
-    }
     if (urlPath === '/api/login' && m === 'POST') {
       const b = await readBody(req);
       const lk = loginKey(req, b.email);
       const wait = loginBlocked(lk);
       if (wait) return json(res, 429, { error: `too many attempts — try again in ${wait}s` });
-      if (!(await verifyTurnstile(b.turnstileToken, (req.headers['x-forwarded-for'] || '').split(',')[0].trim()))) { loginFail(lk); return json(res, 401, { error: 'Human verification failed, please try again.' }); }
       const admin = db.findAdminByEmail(b.email);
       if (!admin || !db.verifyPassword(b.password || '', admin.salt, admin.hash)) {
         loginFail(lk);

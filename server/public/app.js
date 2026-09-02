@@ -100,28 +100,13 @@ function fmtDate(ts) { return ts ? new Date(ts).toLocaleDateString(undefined, { 
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
-// --- Cloudflare Turnstile on the login form ---
-let ccTsKey = '', ccTsToken = '', ccTsWidget = null;
-window.ccRenderTs = function () {
-  if (ccTsWidget !== null || !window.__ccTsReady || !ccTsKey || !window.turnstile) return;
-  const el = document.getElementById('cc-ts'); if (!el) return;
-  ccTsWidget = window.turnstile.render(el, {
-    sitekey: ccTsKey, action: 'cc_login',
-    callback: (t) => { ccTsToken = t; },
-    'expired-callback': () => { ccTsToken = ''; },
-    'error-callback': () => { ccTsToken = ''; },
-  });
-};
-fetch('/api/pubconfig').then((r) => r.json()).then((c) => { if (c && c.turnstileSiteKey) { ccTsKey = c.turnstileSiteKey; window.ccRenderTs(); } }).catch(() => {});
-
 $('#auth-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   $('#auth-err').textContent = '';
-  if (ccTsKey && !ccTsToken) { $('#auth-err').textContent = 'Please complete the "verify you are human" check.'; return; }
   const btn = $('#au-submit');
   btn.disabled = true;
   try {
-    const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: $('#au-email').value.trim(), password: $('#au-pass').value, turnstileToken: ccTsToken }) });
+    const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: $('#au-email').value.trim(), password: $('#au-pass').value }) });
     const data = await r.json().catch(() => ({}));
     if (r.ok) { showApp(data.admin); return; }
     if (data.expired) {
@@ -130,7 +115,6 @@ $('#auth-form').addEventListener('submit', async (e) => {
     } else {
       $('#auth-err').textContent = data.error || 'Login failed';
     }
-    if (ccTsKey && window.turnstile && ccTsWidget !== null) { try { window.turnstile.reset(ccTsWidget); } catch (e) {} ccTsToken = ''; }
     btn.disabled = false;
   } catch (err) {
     $('#auth-err').textContent = 'Network error, please try again';

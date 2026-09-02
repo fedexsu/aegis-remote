@@ -275,105 +275,6 @@ async function setForceHttps(u, domain, on) {
   else { await fsp.writeFile(file, next); try { await execFileP('chown', [u + ':' + u, file]); } catch {} }
 }
 
-// ---- human check (self-hosted "verify you're human" gate, .htaccess/Apache) ----
-// Works on ANY customer domain (no Cloudflare hostname allowlist, no per-domain cap).
-// Unverified GET page-views are internally rewritten to a challenge page; once the
-// visitor clears it a cookie is set and every later request passes straight through.
-// It challenges navigations only (Sec-Fetch-Mode), so images/CSS/APIs/POSTs are never
-// blocked. Stops the non-JS scrapers and crawlers; it is not a cryptographic wall.
-const HUMAN_A = '# >>> HatchHosting human check';
-const HUMAN_Z = '# <<< HatchHosting human check';
-const HUMAN_FILE = '__hh_verify.html';
-function humanBlock() {
-  return [
-    HUMAN_A + ' (on) — managed by HatchHosting, do not edit',
-    '<IfModule mod_rewrite.c>',
-    'RewriteEngine On',
-    '# never gate the challenge page itself',
-    'RewriteCond %{REQUEST_URI} !^/' + HUMAN_FILE.replace(/\./g, '\\.') + '$ [NC]',
-    '# already cleared? (cookie present) -> let it through',
-    'RewriteCond %{HTTP_COOKIE} !(^|;\\s*)hh_human= [NC]',
-    '# only real page views: GET navigations (or header-less clients like bots/curl)',
-    'RewriteCond %{REQUEST_METHOD} =GET',
-    'RewriteCond %{HTTP:Sec-Fetch-Mode} ^(navigate|)$ [NC]',
-    'RewriteRule ^ /' + HUMAN_FILE + ' [L]',
-    '</IfModule>',
-    HUMAN_Z, '',
-  ].join('\n');
-}
-function stripHuman(txt) { return String(txt || '').replace(new RegExp(HUMAN_A + '[\\s\\S]*?' + HUMAN_Z + '\\n?', 'g'), ''); }
-function humanChallengeHtml(domain) {
-  const d = escHtml(domain || 'this site');
-  return [
-    '<!doctype html><html lang="en"><head>',
-    '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
-    '<meta name="robots" content="noindex,nofollow">',
-    '<title>Just a moment...</title>',
-    '<style>',
-    ':root{--bg:#fff;--ink:#1d1f23;--sub:#5b6572;--box:#fafbfc;--line:#e3e6ea;--chkline:#c4ccd6;--accent:#0e9f6e;--foot:#98a2b3}',
-    '@media (prefers-color-scheme:dark){:root{--bg:#0e1116;--ink:#e8ecf1;--sub:#9aa4b2;--box:#161b22;--line:#2a313b;--chkline:#3a434f;--foot:#6b7482}}',
-    '*{box-sizing:border-box}html,body{height:100%}',
-    'body{margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg);color:var(--ink);',
-    'font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;padding:24px}',
-    '.wrap{width:100%;max-width:560px;text-align:center;margin:auto}',
-    '.host{font-size:26px;font-weight:600;letter-spacing:-.01em;margin:0 0 10px;word-break:break-word}',
-    '.sub{font-size:15px;color:var(--sub);margin:0 0 26px}',
-    '.widget{display:inline-flex;align-items:center;gap:12px;width:300px;max-width:100%;background:var(--box);border:1px solid var(--line);',
-    'border-radius:8px;padding:12px 14px;text-align:left;cursor:pointer;user-select:none;box-shadow:0 1px 2px rgba(0,0,0,.04)}',
-    '.chk{width:24px;height:24px;border:2px solid var(--chkline);border-radius:4px;flex:none;display:grid;place-items:center;transition:.15s}',
-    '.chk svg{width:15px;height:15px;stroke:#fff;opacity:0;transition:.15s}',
-    '.on .chk{background:var(--accent);border-color:var(--accent)}.on .chk svg{opacity:1}',
-    '.spin{width:22px;height:22px;flex:none;border:2.5px solid var(--chkline);border-top-color:var(--accent);border-radius:50%;animation:s .7s linear infinite;display:none}',
-    '.on .spin{display:block}.on .chk{display:none}',
-    '.lbl{font-size:15px;font-weight:500;flex:1}',
-    '.brand{display:flex;flex-direction:column;align-items:center;gap:3px;flex:none}',
-    '.brand svg{width:19px;height:19px}',
-    '.brand small{font-size:9px;color:var(--foot);line-height:1;letter-spacing:.02em}',
-    '.foot{margin-top:34px;font-size:12.5px;color:var(--foot)}',
-    '.foot b{font-weight:600;color:var(--sub)}',
-    '@keyframes s{to{transform:rotate(360deg)}}',
-    '</style></head><body>',
-    '<div class="wrap">',
-    '<h1 class="host">' + d + '</h1>',
-    '<p class="sub">Verifying you are human. This may take a few seconds.</p>',
-    '<div class="widget" id="b" role="checkbox" aria-checked="false" tabindex="0">',
-    '<span class="chk"><svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg></span>',
-    '<span class="spin"></span>',
-    '<span class="lbl">Verify you are human</span>',
-    '<span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="#0e9f6e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg><small>Secured</small></span>',
-    '</div>',
-    '</div>',
-    '<div class="foot">Performance &amp; security</div>',
-    '<script>',
-    '(function(){var b=document.getElementById("b"),done=false;',
-    'function pass(){if(done)return;done=true;b.classList.add("on");b.setAttribute("aria-checked","true");',
-    'var x=0;for(var i=0;i<400000;i++){x=(x*31+i)>>>0;}',
-    'var s=location.protocol==="https:"?"; Secure":"";',
-    'document.cookie="hh_human=1; path=/; max-age=604800; SameSite=Lax"+s;',
-    'setTimeout(function(){location.reload();},700);}',
-    'b.addEventListener("click",pass);',
-    'b.addEventListener("keydown",function(e){if(e.key===" "||e.key==="Enter"){e.preventDefault();pass();}});',
-    '})();',
-    '</script>',
-    '</body></html>', '',
-  ].join('\n');
-}
-async function setHumanCheck(u, domain, on) {
-  const base = await ensureSite(u, domain);
-  const file = path.join(base, '.htaccess');
-  let cur = ''; try { cur = await fsp.readFile(file, 'utf8'); } catch {}
-  const next = (on ? humanBlock() : '') + stripHuman(cur);
-  if (next.trim() === '') { try { await fsp.unlink(file); } catch {} }
-  else { await fsp.writeFile(file, next); try { await execFileP('chown', [u + ':' + u, file]); } catch {} }
-  const vf = path.join(base, HUMAN_FILE);
-  if (on) { try { await fsp.writeFile(vf, humanChallengeHtml(domain)); await execFileP('chown', [u + ':' + u, vf]); } catch {} }
-  else { try { await fsp.unlink(vf); } catch {} }
-}
-async function humanCheckEnabled(base) {
-  try { const h = await fsp.readFile(path.join(base, '.htaccess'), 'utf8'); return h.includes(HUMAN_A); } catch { return false; }
-}
-
-
 // ---- analytics (parse nginx access logs) --------------------------------
 const DATA_DIR = process.env.DATA_DIR || '/var/tmp/hatchhosting';
 const GEO_URL = process.env.GEO_URL || 'https://cdn.jsdelivr.net/npm/@ip-location-db/geo-whois-asn-country/geo-whois-asn-country-ipv4-num.csv';
@@ -666,11 +567,6 @@ const server = http.createServer(async (req, res) => {
         try { const h = await fsp.readFile(path.join(base, '.htaccess'), 'utf8'); const m = h.match(/HatchHosting bot protection \((\w+)\)/); if (m) mode = m[1]; } catch {}
         return json(res, 200, { mode, enabled: mode !== 'off', supported: apacheStack() });
       }
-      if (url === '/api/website/humancheck' && req.method === 'GET') {
-        const domain = String(qp.get('domain') || '').trim().toLowerCase();
-        const base = await ensureSite(u, domain);
-        return json(res, 200, { enabled: await humanCheckEnabled(base), supported: apacheStack() });
-      }
 
       // ---- file manager (scoped to the user's own site folders) ----
       if (url === '/api/files') {
@@ -725,10 +621,7 @@ const server = http.createServer(async (req, res) => {
           const domain = String(b.domain || '').trim().toLowerCase();
           if (!okDomain(domain)) return json(res, 400, { error: 'Enter a valid domain like mysite.com' });
           const r = await hestiaDo('v-add-web-domain', [u, domain]);
-          if (r.ok) {
-            try { await applyCleanUrls(siteBase(u, domain), true); } catch {} // clean URLs on by default
-            if (apacheStack()) { try { await setHumanCheck(u, domain, true); } catch {} } // human check on by default
-          }
+          if (r.ok) { try { await applyCleanUrls(siteBase(u, domain), true); } catch {} } // clean URLs on by default
           return json(res, 200, r);
         }
         if (url === '/api/website/pages/add') {
@@ -807,19 +700,6 @@ const server = http.createServer(async (req, res) => {
           if (next.trim() === '') { try { await fsp.unlink(file); } catch {} }
           else { await fsp.writeFile(file, next); try { await execFileP('chown', [u + ':' + u, file]); } catch {} }
           return json(res, 200, { ok: true, mode, enabled: mode !== 'off' });
-        }
-        if (url === '/api/website/humancheck') {
-          const domain = String(b.domain || '').trim().toLowerCase();
-          if (!okDomain(domain)) return json(res, 400, { error: 'Invalid domain' });
-          if (!apacheStack()) return json(res, 200, { ok: false, error: 'This server serves sites with Nginx only, where the human check is applied differently — contact support to switch on the Nginx version.' });
-          try { await setHumanCheck(u, domain, b.enabled !== false); } catch (e) { return json(res, 200, { ok: false, error: 'Could not update: ' + (e.message || e) }); }
-          return json(res, 200, { ok: true, enabled: b.enabled !== false });
-        }
-        if (url === '/api/humancheck-all') {
-          if (!apacheStack()) return json(res, 200, { ok: false, error: 'Nginx-only server' });
-          let d = {}; try { d = await hestiaJson('v-list-web-domains', [u]); } catch {}
-          for (const domain of Object.keys(d)) { try { await setHumanCheck(u, domain, true); } catch {} }
-          return json(res, 200, { ok: true, count: Object.keys(d).length });
         }
         if (url === '/api/website/php') {
           const domain = String(b.domain || '').trim().toLowerCase();

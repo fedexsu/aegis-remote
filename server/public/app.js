@@ -172,6 +172,7 @@ function showApp(a) {
   checkInstaller();
   loadBlankImage();
   connectWS();
+  routeInit(); // restore the section from the URL hash (deep-link / reload / back-forward)
   if (a.mustChangePassword) setTimeout(() => { toast('Please set your own password', ''); changePassword(); }, 500);
 }
 function showAuth() { $('#auth-view').hidden = false; $('#app-view').hidden = true; }
@@ -192,12 +193,23 @@ async function fillSupport() {
     if (tg && s.tg) tg.innerHTML = '<a class="btn primary small" target="_blank" rel="noopener" href="https://t.me/' + encodeURIComponent(s.tg) + '">Message on Telegram</a>';
   } catch {}
 }
-function goto(view) {
+function validView(v) { return !!v && $$('.nav-item').some((n) => n.dataset.view === v); }
+function applyView(view) {
   $$('.nav-item').forEach((n) => n.classList.toggle('active', n.dataset.view === view));
   $$('.page').forEach((p) => (p.hidden = p.dataset.page !== view));
 }
+// Hash-based routing: each section has its own URL (#enrollment, #alerts, ...) so a
+// reload, back/forward, or bookmark stays on that section instead of resetting to Devices.
+function goto(view) {
+  if (!validView(view)) return;
+  if (location.hash.slice(1) === view) applyView(view); // same hash won't fire hashchange
+  else location.hash = view;                            // triggers hashchange -> applyView
+}
+window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if (validView(v)) applyView(v); });
 $$('.nav-item').forEach((n) => n.addEventListener('click', () => goto(n.dataset.view)));
 document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto]'); if (g) goto(g.dataset.goto); });
+// Restore the section from the URL once the app is shown (default: devices).
+function routeInit() { if (soloWindow) return; const v = location.hash.slice(1); applyView(validView(v) ? v : 'devices'); }
 
 (async function init() {
   fillAuthSupport(); // populate the login-screen support links (public endpoint)

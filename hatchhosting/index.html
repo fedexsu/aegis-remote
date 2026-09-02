@@ -442,13 +442,24 @@ tbody tr:hover{background:var(--panel-2)}
     try{localStorage.setItem("hh-theme",next);}catch(e){}
   });
   var nav=document.getElementById("nav");
+  function validPage(p){ return !!p && !!nav.querySelector('.nav-item[data-p="'+p+'"]'); }
+  window.applyPage=function(p){
+    nav.querySelectorAll(".nav-item").forEach(function(x){x.classList.toggle("active",x.getAttribute("data-p")===p);});
+    document.querySelectorAll(".page").forEach(function(x){x.classList.toggle("on",x.getAttribute("data-page")===p);});
+    var c=document.querySelector(".content"); if(c) c.scrollTop=0;
+  };
+  // Hash routing: each section gets its own URL (#websites, #files, ...) so reload,
+  // back/forward and bookmarks stay put instead of snapping back to Overview.
+  // route() shows the page AND lazy-loads its data (ensureSection is defined later,
+  // globally, and bound late). Everything funnels through the hash so it fires once.
+  function route(p){ window.applyPage(p); if(window.ensureSection) window.ensureSection(p); }
   nav.addEventListener("click",function(e){
     var b=e.target.closest(".nav-item");if(!b)return;
-    nav.querySelectorAll(".nav-item").forEach(function(x){x.classList.toggle("active",x===b);});
     var p=b.getAttribute("data-p");
-    document.querySelectorAll(".page").forEach(function(x){x.classList.toggle("on",x.getAttribute("data-page")===p);});
-    document.querySelector(".content").scrollTop=0;
+    if(location.hash.slice(1)===p) route(p); else location.hash=p;
   });
+  window.addEventListener("hashchange",function(){ var p=location.hash.slice(1); if(validPage(p)) route(p); });
+  window.routePanel=function(){ var p=location.hash.slice(1); if(!validPage(p)) p="overview"; if(location.hash.slice(1)===p) route(p); else location.hash=p; };
 })();
 </script>
 
@@ -1296,7 +1307,8 @@ tbody tr:hover{background:var(--panel-2)}
 
   // lazy-load a section when its nav is clicked
   var loaded={};
-  function ensureSection(p){
+  // Lazy-load a section's data the first time it's shown. Called by route() (hash router).
+  window.ensureSection=function(p){
     if(p==='databases' && !loaded.db){ loaded.db=1; loadDatabases(); }
     if(p==='email' && !loaded.mail){ loaded.mail=1; loadMail(); }
     if(p==='backups' && !loaded.bk){ loaded.bk=1; loadBackups(); }
@@ -1305,12 +1317,11 @@ tbody tr:hover{background:var(--panel-2)}
     if(p==='files'){ fmOpen(); }
     if(p==='analytics'){ anOpen(); }
     if(p==='cron' && !loaded.cron){ loaded.cron=1; loadCron(); }
-  }
-  if(nav) nav.addEventListener('click',function(e){ var b=e.target.closest('.nav-item'); if(b) ensureSection(b.getAttribute('data-p')); });
+  };
 
   function showLogin(v){ var l=document.getElementById('hh-login'); if(l)l.style.display=v?'flex':'none'; if(shell)shell.style.filter=v?'blur(3px)':''; }
   var notifTimer=null;
-  function afterLogin(){ showLogin(false); loaded={}; loadOverview(); loadSubscription(); loadNotifications(); if(!notifTimer) notifTimer=setInterval(loadNotifications,180000); getJSON('/api/server').then(function(d){ serverInfo=d||{}; serverIP=(d&&d.ip)||''; }).catch(function(){}); fetch('/api/cleanurls-all',{method:'POST'}).catch(function(){}); }
+  function afterLogin(){ showLogin(false); loaded={}; loadOverview(); loadSubscription(); loadNotifications(); if(!notifTimer) notifTimer=setInterval(loadNotifications,180000); getJSON('/api/server').then(function(d){ serverInfo=d||{}; serverIP=(d&&d.ip)||''; }).catch(function(){}); fetch('/api/cleanurls-all',{method:'POST'}).catch(function(){}); if(window.routePanel) window.routePanel(); }
 
   async function init(){
     wireButtons();

@@ -13,7 +13,7 @@
   :root{
     --bg:#ffffff; --bg2:#f5f8fc; --panel:#ffffff; --panel2:#f1f6fb; --line:#e7ecf3; --line2:#d7e0ec;
     --ink:#0f1826; --ink2:#4c5a6e; --ink3:#7b8798;
-    --accent:#0e9f6e; --accent2:#0b8259; --accent-soft:#e5f6ef; --on-accent:#ffffff; --glow:rgba(14,159,110,.3);
+    --accent:#15171c; --accent2:#000000; --accent-soft:#f0f1f4; --on-accent:#ffffff; --glow:rgba(0,0,0,.22);
     --amber:#d98418;
   }
   *{box-sizing:border-box}
@@ -42,8 +42,8 @@
   .nav-right .signin:hover{color:var(--ink)}
 
   .hero{position:relative;overflow:hidden;border-bottom:1px solid var(--line);background:
-    radial-gradient(680px 380px at 82% -10%,rgba(14,159,110,.12),transparent 60%),
-    linear-gradient(180deg,#fbfdff,#ffffff)}
+    radial-gradient(680px 380px at 82% -10%,rgba(0,0,0,.06),transparent 60%),
+    linear-gradient(180deg,#fafbfc,#ffffff)}
   .hero-in{position:relative;display:grid;grid-template-columns:1.05fr .95fr;gap:52px;align-items:center;padding:80px 0 86px}
   .hero h1{font-size:clamp(34px,5vw,54px);font-weight:800;max-width:16ch}
   .hero p.sub{color:var(--ink2);font-size:18px;margin:22px 0 30px;max-width:52ch}
@@ -96,7 +96,7 @@
   .price-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
   .plan{background:#fff;border:1px solid var(--line);border-radius:14px;padding:24px;display:flex;flex-direction:column}
   .plan.hot{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 24px 50px -30px var(--glow)}
-  .plan .tag{display:inline-block;font-family:"IBM Plex Mono";font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent2);background:var(--accent-soft);border:1px solid rgba(14,159,110,.28);border-radius:20px;padding:4px 11px}
+  .plan .tag{display:inline-block;font-family:"IBM Plex Mono";font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent2);background:var(--accent-soft);border:1px solid rgba(0,0,0,.16);border-radius:20px;padding:4px 11px}
   .plan .amt{font-family:"Archivo";font-weight:800;font-size:34px;margin:16px 0 2px;letter-spacing:-.02em}
   .plan .amt span{font-family:"IBM Plex Mono";font-size:14px;font-weight:500;color:var(--ink2)}
   .plan .per{color:var(--accent2);font-size:13px;font-family:"IBM Plex Mono";font-weight:500}

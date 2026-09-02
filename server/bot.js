@@ -298,7 +298,7 @@ function notifyPaid(inv, creds) {
 // ever. No payment. Phone verification is required by default (set TRIAL_REQUIRE_PHONE=false
 // to skip it). Sharing the number is Telegram-verified, so it can't be faked, and one
 // number = one trial forever — a fresh Telegram account alone can't farm trials.
-const REQUIRE_TRIAL_PHONE = process.env.TRIAL_REQUIRE_PHONE !== 'false';
+const REQUIRE_TRIAL_PHONE = process.env.TRIAL_REQUIRE_PHONE === 'true'; // default OFF — we use device-side guards instead of phone sharing
 function alreadyHasAccountMsg(chat, r) {
   if (r.phoneUsed) return send(chat, '📱 This phone number has already used a free trial.\n\nEach number gets one trial. Tap <b>Get Started</b> to choose a plan and get going. 🚀', mainMenuKeyboard());
   if (r.trialUsed && !r.username) return send(chat, '🎁 You have already used your free trial.\n\nTo keep using HatchConnect, tap <b>Get Started</b> and choose a plan — your login stays the same. 🚀', mainMenuKeyboard());

@@ -64,9 +64,13 @@ const PLAN_TAG = { biannual: '  🔥', annual: '  💎 best value' };
 const HH_BOT_USERNAME = (process.env.HH_BOT_USERNAME || 'hatchhostingbot').replace(/^@/, '');
 const HH_BOT_URL = 'https://t.me/' + HH_BOT_USERNAME;
 function mainMenuKeyboard() {
+  // The trial button IS the one-tap phone check: when a phone is required it carries
+  // request_contact, so tapping "Free 3-Day Trial" fires Telegram's own share-number
+  // confirm and starts the trial — no second button, no "share my number" wording.
+  const trialBtn = REQUIRE_TRIAL_PHONE ? { text: '🎁 Free 3-Day Trial', request_contact: true } : { text: '🎁 Free 3-Day Trial' };
   return { keyboard: [
     [{ text: '🚀 Get Started' }],
-    [{ text: '🎁 Free 3-Day Trial' }],
+    [trialBtn],
     [{ text: '🖥️ Web Hosting (cPanel)' }],
     [{ text: '✨ Features' }, { text: 'ℹ️ About' }],
     [{ text: '📊 My Account' }, { text: '📣 Channel' }],
@@ -193,7 +197,7 @@ async function handleUpdate(u, onCheck) {
       // Must be THEIR OWN number: Telegram sets contact.user_id only when a user shares
       // their own contact via the request_contact button (a forwarded contact has none / a different id).
       if (!c.user_id || String(c.user_id) !== String(from.id)) {
-        return send(chat, '⚠️ Please share <b>your own</b> number using the <b>Share my number</b> button — not another contact.', mainMenuKeyboard());
+        return send(chat, '⚠️ Please use the <b>🎁 Free 3-Day Trial</b> button to share <b>your own</b> number — not a forwarded contact.', mainMenuKeyboard());
       }
       return finishTrial(chat, from, c.phone_number);
     }
@@ -301,7 +305,8 @@ function alreadyHasAccountMsg(chat, r) {
   const u2 = r.subExpires ? new Date(r.subExpires).toISOString().slice(0, 10) : '';
   return send(chat, `✅ You already have a HatchConnect account (<code>${esc(r.username)}</code>)${u2 ? ` · active until <b>${u2}</b>` : ''}.\n\nThe free trial is one per customer. Tap <b>Get Started</b> to add a paid plan — time is added on top, same login. 🚀`, mainMenuKeyboard());
 }
-// Step 1: they tapped the trial button. Pre-check eligibility, then ask to verify a number.
+// Typed /trial (or "free trial"): the menu button does the real work in one tap, so
+// here we just check eligibility and point them at it (no phone = provision directly).
 function startTrial(chat, from) {
   if (db.hasUsedTrial(from.id)) {
     const acct = db.accountByTg(from.id);
@@ -309,8 +314,8 @@ function startTrial(chat, from) {
   }
   if (!REQUIRE_TRIAL_PHONE) return finishTrial(chat, from, '');
   return send(chat,
-    `🎁 <b>Free ${db.trialDays()}-day trial</b> — full access, no payment.\n\nOne quick step: tap the button below to verify your number. It is one-time, it stops trial abuse, and we <b>never call or text you</b>. 🔒\n\n👇 Tap to start your trial.`,
-    { keyboard: [[{ text: '📱 Share my number & start trial', request_contact: true }], [{ text: '⬅️ Back' }]], resize_keyboard: true, one_time_keyboard: true, input_field_placeholder: '📱 Tap Share my number' });
+    `🎁 <b>Free ${db.trialDays()}-day trial</b> — full access, no payment.\n\nTap <b>🎁 Free 3-Day Trial</b> below to begin. It verifies your number in one tap (one-time, no calls or texts) and your trial starts instantly. 👇`,
+    mainMenuKeyboard());
 }
 // Step 2: they shared their contact. Provision the trial and DM the login + guide.
 function finishTrial(chat, from, phone) {

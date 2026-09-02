@@ -459,10 +459,13 @@ tbody tr:hover{background:var(--panel-2)}
     <p style="color:var(--ink-2);font-size:13px;margin:0 0 18px">Sign in to your hosting panel.</p>
     <input id="hh-user" type="text" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false" style="width:100%;padding:11px 13px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:14px;margin-bottom:10px;box-sizing:border-box"/>
     <input id="hh-pass" type="password" placeholder="Password" autocomplete="current-password" style="width:100%;padding:11px 13px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:14px;margin-bottom:12px;box-sizing:border-box"/>
+    <div id="hh-ts" style="margin:2px 0 12px"></div>
     <button class="btn primary" style="width:100%;justify-content:center" type="submit">Sign in</button>
     <div id="hh-login-err" style="color:var(--crit);font-size:12.5px;margin-top:10px;min-height:16px"></div>
   </form>
 </div>
+<script>window.__hhTsReady=false;window.__hhTsOnload=function(){window.__hhTsReady=true;if(window.hhRenderTs)window.hhRenderTs();};</script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=__hhTsOnload&render=explicit" async defer></script>
 <script>
 (function(){
   var shell=document.querySelector('.shell');
@@ -599,6 +602,7 @@ tbody tr:hover{background:var(--panel-2)}
       {label:'DNS setup (connect your domain)',fn:function(){ showDns(domain); }},
       {label:'PHP version',fn:function(){ openPhp(domain); }},
       {label:'Bot protection',fn:function(){ openBotShield(domain); }},
+      {label:'Human verification',fn:function(){ openHumanCheck(domain); }},
       {label:'FTP / SFTP accounts',fn:function(){ openFtp(domain); }},
       {label:'Domain aliases',fn:function(){ openAliases(domain); }},
       {label:'Manage files',fn:function(){ fmSite=domain; fmPath=''; goTab('files'); }},
@@ -711,6 +715,33 @@ tbody tr:hover{background:var(--panel-2)}
         catch(e){ err.textContent=e.message; btn.style.opacity='1'; }
       };
     });
+  }
+
+  // --- human verification (self-hosted "verify you are human" gate) ---
+  async function openHumanCheck(domain){
+    var st={enabled:true,supported:true};
+    try{ st=await getJSON('/api/website/humancheck?domain='+encodeURIComponent(domain)); }catch(e){}
+    var ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:370;background:rgba(10,12,16,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+    var body='<div style="font-size:13.5px;line-height:1.55;color:var(--ink-2);margin-bottom:14px">Shows visitors a quick <b>"verify you are human"</b> page the first time they open <b>'+esc(domain)+'</b>, then remembers them for a week. Stops automated scrapers and crawlers. It only appears on real page views, so images, logins and forms are never affected.</div>'
+      +'<label style="display:flex;align-items:flex-start;gap:12px;padding:14px 15px;border:1px solid var(--line-2);border-radius:11px;background:var(--panel-2);cursor:pointer">'
+      +'<input type="checkbox" id="hc-on"'+(st.enabled?' checked':'')+' style="width:18px;height:18px;margin-top:2px;accent-color:var(--accent);flex:none">'
+      +'<span><span style="font-weight:700;font-size:13.5px">Human verification page</span><br><span style="font-size:12.5px;color:var(--ink-2)">On by default for every site. Turn it off only if this site must stay open to bots (public APIs, RSS feeds).</span></span></label>'
+      +'<div data-err style="color:#c8362f;font-size:12.5px;min-height:16px;margin-top:8px"></div>';
+    ov.innerHTML='<div style="width:min(460px,94vw);max-height:88vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:var(--shadow)">'
+      +'<h3 style="margin:0 0 14px;font-family:Archivo,system-ui,sans-serif;font-size:17px">Human verification</h3>'+body
+      +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn ghost" data-close>Close</button><button class="btn" data-save>Save</button></div></div>';
+    document.body.appendChild(ov);
+    function close(){ ov.remove(); }
+    ov.querySelector('[data-close]').onclick=close;
+    ov.addEventListener('mousedown',function(e){ if(e.target===ov) close(); });
+    if(st.supported===false){ ov.querySelector('[data-err]').textContent='Heads up: this server is Nginx-only, so this may not take effect — contact support.'; }
+    ov.querySelector('[data-save]').onclick=async function(){
+      var err=ov.querySelector('[data-err]'); err.textContent='';
+      var on=ov.querySelector('#hc-on').checked; var btn=this; btn.style.opacity='.6';
+      try{ await api('/api/website/humancheck',{domain:domain,enabled:on}); toast(on?'Human verification turned on':'Human verification turned off'); close(); }
+      catch(e){ err.textContent=e.message; btn.style.opacity='1'; }
+    };
   }
 
   // --- file manager ---
@@ -1292,17 +1323,30 @@ tbody tr:hover{background:var(--panel-2)}
     try{ sess=await getJSON('/api/session'); }catch(e){ showLogin(true); return; }
     sessionUser=sess.user||'';
     if(!sess.authed){ showLogin(true); } else { afterLogin(); }
+    // load the Turnstile site key (public) and render the widget on the login form
+    getJSON('/api/pubconfig').then(function(c){ if(c&&c.turnstileSiteKey){ hhTsKey=c.turnstileSiteKey; window.hhRenderTs(); } }).catch(function(){});
   }
+  // --- Cloudflare Turnstile on the login form ---
+  var hhTsKey='', hhTsToken='', hhTsWidget=null;
+  window.hhRenderTs=function(){
+    if(hhTsWidget!==null||!window.__hhTsReady||!hhTsKey||!window.turnstile) return;
+    var el=document.getElementById('hh-ts'); if(!el) return;
+    hhTsWidget=window.turnstile.render(el,{sitekey:hhTsKey,action:'hh_login',
+      callback:function(t){ hhTsToken=t; },
+      'expired-callback':function(){ hhTsToken=''; },
+      'error-callback':function(){ hhTsToken=''; }});
+  };
   var form=document.getElementById('hh-login-form');
   if(form) form.addEventListener('submit', async function(e){
     e.preventDefault();
     var err=document.getElementById('hh-login-err'); err.textContent='';
+    if(hhTsKey && !hhTsToken){ err.textContent='Please complete the "verify you are human" check.'; return; }
     var okb=form.querySelector('button[type="submit"]'); okb.disabled=true; okb.textContent='Signing in…';
     try{
-      var r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('hh-user').value,password:document.getElementById('hh-pass').value})});
+      var r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('hh-user').value,password:document.getElementById('hh-pass').value,turnstileToken:hhTsToken})});
       var d={}; try{ d=await r.json(); }catch(e){}
       if(r.ok && d.ok){ sessionUser=d.user||document.getElementById('hh-user').value; afterLogin(); }
-      else { err.textContent=(d&&d.error)||'Login failed'; }
+      else { err.textContent=(d&&d.error)||'Login failed'; if(hhTsKey && window.turnstile && hhTsWidget!==null){ try{ window.turnstile.reset(hhTsWidget); }catch(e){} hhTsToken=''; } }
     }catch(e){ err.textContent='Network error'; }
     okb.disabled=false; okb.textContent='Sign in';
   });

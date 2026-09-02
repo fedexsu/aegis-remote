@@ -343,7 +343,7 @@ function humanChallengeHtml(domain) {
     '<span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="#0e9f6e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg><small>Secured</small></span>',
     '</div>',
     '</div>',
-    '<div class="foot">Performance &amp; security by <b>HatchHosting</b></div>',
+    '<div class="foot">Performance &amp; security</div>',
     '<script>',
     '(function(){var b=document.getElementById("b"),done=false;',
     'function pass(){if(done)return;done=true;b.classList.add("on");b.setAttribute("aria-checked","true");',

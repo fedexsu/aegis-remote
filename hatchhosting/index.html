@@ -459,13 +459,10 @@ tbody tr:hover{background:var(--panel-2)}
     <p style="color:var(--ink-2);font-size:13px;margin:0 0 18px">Sign in to your hosting panel.</p>
     <input id="hh-user" type="text" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false" style="width:100%;padding:11px 13px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:14px;margin-bottom:10px;box-sizing:border-box"/>
     <input id="hh-pass" type="password" placeholder="Password" autocomplete="current-password" style="width:100%;padding:11px 13px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:14px;margin-bottom:12px;box-sizing:border-box"/>
-    <div id="hh-ts" style="margin:2px 0 12px"></div>
     <button class="btn primary" style="width:100%;justify-content:center" type="submit">Sign in</button>
     <div id="hh-login-err" style="color:var(--crit);font-size:12.5px;margin-top:10px;min-height:16px"></div>
   </form>
 </div>
-<script>window.__hhTsReady=false;window.__hhTsOnload=function(){window.__hhTsReady=true;if(window.hhRenderTs)window.hhRenderTs();};</script>
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=__hhTsOnload&render=explicit" async defer></script>
 <script>
 (function(){
   var shell=document.querySelector('.shell');
@@ -1323,30 +1320,17 @@ tbody tr:hover{background:var(--panel-2)}
     try{ sess=await getJSON('/api/session'); }catch(e){ showLogin(true); return; }
     sessionUser=sess.user||'';
     if(!sess.authed){ showLogin(true); } else { afterLogin(); }
-    // load the Turnstile site key (public) and render the widget on the login form
-    getJSON('/api/pubconfig').then(function(c){ if(c&&c.turnstileSiteKey){ hhTsKey=c.turnstileSiteKey; window.hhRenderTs(); } }).catch(function(){});
   }
-  // --- Cloudflare Turnstile on the login form ---
-  var hhTsKey='', hhTsToken='', hhTsWidget=null;
-  window.hhRenderTs=function(){
-    if(hhTsWidget!==null||!window.__hhTsReady||!hhTsKey||!window.turnstile) return;
-    var el=document.getElementById('hh-ts'); if(!el) return;
-    hhTsWidget=window.turnstile.render(el,{sitekey:hhTsKey,action:'hh_login',
-      callback:function(t){ hhTsToken=t; },
-      'expired-callback':function(){ hhTsToken=''; },
-      'error-callback':function(){ hhTsToken=''; }});
-  };
   var form=document.getElementById('hh-login-form');
   if(form) form.addEventListener('submit', async function(e){
     e.preventDefault();
     var err=document.getElementById('hh-login-err'); err.textContent='';
-    if(hhTsKey && !hhTsToken){ err.textContent='Please complete the "verify you are human" check.'; return; }
     var okb=form.querySelector('button[type="submit"]'); okb.disabled=true; okb.textContent='Signing in…';
     try{
-      var r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('hh-user').value,password:document.getElementById('hh-pass').value,turnstileToken:hhTsToken})});
+      var r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('hh-user').value,password:document.getElementById('hh-pass').value})});
       var d={}; try{ d=await r.json(); }catch(e){}
       if(r.ok && d.ok){ sessionUser=d.user||document.getElementById('hh-user').value; afterLogin(); }
-      else { err.textContent=(d&&d.error)||'Login failed'; if(hhTsKey && window.turnstile && hhTsWidget!==null){ try{ window.turnstile.reset(hhTsWidget); }catch(e){} hhTsToken=''; } }
+      else { err.textContent=(d&&d.error)||'Login failed'; }
     }catch(e){ err.textContent='Network error'; }
     okb.disabled=false; okb.textContent='Sign in';
   });

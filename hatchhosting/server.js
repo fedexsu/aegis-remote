@@ -373,22 +373,6 @@ async function humanCheckEnabled(base) {
   try { const h = await fsp.readFile(path.join(base, '.htaccess'), 'utf8'); return h.includes(HUMAN_A); } catch { return false; }
 }
 
-// ---- Cloudflare Turnstile (guards the panel login) ----
-const TS_SITEKEY = process.env.HH_TURNSTILE_SITEKEY || '';
-const TS_SECRET = process.env.HH_TURNSTILE_SECRET || '';
-function verifyTurnstile(token, ip) {
-  return new Promise((resolve) => {
-    if (!TS_SECRET) return resolve(true);      // not configured -> don't block anyone
-    if (!token) return resolve(false);
-    const body = new URLSearchParams({ secret: TS_SECRET, response: String(token), remoteip: ip || '' }).toString();
-    const r = https.request('https://challenges.cloudflare.com/turnstile/v0/siteverify',
-      { method: 'POST', timeout: 8000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) } },
-      (resp) => { let d = ''; resp.setEncoding('utf8'); resp.on('data', (c) => (d += c)); resp.on('end', () => { try { const j = JSON.parse(d); resolve(j.success === true && (!j.action || j.action === 'hh_login')); } catch { resolve(false); } }); });
-    r.on('error', () => resolve(false));
-    r.on('timeout', () => { r.destroy(); resolve(false); });
-    r.write(body); r.end();
-  });
-}
 
 // ---- analytics (parse nginx access logs) --------------------------------
 const DATA_DIR = process.env.DATA_DIR || '/var/tmp/hatchhosting';
@@ -587,7 +571,6 @@ const server = http.createServer(async (req, res) => {
       const user = String(b.username || '').trim().toLowerCase();
       const pass = String(b.password || '');
       if (!user || !pass) return json(res, 400, { error: 'Enter your username and password' });
-      if (!(await verifyTurnstile(b.turnstileToken, ip))) { bumpAttempt(ip); return json(res, 401, { error: 'Human verification failed, please try again.' }); }
       if (!/^[a-z0-9._-]{1,32}$/.test(user)) { bumpAttempt(ip); return json(res, 401, { error: 'Wrong username or password' }); }
       let ok = false;
       try { const raw = await hestia('v-check-user-password', [user, pass, ip || '']); ok = String(raw).trim() === ''; } catch { ok = false; }
@@ -598,7 +581,6 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ ok: true, user }));
     }
     if (url === '/logout') { const c = getCookie(req); if (c) sessions.delete(c); res.writeHead(200, { 'Set-Cookie': 'hh_sess=; Path=/; Max-Age=0' }); return res.end('{}'); }
-    if (url === '/api/pubconfig' && req.method === 'GET') { return json(res, 200, { turnstileSiteKey: TS_SITEKEY }); }
 
     if (url.startsWith('/api/')) {
       if (!LIVE) return json(res, 503, { error: 'HatchHosting is not connected to a server yet (set HESTIA_URL and HESTIA_KEY)' });

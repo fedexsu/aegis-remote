@@ -431,10 +431,43 @@ function provisionFromInvoice(inv) {
     isNew = true;
   }
   admin.remindedAt = 0; // renewal clears the reminder throttle so future reminders fire
+  admin.trial = false;  // buying converts a trial into a paid account
   inv.status = 'paid'; inv.adminId = admin.id; inv.paidAt = Date.now();
   save();
   const key = keysForAdmin(admin.id)[0];
   return { username, password, isNew, key: key ? key.key : null, plan: p, subExpires: admin.subExpires, adminId: admin.id };
+}
+
+// ---- free trial: one full-featured 3-day account per Telegram user, ever ----------
+const TRIAL_DAYS = 3;
+const trialDays = () => TRIAL_DAYS;
+// One trial per user forever: refuse if they already have any account (trial or paid),
+// or if their id is in the durable trialsUsed ledger (survives account deletion).
+function hasUsedTrial(tgUserId) {
+  if (Array.isArray(db.trialsUsed) && db.trialsUsed.includes(tgUserId)) return true;
+  return !!db.admins.find((a) => a.tgUserId === tgUserId && (a.role || 'admin') !== 'owner');
+}
+function provisionTrial(tgUserId, tgChat) {
+  const existing = db.admins.find((a) => a.tgUserId === tgUserId && (a.role || 'admin') !== 'owner');
+  if (existing) return { already: true, username: existing.email, plan: existing.plan, subExpires: existing.subExpires, expired: isExpired(existing) };
+  if (Array.isArray(db.trialsUsed) && db.trialsUsed.includes(tgUserId)) return { already: true, trialUsed: true };
+  let username, password, tries = 0;
+  do { username = 'hc-' + crypto.randomBytes(3).toString('hex'); tries++; } while (findAdminByEmail(username) && tries < 50);
+  password = crypto.randomBytes(6).toString('base64url'); // ~8 chars
+  const created = createAdmin(username, password, username, 'admin');
+  const admin = created.admin;
+  admin.tgUserId = tgUserId;
+  admin.tgChat = tgChat;
+  admin.plan = 'trial';
+  admin.trial = true;
+  admin.subStart = Date.now();
+  admin.subExpires = Date.now() + TRIAL_DAYS * 86400000;
+  admin.remindedAt = 0;
+  if (!Array.isArray(db.trialsUsed)) db.trialsUsed = [];
+  db.trialsUsed.push(tgUserId);
+  save();
+  const key = keysForAdmin(admin.id)[0];
+  return { username, password, isNew: true, trial: true, subExpires: admin.subExpires, adminId: admin.id, key: key ? key.key : null };
 }
 
 // Subscription enforcement + display.
@@ -480,6 +513,7 @@ module.exports = {
   setDeviceProtection, allowUninstall, uninstallAllowed,
   getCredentials, addCredential, removeCredential,
   plans, createInvoice, getInvoice, accountByTg, expireInvoices, matchPendingInvoiceByAmount, isTxProcessed, markTxProcessed, provisionFromInvoice,
+  trialDays, hasUsedTrial, provisionTrial,
   isExpired, subscriptionOf, createMagicToken, consumeMagicToken,
   subscriberReminders, setReminded,
 };

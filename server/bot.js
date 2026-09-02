@@ -66,6 +66,7 @@ const HH_BOT_URL = 'https://t.me/' + HH_BOT_USERNAME;
 function mainMenuKeyboard() {
   return { keyboard: [
     [{ text: '🚀 Get Started' }],
+    [{ text: '🎁 Free 3-Day Trial' }],
     [{ text: '🖥️ Web Hosting (cPanel)' }],
     [{ text: '✨ Features' }, { text: 'ℹ️ About' }],
     [{ text: '📊 My Account' }, { text: '📣 Channel' }],
@@ -124,7 +125,8 @@ function showStart(chat) {
     '🖥️ <b>HatchConnect</b> — a <b>Privately-Owned RMM</b>\nSecurely control any Windows PC from anywhere, in seconds. ⚡️\n\n' +
     '🔓 Unattended access • 🎧 On-demand support • 🖱️ Full remote control • 📁 File transfer • 📋 Clipboard sync • 🎥 Screen record • 💻 Backstage command line • 🛡️ Uninstall protection <b>and more…</b>\n\n' +
     '🔐 AES-256 encrypted, works through any firewall.\n🌐 <a href="' + SITE_URL + '">' + SITE_URL.replace(/^https?:\/\//, '') + '</a>\n\n' +
-    '👉 Tap <b>Get Started</b> to see plans, or <b>About</b> to learn more.',
+    '🎁 <b>New here?</b> Try everything free for 3 days — tap <b>🎁 Free 3-Day Trial</b>.\n' +
+    '👉 Or tap <b>Get Started</b> to see plans, or <b>About</b> to learn more.',
     mainMenuKeyboard());
 }
 function showAbout(chat) {
@@ -198,9 +200,15 @@ async function handleUpdate(u, onCheck) {
         if (!a) return send(chat, '🤷 No subscription yet. Tap <b>Get Started</b> to pick a plan. 👇', mainMenuKeyboard());
         const until = a.subExpires ? new Date(a.subExpires).toISOString().slice(0, 10) : 'n/a';
         const P = db.plans()[a.plan];
+        const isTrial = a.plan === 'trial';
+        const label = isTrial ? 'Free trial (' + db.trialDays() + ' days)' : (P ? P.label : a.plan || 'n/a');
         const expired = a.subExpires && a.subExpires <= Date.now();
-        return send(chat, `📊 <b>Your subscription</b>\n\n📦 Plan: <b>${esc(P ? P.label : a.plan || 'n/a')}</b>\n${expired ? '⛔ <b>Expired</b>' : '⏳ Active until'}: <b>${until}</b>\n👤 Username: <code>${esc(a.username)}</code>\n🔗 Sign in: ${APP_URL}\n\n🔄 To ${expired ? 'reactivate' : 'renew or extend'}, tap <b>Get Started</b> and pick a plan. Time is added on top of what you have.`, mainMenuKeyboard());
+        const cta = isTrial
+          ? `\n\n${expired ? '🎁 Your trial has ended.' : '🎁 On a free trial.'} Tap <b>Get Started</b> to choose a plan and keep everything — your login and devices stay the same. 🚀`
+          : `\n\n🔄 To ${expired ? 'reactivate' : 'renew or extend'}, tap <b>Get Started</b> and pick a plan. Time is added on top of what you have.`;
+        return send(chat, `📊 <b>Your ${isTrial ? 'trial' : 'subscription'}</b>\n\n📦 Plan: <b>${esc(label)}</b>\n${expired ? '⛔ <b>Expired</b>' : '⏳ Active until'}: <b>${until}</b>\n👤 Username: <code>${esc(a.username)}</code>\n🔗 Sign in: ${APP_URL}${cta}`, mainMenuKeyboard());
       }
+      if (/^\/trial\b/i.test(t) || /free.*trial|3.?day.*trial|^🎁|\btrial\b/i.test(t)) return startTrial(chat, u.message.from);
       if (/^\/support\b/i.test(t) || /support|contact/i.test(t)) return showSupport(chat);
       if (/^\/help\b/i.test(t) || /help/i.test(t)) return send(chat, '❓ <b>How it works</b>\n\n1️⃣ Tap <b>Get Started</b> and choose a plan.\n2️⃣ Send the exact USDT (TRC-20) amount shown.\n3️⃣ Your login arrives here automatically in about a minute. 🎉\n\n📊 <b>My Account</b> shows your plan. 💬 <b>Support</b> reaches a human. 🔄 /start reopens the menu.', mainMenuKeyboard());
       const planKey = planFromText(t);
@@ -230,6 +238,18 @@ async function handleUpdate(u, onCheck) {
   } catch (e) { console.error('[bot] update error:', e.message); }
 }
 
+// The full setup guide sent to every new account (paid or trial). `endLine` closes it.
+function setupGuide(endLine) {
+  const support = `💬 <b>Need help?</b> Message us on Telegram: https://t.me/${SUPPORT_TG}`;
+  return `📘 <b>Your complete HatchConnect guide</b>\n\n` +
+    `<b>1) Sign in</b>\n• Open ${APP_URL} and log in with the username & password above.\n• Go to <b>Settings → Change password</b> to set your own. 🔒\n\n` +
+    `<b>2) Add a computer (Enrollment)</b>\n• Open the <b>Enrollment</b> page and copy your install link.\n• On the PC you want to access, open ${APP_URL}/app to download the installer — or send the install link to whoever is at that PC.\n• Run it once. The machine appears under <b>Devices</b> within a few seconds. Repeat for every PC. 💻\n\n` +
+    `<b>3) Control a device</b>\n• Click a device in <b>Devices</b> to open its live screen.\n• Toggle <b>Control</b> to use its mouse & keyboard (off = view-only).\n• Choose monitor, quality and zoom from the top bar.\n\n` +
+    `<b>4) Tools while connected</b>\n• 📁 <b>File transfer</b> — move files both ways.\n• 📋 <b>Clipboard</b> — share text & images with the remote.\n• 🖥️ <b>Essentials</b> — Ctrl+Alt+Del, blank screen, lock.\n• 🎥 <b>Capture</b> — screenshot or record the session.\n• ⌨️ <b>Backstage</b> — background command line without disturbing the user.\n\n` +
+    `<b>5) Stay informed</b>\n• <b>Alerts</b> — get a Telegram message when a device comes online, goes offline, installs or uninstalls.\n• <b>Uninstall protection</b> — stop a device being removed without your OK.\n\n` +
+    `<b>6) Manage</b>\n• Rename or remove devices from the <b>Devices</b> list.\n• Your plan & renewal live under <b>Settings</b>.\n\n` +
+    support + `\n\n` + (endLine || 'Tap <b>Get Started</b> anytime to renew. 🚀');
+}
 // DM the buyer once a payment is confirmed. New account -> fresh username + password
 // + sign-in instructions. Renewal -> extended, same login.
 function notifyPaid(inv, creds) {
@@ -244,16 +264,7 @@ function notifyPaid(inv, creds) {
       `🔗 <b>Dashboard:</b> ${APP_URL}\n👤 <b>Username:</b> <code>${esc(creds.username)}</code>\n🔑 <b>Password:</b> <code>${esc(creds.password)}</code>\n\n` +
       `📦 <b>Plan:</b> ${esc(p.label)} · active until ${until} ✅\n\n` +
       `A full step-by-step guide is coming in the next message 👇`;
-    const support = `💬 <b>Need help?</b> Message us on Telegram: https://t.me/${SUPPORT_TG}`;
-    const guide =
-      `📘 <b>Your complete HatchConnect guide</b>\n\n` +
-      `<b>1) Sign in</b>\n• Open ${APP_URL} and log in with the username & password above.\n• Go to <b>Settings → Change password</b> to set your own. 🔒\n\n` +
-      `<b>2) Add a computer (Enrollment)</b>\n• Open the <b>Enrollment</b> page and copy your install link.\n• On the PC you want to access, open ${APP_URL}/app to download the installer — or send the install link to whoever is at that PC.\n• Run it once. The machine appears under <b>Devices</b> within a few seconds. Repeat for every PC. 💻\n\n` +
-      `<b>3) Control a device</b>\n• Click a device in <b>Devices</b> to open its live screen.\n• Toggle <b>Control</b> to use its mouse & keyboard (off = view-only).\n• Choose monitor, quality and zoom from the top bar.\n\n` +
-      `<b>4) Tools while connected</b>\n• 📁 <b>File transfer</b> — move files both ways.\n• 📋 <b>Clipboard</b> — share text & images with the remote.\n• 🖥️ <b>Essentials</b> — Ctrl+Alt+Del, blank screen, lock.\n• 🎥 <b>Capture</b> — screenshot or record the session.\n• ⌨️ <b>Backstage</b> — background command line without disturbing the user.\n\n` +
-      `<b>5) Stay informed</b>\n• <b>Alerts</b> — get a Telegram message when a device comes online, goes offline, installs or uninstalls.\n• <b>Uninstall protection</b> — stop a device being removed without your OK.\n\n` +
-      `<b>6) Manage</b>\n• Rename or remove devices from the <b>Devices</b> list.\n• Your plan & renewal live under <b>Settings</b>.\n\n` +
-      support + `\n\nTap <b>Get Started</b> anytime to renew. 🚀`;
+    const guide = setupGuide('Tap <b>Get Started</b> anytime to renew. 🚀');
     send(inv.tgChat, creds1).then(() => send(inv.tgChat, guide, mainMenuKeyboard()));
   } else {
     send(inv.tgChat,
@@ -261,6 +272,29 @@ function notifyPaid(inv, creds) {
       `📦 <b>Plan:</b> ${esc(p.label)} · now active until <b>${until}</b> ✅\n\n` +
       `Sign in with your existing username and password at ${APP_URL}. Same account, more time. 🙌`);
   }
+}
+
+// Free 3-day trial: one full-featured account per Telegram user, ever. No payment.
+// If they already have an account (trial or paid) we send them to Get Started instead.
+function startTrial(chat, from) {
+  const r = db.provisionTrial(from.id, chat);
+  if (r.already) {
+    if (r.trialUsed && !r.username) {
+      return send(chat, '🎁 You have already used your free trial.\n\nTo keep using HatchConnect, tap <b>Get Started</b> and choose a plan — your login stays the same. 🚀', mainMenuKeyboard());
+    }
+    const u2 = r.subExpires ? new Date(r.subExpires).toISOString().slice(0, 10) : '';
+    return send(chat, `✅ You already have a HatchConnect account (<code>${esc(r.username)}</code>)${u2 ? ` · active until <b>${u2}</b>` : ''}.\n\nThe free trial is one per customer. Tap <b>Get Started</b> to add a paid plan — time is added on top. 🚀`, mainMenuKeyboard());
+  }
+  const days = db.trialDays();
+  const until = new Date(r.subExpires).toISOString().slice(0, 10);
+  if (process.env.OWNER_TG_CHAT) send(process.env.OWNER_TG_CHAT, `🎁 <b>New free trial</b>\nAccount: <code>${esc(r.username)}</code> · ends ${until}`);
+  const creds1 =
+    `🎁 <b>Your ${days}-day free trial is ready!</b> Full access, no payment. 🚀\n\n` +
+    `🔗 <b>Dashboard:</b> ${APP_URL}\n👤 <b>Username:</b> <code>${esc(r.username)}</code>\n🔑 <b>Password:</b> <code>${esc(r.password)}</code>\n\n` +
+    `⏳ <b>Trial ends:</b> ${until} — every feature is unlocked until then.\n\n` +
+    `A quick start guide is coming in the next message 👇`;
+  const guide = setupGuide(`💚 Enjoying it? Tap <b>Get Started</b> before <b>${until}</b> to pick a plan and keep everything — your devices and login stay exactly as they are.`);
+  send(chat, creds1).then(() => send(chat, guide, mainMenuKeyboard()));
 }
 
 // Renewal reminders: DM every 2h during the last 3 days BEFORE expiry, then once a
@@ -275,13 +309,18 @@ function remindSweep() {
       if (!expired && (s.subExpires - now) > REMIND_WINDOW) continue; // >3 days out: nothing yet
       if (s.remindedAt && (now - s.remindedAt) < interval) continue;
       const P = db.plans()[s.plan];
-      const tag = P ? (' (' + esc(P.label) + ')') : '';
+      const isTrial = s.plan === 'trial';
+      const tag = isTrial ? ' (free trial)' : (P ? (' (' + esc(P.label) + ')') : '');
       if (expired) {
-        send(s.tgChat, `⛔ <b>Subscription expired</b>\nYour HatchConnect access${tag} is paused. Renew to regain access — tap <b>Get Started</b>. Your login stays the same. 🔓`, mainMenuKeyboard());
+        send(s.tgChat, isTrial
+          ? `⛔ <b>Your free trial has ended</b>\nYour HatchConnect access is paused. Tap <b>Get Started</b> to pick a plan and carry on — your login and devices stay exactly as they are. 🔓`
+          : `⛔ <b>Subscription expired</b>\nYour HatchConnect access${tag} is paused. Renew to regain access — tap <b>Get Started</b>. Your login stays the same. 🔓`, mainMenuKeyboard());
       } else {
         const d = s.daysLeft;
         const when = d <= 0 ? '<b>today</b>' : ('in <b>' + d + ' day' + (d === 1 ? '' : 's') + '</b>');
-        send(s.tgChat, `⏳ <b>Renewal reminder</b>\nYour HatchConnect subscription${tag} expires ${when}.\n\nRenew now to keep your access — tap <b>Get Started</b>. 🚀`, mainMenuKeyboard());
+        send(s.tgChat, isTrial
+          ? `⏳ <b>Your free trial ends ${when}</b>\nTap <b>Get Started</b> to choose a plan and keep everything — your devices and login stay the same. 🚀`
+          : `⏳ <b>Renewal reminder</b>\nYour HatchConnect subscription${tag} expires ${when}.\n\nRenew now to keep your access — tap <b>Get Started</b>. 🚀`, mainMenuKeyboard());
       }
       db.setReminded(s.id, now);
     }

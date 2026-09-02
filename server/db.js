@@ -473,8 +473,13 @@ function provisionTrial(tgUserId, tgChat) {
 // Subscription enforcement + display.
 // Access is blocked a GRACE period AFTER the term ends (renewal reminders go out in
 // the last 3 days; the account keeps working until grace runs out).
-const SUB_GRACE_MS = 24 * 60 * 60 * 1000; // 1 day
-function isExpired(admin) { return !!(admin && (admin.role || 'admin') !== 'owner' && admin.subExpires && (admin.subExpires + SUB_GRACE_MS) <= Date.now()); }
+const SUB_GRACE_MS = 24 * 60 * 60 * 1000; // 1 day (paid plans only)
+// Trials get NO grace — they end exactly at the 3-day mark; paid plans keep the 1-day grace.
+function isExpired(admin) {
+  if (!admin || (admin.role || 'admin') === 'owner' || !admin.subExpires) return false;
+  const grace = admin.trial ? 0 : SUB_GRACE_MS;
+  return (admin.subExpires + grace) <= Date.now();
+}
 
 // Customers (non-owner, bought via the bot) for the reminder sweep. `remindedAt`
 // (ms of the last DM) throttles: every 2h before expiry, once a day after. Cleared

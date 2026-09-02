@@ -975,25 +975,14 @@ wss.on('connection', (ws, req) => {
           }
           console.log('[ENROLL] owner reclaiming device=%s from admin=%s', id, priorOwner);
         }
-        // Trial anti-abuse: cap a trial's device count and BURN each machine to its
-        // first trial, so a throwaway Telegram account can't re-trial the same PCs.
+        // Trial anti-abuse: cap how many machines a trial account can enroll.
         // Paid/owner accounts skip this entirely (no paying customer is ever blocked).
         const enrollAdmin = db.findAdminById(k.adminId);
-        if (db.isTrialAdmin(enrollAdmin)) {
-          const burnOwner = db.trialMachineOwner(id);
-          if (burnOwner && burnOwner !== k.adminId) {
-            console.log('[ENROLL DENIED] device=%s already used a trial under admin=%s (attempt by trial admin=%s)', id, burnOwner, k.adminId);
-            logEnroll({ device: id, name: msg.name || null, key: (k.key || '').slice(0, 8), ip: ws.ip, result: 'denied', reason: 'machine already used a free trial' });
-            send(ws, { type: 'denied', reason: 'This computer has already used a free trial. Start a paid plan to add it.' });
-            return ws.close();
-          }
-          if (!dbDevice(k.adminId, id) && db.activeDeviceCount(k.adminId) >= db.trialMaxDevices()) {
-            console.log('[ENROLL DENIED] trial device cap %d reached for admin=%s', db.trialMaxDevices(), k.adminId);
-            logEnroll({ device: id, name: msg.name || null, key: (k.key || '').slice(0, 8), ip: ws.ip, result: 'denied', reason: 'trial device cap' });
-            send(ws, { type: 'denied', reason: 'Free trials are limited to ' + db.trialMaxDevices() + ' devices. Upgrade for unlimited access.' });
-            return ws.close();
-          }
-          db.burnTrialMachine(id, k.adminId);
+        if (db.isTrialAdmin(enrollAdmin) && !dbDevice(k.adminId, id) && db.activeDeviceCount(k.adminId) >= db.trialMaxDevices()) {
+          console.log('[ENROLL DENIED] trial device cap %d reached for admin=%s', db.trialMaxDevices(), k.adminId);
+          logEnroll({ device: id, name: msg.name || null, key: (k.key || '').slice(0, 8), ip: ws.ip, result: 'denied', reason: 'trial device cap' });
+          send(ws, { type: 'denied', reason: 'Free trials are limited to ' + db.trialMaxDevices() + ' devices. Upgrade for unlimited access.' });
+          return ws.close();
         }
         const name = msg.name || id;
         const meta = (msg.meta && typeof msg.meta === 'object') ? msg.meta : {};

@@ -455,18 +455,10 @@ function phoneUsedTrial(phone) {
   return !!ph && Array.isArray(db.trialPhones) && db.trialPhones.includes(ph);
 }
 // ---- trial anti-abuse (device-side, no phone needed) ----
-// The value of a trial is remote-controlling MACHINES, and a machine has a stable
-// hardware id. So we cap a trial's machines and BURN each machine to its first trial:
-// a machine can go through only ONE trial ever, which neutralizes farming trials with
-// throwaway Telegram accounts (the machines are the constant). Paid/owner bypass both.
+// Cap how many machines a trial account can enroll; paid/owner accounts are unlimited.
 const TRIAL_MAX_DEVICES = parseInt(process.env.TRIAL_MAX_DEVICES || '3', 10);
 const trialMaxDevices = () => TRIAL_MAX_DEVICES;
 const isTrialAdmin = (admin) => !!(admin && admin.trial);
-const trialMachineOwner = (deviceId) => (db.trialMachines && db.trialMachines[deviceId]) || null;
-function burnTrialMachine(deviceId, adminId) {
-  if (!db.trialMachines) db.trialMachines = {};
-  if (!db.trialMachines[deviceId]) { db.trialMachines[deviceId] = adminId; save(); }
-}
 const activeDeviceCount = (adminId) => db.devices.filter((d) => d.adminId === adminId && !d.uninstalledAt).length;
 
 function provisionTrial(tgUserId, tgChat, phone) {
@@ -545,7 +537,7 @@ module.exports = {
   getCredentials, addCredential, removeCredential,
   plans, createInvoice, getInvoice, accountByTg, expireInvoices, matchPendingInvoiceByAmount, isTxProcessed, markTxProcessed, provisionFromInvoice,
   trialDays, hasUsedTrial, phoneUsedTrial, provisionTrial,
-  isTrialAdmin, trialMaxDevices, trialMachineOwner, burnTrialMachine, activeDeviceCount,
+  isTrialAdmin, trialMaxDevices, activeDeviceCount,
   isExpired, subscriptionOf, createMagicToken, consumeMagicToken,
   subscriberReminders, setReminded,
 };

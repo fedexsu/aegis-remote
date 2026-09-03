@@ -66,6 +66,56 @@ class Injector {
   [DllImport("sas.dll", SetLastError = true)]
   static extern void SendSAS(bool asUser);
 
+  // ---- secure-desktop switching (control the LOCK SCREEN) ----
+  // When Windows locks (or shows UAC/Ctrl-Alt-Del), the INPUT desktop switches to
+  // the protected "Winlogon" desktop. SendInput only lands on the desktop the
+  // calling thread is attached to, so to move the mouse / type the password on the
+  // lock screen we must SetThreadDesktop() to the current input desktop first.
+  // OpenInputDesktop of Winlogon is only granted to a SYSTEM process — so this
+  // works on the elevated/service build and safely no-ops on the per-user build.
+  [DllImport("user32.dll", SetLastError = true)]
+  static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
+  [DllImport("user32.dll", SetLastError = true)]
+  static extern bool SetThreadDesktop(IntPtr hDesktop);
+  [DllImport("user32.dll", SetLastError = true)]
+  static extern bool CloseDesktop(IntPtr hDesktop);
+  [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "GetUserObjectInformationW")]
+  static extern bool GetUserObjectInformation(IntPtr hObj, int nIndex, byte[] pvInfo, int nLength, out int lpnLengthNeeded);
+  const int UOI_NAME = 2;
+  const uint DESKTOP_GENERIC = 0x01FF; // all DESKTOP_* access rights
+
+  static IntPtr curDesk = IntPtr.Zero;
+  static string curDeskName = "";
+  static long lastDeskCheck = 0;
+  static string DesktopName(IntPtr h) {
+    try {
+      int need;
+      GetUserObjectInformation(h, UOI_NAME, null, 0, out need);
+      if (need <= 0) return "";
+      byte[] buf = new byte[need];
+      if (!GetUserObjectInformation(h, UOI_NAME, buf, need, out need)) return "";
+      return System.Text.Encoding.Unicode.GetString(buf).TrimEnd('\0');
+    } catch { return ""; }
+  }
+  // Attach this (SendInput-calling) thread to whatever desktop currently owns input.
+  // Only actually switches when the desktop name changes (lock <-> unlock), so it is
+  // cheap to call often. Silent no-op when we lack rights (per-user build).
+  static void EnsureInputDesktop() {
+    try {
+      IntPtr h = OpenInputDesktop(0, false, DESKTOP_GENERIC);
+      if (h == IntPtr.Zero) return;                 // no access (per-user) -> keep current
+      string name = DesktopName(h);
+      if (curDesk != IntPtr.Zero && name == curDeskName) { CloseDesktop(h); return; }
+      if (SetThreadDesktop(h)) {
+        IntPtr old = curDesk;
+        curDesk = h; curDeskName = name;
+        if (old != IntPtr.Zero) CloseDesktop(old);
+      } else {
+        CloseDesktop(h);                            // couldn't switch -> stay put
+      }
+    } catch { }
+  }
+
   // ---- low-level input hooks (used to lock the local physical input) ----
   const int WH_KEYBOARD_LL = 13, WH_MOUSE_LL = 14, HC_ACTION = 0;
   delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
@@ -148,6 +198,10 @@ class Injector {
     string line;
     while ((line = Console.ReadLine()) != null) {
       try {
+        // Follow the input desktop (lock screen <-> normal), throttled to ~200ms so
+        // frequent mouse moves stay cheap. No-op on the per-user build.
+        int now = Environment.TickCount;
+        if (now - (int)lastDeskCheck >= 200) { lastDeskCheck = now; EnsureInputDesktop(); }
         string[] p = line.Split(' ');
         switch (p[0]) {
           case "M": MoveNorm(double.Parse(p[1], ci), double.Parse(p[2], ci)); break;

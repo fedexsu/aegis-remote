@@ -318,6 +318,17 @@ function uninstallAllowed(id, key) {
   const keyOk = !!key && (d.keyUsed === key || db.keys.some((k) => k.key === key && k.adminId === d.adminId));
   return keyOk && !!d.uninstallAuthorized;
 }
+// Same decision as uninstallAllowed, but with a human-readable reason for logging so
+// we can see exactly why an uninstall was allowed or blocked.
+function uninstallDecision(id, key) {
+  const d = db.devices.find((x) => x.id === id);
+  if (!d) return { allowed: true, reason: 'no device row for id "' + id + '" (id mismatch or never registered)' };
+  if (!d.protected) return { allowed: true, reason: 'device is not marked protected', adminId: d.adminId };
+  const keyOk = !!key && (d.keyUsed === key || db.keys.some((k) => k.key === key && k.adminId === d.adminId));
+  if (!keyOk) return { allowed: false, reason: 'protected; key mismatch', adminId: d.adminId };
+  if (!d.uninstallAuthorized) return { allowed: false, reason: 'protected and not released -> BLOCK', adminId: d.adminId };
+  return { allowed: true, reason: 'protected but released by owner', adminId: d.adminId };
+}
 function touchDevice(id) {
   const d = db.devices.find((x) => x.id === id);
   if (d) { d.lastSeen = Date.now(); }
@@ -533,7 +544,7 @@ module.exports = {
   createKey, keysForAdmin, findValidKey, revokeKey, unrevokeKey, deleteKey, incKeyDownload, statsForAdmin,
   getAlerts, setAlerts,
   upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, markUninstalled, setAsleep, ownerOfDevice,
-  setDeviceProtection, allowUninstall, uninstallAllowed,
+  setDeviceProtection, allowUninstall, uninstallAllowed, uninstallDecision,
   getCredentials, addCredential, removeCredential,
   plans, createInvoice, getInvoice, accountByTg, expireInvoices, matchPendingInvoiceByAmount, isTxProcessed, markTxProcessed, provisionFromInvoice,
   trialDays, hasUsedTrial, phoneUsedTrial, provisionTrial,

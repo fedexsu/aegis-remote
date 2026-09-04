@@ -382,7 +382,12 @@ async function handleApi(req, res, urlPath) {
     // released this device. Key-authenticated (device id + enrollment key).
     if (urlPath === '/api/uninstall-allowed' && m === 'POST') {
       const b = await readBody(req);
-      return json(res, 200, { allowed: db.uninstallAllowed(b.id, b.key) });
+      const dec = db.uninstallDecision(b.id, b.key);
+      const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+      // Log every uninstall check to the Enrollment log so we can see exactly what the
+      // server decided and why (id received, protected?, released?).
+      logEnroll({ device: b.id || null, name: null, key: (b.key || '').slice(0, 8), ip, result: dec.allowed ? 'uninstall check: ALLOWED' : 'uninstall check: BLOCKED', reason: dec.reason, admin: dec.adminId });
+      return json(res, 200, { allowed: dec.allowed });
     }
 
     // Public: the uninstaller reports here (device id + enrollment key) right

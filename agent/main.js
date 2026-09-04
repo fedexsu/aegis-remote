@@ -206,20 +206,21 @@ function machineGuid() {
 }
 function getDeviceId() {
   const p = path.join(app.getPath('userData'), 'device-id');
-  const guid = machineGuid();
-  if (guid) {
-    // Deterministic id from the machine guid — same on every launch, every user,
-    // every reinstall. (Salted hash so the raw guid never leaves the machine.)
-    const id = 'm-' + crypto.createHash('sha256').update('aegis:' + guid).digest('hex').slice(0, 24);
-    try { fs.writeFileSync(p, id); } catch { /* ignore */ }
-    return id;
-  }
-  // Fallback: previously-persisted id, else a fresh random one.
+  // STABLE id: once assigned it NEVER changes, so the console, the relay and the
+  // uninstaller always agree on the same id. This prevents duplicate device rows and
+  // broken uninstall protection caused by id drift (e.g. an early build that used a
+  // random UUID, or a one-off failure to read the MachineGuid). Only compute on the
+  // very first run, then persist and reuse forever.
   try {
-    const id = fs.readFileSync(p, 'utf8').trim();
-    if (id) return id;
-  } catch { /* not created yet */ }
-  const id = crypto.randomUUID();
+    const existing = fs.readFileSync(p, 'utf8').trim();
+    if (existing) return existing;
+  } catch { /* first run — no id file yet */ }
+  // First run: prefer a deterministic id from the MachineGuid (salted hash so the raw
+  // guid never leaves the machine); fall back to a random id only if it can't be read.
+  const guid = machineGuid();
+  const id = guid
+    ? 'm-' + crypto.createHash('sha256').update('aegis:' + guid).digest('hex').slice(0, 24)
+    : crypto.randomUUID();
   try { fs.writeFileSync(p, id); } catch { /* ignore */ }
   return id;
 }

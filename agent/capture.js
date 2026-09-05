@@ -295,11 +295,20 @@ function stopCapture() {
   video.srcObject = null;
 }
 
+function withTimeout(promise, ms) {
+  return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+}
 async function startCapture(sourceId) {
   if (stream) stopCapture();
-  if (!sourceId) sourceId = await window.agent.getScreenSource();
+  // Re-resolve the source id — on a locked screen getSources may have timed out
+  // and returned 'lock-screen' as a placeholder. Retry now; if it's still locked
+  // the getUserMedia call below will throw and startStreaming will retry.
+  if (!sourceId || sourceId === 'lock-screen') {
+    sourceId = await withTimeout(window.agent.getScreenSource(), 6000).catch(() => null);
+  }
+  if (!sourceId) throw new Error('no capture source (device may be locked)');
   selectedSourceId = sourceId;
-  stream = await navigator.mediaDevices.getUserMedia({
+  stream = await withTimeout(navigator.mediaDevices.getUserMedia({
     audio: false,
     video: {
       mandatory: {
@@ -310,14 +319,14 @@ async function startCapture(sourceId) {
         maxFrameRate: 30,
       },
     },
-  });
+  }), 8000);
   video.srcObject = stream;
-  await video.play();
+  await withTimeout(video.play(), 5000);
   // Wait for dimensions.
-  await new Promise((res) => {
+  await withTimeout(new Promise((res) => {
     if (video.videoWidth) return res();
     video.onloadedmetadata = () => res();
-  });
+  }), 5000);
   const scale = Math.min(1, MAX_W / video.videoWidth);
   baseW = Math.round(video.videoWidth * scale);
   baseH = Math.round(video.videoHeight * scale);
@@ -325,6 +334,7 @@ async function startCapture(sourceId) {
   canvas.height = baseH;
 }
 
+let captureRetryTimer = null;
 async function startStreaming() {
   if (streaming) return;
   streaming = true;
@@ -332,7 +342,9 @@ async function startStreaming() {
   window.agent.sessionState(true);
   try {
     // Load the monitor layout so multi-monitor input maps correctly.
-    const info = await window.agent.getMonitors();
+    // getMonitors is also guarded: when the screen is locked getSources times out
+    // inside the main process and returns a synthetic 'lock-screen' placeholder.
+    const info = await withTimeout(window.agent.getMonitors(), 8000);
     MONITORS = info.monitors || []; VIRTUAL = info.virtual || null;
     if (!selectedSourceId || !MONITORS.find((m) => m.id === selectedSourceId)) {
       const primary = MONITORS.find((m) => m.primary) || MONITORS[0];
@@ -343,8 +355,14 @@ async function startStreaming() {
   } catch (e) {
     log('capture error: ' + e.message);
     streaming = false; $('#banner').classList.remove('show'); window.agent.sessionState(false);
+    // Retry: the device may be locked. Keep trying every 6 s so the session
+    // auto-connects the moment the user unlocks without needing a re-join.
+    if (!captureRetryTimer && ws && ws.readyState === ws.OPEN) {
+      captureRetryTimer = setTimeout(() => { captureRetryTimer = null; startStreaming(); }, 6000);
+    }
     return;
   }
+  if (captureRetryTimer) { clearTimeout(captureRetryTimer); captureRetryTimer = null; }
   if (ws) {
     ws.send(JSON.stringify({ type: 'screen', w: canvas.width, h: canvas.height }));
     ws.send(JSON.stringify({
@@ -376,6 +394,7 @@ function stopStreaming() {
   guestCount = 0;
   $('#banner').classList.remove('show');
   window.agent.sessionState(false);
+  if (captureRetryTimer) { clearTimeout(captureRetryTimer); captureRetryTimer = null; }
   if (captureTimer) { clearInterval(captureTimer); captureTimer = null; }
   if (adaptTimer) { clearInterval(adaptTimer); adaptTimer = null; }
   closeRtc();

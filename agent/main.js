@@ -295,10 +295,21 @@ function osName() {
   }
 }
 
+function getSources(opts) {
+  // desktopCapturer.getSources() can hang indefinitely when the Windows lock
+  // screen (Winlogon desktop) is active. Race against a timeout so callers
+  // always get a result and the agent never stalls.
+  return Promise.race([
+    desktopCapturer.getSources(opts),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('getSources timeout')), 6000)),
+  ]);
+}
 ipcMain.handle('screen:source', async () => {
-  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
-  const primary = sources[0];
-  return primary ? primary.id : null;
+  try {
+    const sources = await getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
+    const primary = sources[0];
+    return primary ? primary.id : null;
+  } catch { return null; }
 });
 
 // Primary display size in physical pixels — lets the agent report screen dims
@@ -311,18 +322,22 @@ ipcMain.handle('screen:size', () => {
 // Enumerate monitors (one capture source per display) + the virtual-desktop
 // extents, so the console can switch monitors and input maps correctly.
 ipcMain.handle('screen:list', async () => {
-  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
+  let sources = [];
+  try { sources = await getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }); } catch { /* locked screen — return primary display */ }
   const displays = screen.getAllDisplays();
-  const primaryId = screen.getPrimaryDisplay().id;
-  const monitors = sources.map((s, i) => {
-    const d = displays.find((dd) => String(dd.id) === String(s.display_id)) || displays[i] || screen.getPrimaryDisplay();
-    return {
-      id: s.id,
-      label: (d.id === primaryId ? 'Primary' : 'Screen ' + (i + 1)),
-      bounds: d.bounds,
-      primary: d.id === primaryId,
-    };
-  });
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const primaryId = primaryDisplay.id;
+  let monitors;
+  if (sources.length) {
+    monitors = sources.map((s, i) => {
+      const d = displays.find((dd) => String(dd.id) === String(s.display_id)) || displays[i] || primaryDisplay;
+      return { id: s.id, label: (d.id === primaryId ? 'Primary' : 'Screen ' + (i + 1)), bounds: d.bounds, primary: d.id === primaryId };
+    });
+  } else {
+    // getSources timed out (lock screen) — synthesise a primary entry from the display API.
+    // The source id is unknown; capture.js will retry getSources on its own schedule.
+    monitors = [{ id: 'lock-screen', label: 'Primary', bounds: primaryDisplay.bounds, primary: true }];
+  }
   let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
   for (const d of displays) {
     left = Math.min(left, d.bounds.x); top = Math.min(top, d.bounds.y);

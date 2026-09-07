@@ -4,6 +4,8 @@ release/*
 cloudflared.exe
 npm-debug.log*
 data/
+.env
+.env.*
 signing/tools/
 signing/metadata.json
 *.exe

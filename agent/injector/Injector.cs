@@ -26,6 +26,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Globalization;
 using System.Threading;
+using System.IO;
 
 class Injector {
   [StructLayout(LayoutKind.Sequential)]
@@ -75,6 +76,8 @@ class Injector {
   // works on the elevated/service build and safely no-ops on the per-user build.
   [DllImport("user32.dll", SetLastError = true)]
   static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
+  [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+  static extern IntPtr OpenDesktop(string lpszDesktop, uint dwFlags, bool fInherit, uint dwDesiredAccess);
   [DllImport("user32.dll", SetLastError = true)]
   static extern bool SetThreadDesktop(IntPtr hDesktop);
   [DllImport("user32.dll", SetLastError = true)]
@@ -82,11 +85,31 @@ class Injector {
   [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "GetUserObjectInformationW")]
   static extern bool GetUserObjectInformation(IntPtr hObj, int nIndex, byte[] pvInfo, int nLength, out int lpnLengthNeeded);
   const int UOI_NAME = 2;
-  const uint DESKTOP_GENERIC = 0x01FF; // all DESKTOP_* access rights
+  // Only request the rights we actually need — DESKTOP_GENERIC (0x01FF) includes
+  // JOURNALRECORD/JOURNALPLAYBACK which the Winlogon desktop DACL denies even to
+  // SYSTEM, causing OpenInputDesktop to fail with ERROR_ACCESS_DENIED (5).
+  const uint DESKTOP_READOBJECTS    = 0x0001;
+  const uint DESKTOP_WRITEOBJECTS   = 0x0080;
+  const uint DESKTOP_SWITCHDESKTOP  = 0x0100;
+  const uint DESKTOP_ACCESS = DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS | DESKTOP_SWITCHDESKTOP;
 
   static IntPtr curDesk = IntPtr.Zero;
   static string curDeskName = "";
   static long lastDeskCheck = 0;
+
+  // ---- diagnostic log (retrieve via dashboard Files: %TEMP%\hc-inject.log,
+  // which is C:\Windows\Temp\hc-inject.log when the agent runs as SYSTEM) ----
+  static string logPath = null;
+  static readonly object logLock = new object();
+  static void Log(string s) {
+    try {
+      if (logPath == null) logPath = Path.Combine(Path.GetTempPath(), "hc-inject.log");
+      lock (logLock) {
+        try { if (File.Exists(logPath) && new FileInfo(logPath).Length > 131072) File.Delete(logPath); } catch { }
+        File.AppendAllText(logPath, DateTime.Now.ToString("HH:mm:ss.fff") + " " + s + "\r\n");
+      }
+    } catch { }
+  }
   static string DesktopName(IntPtr h) {
     try {
       int need;
@@ -97,23 +120,45 @@ class Injector {
       return System.Text.Encoding.Unicode.GetString(buf).TrimEnd('\0');
     } catch { return ""; }
   }
+  // Open a handle to the desktop that currently owns input, with the minimum
+  // access needed for SetThreadDesktop. Falls back to opening "Winlogon" by name
+  // so we still get a handle even if OpenInputDesktop returns ACCESS_DENIED.
+  static IntPtr OpenCurrentInputDesktop() {
+    // First attempt: OpenInputDesktop with minimal rights.
+    IntPtr h = OpenInputDesktop(0, false, DESKTOP_ACCESS);
+    if (h != IntPtr.Zero) return h;
+    int err1 = Marshal.GetLastWin32Error();
+    // Second attempt: try a wider mask — sometimes the first request is too narrow.
+    h = OpenInputDesktop(0, false, DESKTOP_ACCESS | 0x0004 | 0x0008); // + CREATEMENU | HOOKCONTROL
+    if (h != IntPtr.Zero) return h;
+    // Third attempt: open Winlogon desktop by name (lock screen). This works when
+    // OpenInputDesktop fails due to DACL on the current desktop.
+    h = OpenDesktop("Winlogon", 0, false, DESKTOP_ACCESS);
+    if (h != IntPtr.Zero) { Log("OpenInputDesktop failed err=" + err1 + ", opened Winlogon by name"); return h; }
+    Log("OpenInputDesktop err=" + err1 + ", OpenDesktop(Winlogon) err=" + Marshal.GetLastWin32Error() + " (not SYSTEM?)");
+    return IntPtr.Zero;
+  }
   // Attach this (SendInput-calling) thread to whatever desktop currently owns input.
   // Only actually switches when the desktop name changes (lock <-> unlock), so it is
   // cheap to call often. Silent no-op when we lack rights (per-user build).
   static void EnsureInputDesktop() {
     try {
-      IntPtr h = OpenInputDesktop(0, false, DESKTOP_GENERIC);
-      if (h == IntPtr.Zero) return;                 // no access (per-user) -> keep current
+      IntPtr h = OpenCurrentInputDesktop();
+      if (h == IntPtr.Zero) return; // no access (per-user build or early boot) — stay put
       string name = DesktopName(h);
       if (curDesk != IntPtr.Zero && name == curDeskName) { CloseDesktop(h); return; }
       if (SetThreadDesktop(h)) {
         IntPtr old = curDesk;
         curDesk = h; curDeskName = name;
         if (old != IntPtr.Zero) CloseDesktop(old);
+        logInputs = 8;   // log the next few injected events on the new desktop
+        Log("switched input desktop -> '" + name + "' (SetThreadDesktop ok)");
       } else {
+        int err = Marshal.GetLastWin32Error();
         CloseDesktop(h);                            // couldn't switch -> stay put
+        Log("SetThreadDesktop to '" + name + "' FAILED err=" + err + " (staying on '" + curDeskName + "')");
       }
-    } catch { }
+    } catch (Exception ex) { Log("EnsureInputDesktop ex: " + ex.Message); }
   }
 
   // ---- low-level input hooks (used to lock the local physical input) ----
@@ -159,19 +204,24 @@ class Injector {
     while (GetMessage(out msg, IntPtr.Zero, 0, 0) > 0) { }
   }
 
+  // After a desktop switch, log the SendInput result of the next few events so we
+  // can see whether injection actually lands on the (lock) desktop.
+  static int logInputs = 0;
   static void SendMouse(uint flags, int dx, int dy, uint data) {
     INPUT[] inp = new INPUT[1];
     inp[0].type = INPUT_MOUSE;
     inp[0].u.mi.dx = dx; inp[0].u.mi.dy = dy; inp[0].u.mi.mouseData = data; inp[0].u.mi.dwFlags = flags;
     inp[0].u.mi.dwExtraInfo = MAGIC;
-    SendInput(1, inp, Marshal.SizeOf(typeof(INPUT)));
+    uint n = SendInput(1, inp, Marshal.SizeOf(typeof(INPUT)));
+    if (logInputs > 0 || n == 0) { logInputs--; Log("SendInput(mouse flags=0x" + flags.ToString("X") + ") -> " + n + (n == 0 ? " err=" + Marshal.GetLastWin32Error() : "") + " desk='" + curDeskName + "'"); }
   }
   static void SendKey(ushort vk, ushort scan, uint flags) {
     INPUT[] inp = new INPUT[1];
     inp[0].type = INPUT_KEYBOARD;
     inp[0].u.ki.wVk = vk; inp[0].u.ki.wScan = scan; inp[0].u.ki.dwFlags = flags;
     inp[0].u.ki.dwExtraInfo = MAGIC;
-    SendInput(1, inp, Marshal.SizeOf(typeof(INPUT)));
+    uint n = SendInput(1, inp, Marshal.SizeOf(typeof(INPUT)));
+    if (logInputs > 0 || n == 0) { logInputs--; Log("SendInput(key vk=" + vk + ") -> " + n + (n == 0 ? " err=" + Marshal.GetLastWin32Error() : "") + " desk='" + curDeskName + "'"); }
   }
   static void MoveNorm(double nx, double ny) {
     if (nx < 0) nx = 0; if (nx > 1) nx = 1;

@@ -1003,8 +1003,10 @@ wss.on('connection', (ws, req) => {
         db.upsertDevice(id, k.adminId, name, k.key, meta);
         ws.meta = { role: 'agent', id, adminId: k.adminId };
         agents.set(id, { ws, name, adminId: k.adminId, consoleId: null, screen: msg.screen || null });
-        // Cancel any pending offline-flash grace timer so the reconnect is seamless.
+        // Cancel any pending offline-flash / Telegram-alert timers so a quick
+        // relaunch (auto-update, VPN flip) is completely invisible to the admin.
         if (graceTimers.has(id)) { clearTimeout(graceTimers.get(id)); graceTimers.delete(id); }
+        if (offlineTimers.has(id)) { clearTimeout(offlineTimers.get(id)); offlineTimers.delete(id); offlineFlagged.delete(id); }
         send(ws, { type: 'registered', id });
         logEnroll({ device: id, name, key: (k.key || '').slice(0, 8), host: meta.host || null, ip: ws.ip, result: 'ok', admin: k.adminId });
         // Self-heal legacy duplicates: older builds keyed the device id off the app's

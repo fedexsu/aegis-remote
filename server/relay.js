@@ -1157,14 +1157,14 @@ wss.on('connection', (ws, req) => {
         opRoutes.delete(reqId);
       }
       if (adminId) {
-        // Reconnect grace window: if the device reconnects within 8 s (e.g. auto-update
-        // relaunch, momentary VPN flip) cancel the timer — the dashboard never sees it go
-        // offline. Only push the offline state if no reconnect arrives in time.
+        // Reconnect grace window: if the device reconnects within 20 s (e.g. auto-update
+        // relaunch on a slow/old machine, momentary VPN flip) cancel the timer — the
+        // dashboard never sees it go offline. Only push offline if no reconnect arrives.
         if (graceTimers.has(id)) clearTimeout(graceTimers.get(id));
         graceTimers.set(id, setTimeout(() => {
           graceTimers.delete(id);
           if (!agents.has(id)) pushDevices(adminId);
-        }, 8000));
+        }, 20000));
       }
       // Telegram "offline" alert, debounced so brief reconnects don't spam.
       // (A sleeping machine is reported as sleeping, not a hard offline.)

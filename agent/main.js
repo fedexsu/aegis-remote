@@ -898,7 +898,22 @@ async function checkForUpdate() {
       compileBlanker();
     }
     // Relaunch into the new code (hidden, like autostart).
-    app.relaunch({ args: ['--startup'] });
+    // Use a detached batch script as the primary restart so the new process
+    // is spawned independently and survives even if app.relaunch() misbehaves
+    // on older Electron builds or old Windows versions (10 1703 etc).
+    let scriptLaunched = false;
+    try {
+      const os = require('os');
+      const exePath = process.execPath.replace(/"/g, '""');
+      const script = `@echo off\r\ntimeout /t 5 /nobreak > nul\r\nstart "" "${exePath}" --startup\r\n`;
+      const scriptPath = path.join(os.tmpdir(), 'aegis-restart.bat');
+      fs.writeFileSync(scriptPath, script);
+      require('child_process').spawn('cmd.exe', ['/c', scriptPath], {
+        detached: true, stdio: 'ignore', windowsHide: true,
+      }).unref();
+      scriptLaunched = true;
+    } catch {}
+    if (!scriptLaunched) app.relaunch({ args: ['--startup'] }); // fallback
     app.exit(0);
   } catch { /* offline or relay down — try again on the next tick */ }
 }

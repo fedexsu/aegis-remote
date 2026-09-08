@@ -261,6 +261,11 @@ function connectWS() {
       case 'rtc-ice': if (rtcPc && msg.candidate) { rtcDiag.remoteCand.add(candType(msg.candidate)); rtcLog('remote candidate', candType(msg.candidate)); rtcPc.addIceCandidate(msg.candidate).catch((e) => rtcLog('addIceCandidate error', e.message)); } break;
       case 'control': $('#ctl-warn').hidden = msg.available !== false ? true : false; if (msg.available === false) toast('Control is blocked on this device (antivirus removed the input helper)', 'err'); break;
       case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); leaveSolo(); break;
+      // Agent reports its screen dimensions (also sent when locked so the console
+      // can size the canvas correctly without waiting for the first JPEG frame).
+      case 'screen': if (msg.w && msg.h) { frameW = msg.w; frameH = msg.h; canvas.width = msg.w; canvas.height = msg.h; fit(); } if (!$('#screen-wrap').classList.contains('rtc') && !$('#rtc-mode').classList.contains('sd')) setRtcMode('sd'); break;
+      // Agent signals the Windows lock screen is active/cleared.
+      case 'locked': { const lo = $('#lock-overlay'); if (lo) lo.hidden = !msg.on; } if (msg.on && !$('#rtc-mode').classList.contains('sd') && !$('#screen-wrap').classList.contains('rtc')) setRtcMode('sd'); break;
       case 'error': toast(msg.text, 'err'); break;
       case 'info': toast(msg.text, 'ok'); break;
       case 'opStream': if (msg.reqId === termReqId) onOpStream(msg); else fsDispatch('stream', msg); break;

@@ -348,6 +348,11 @@ body.solo .sidebar{display:none}
 /* drag-drop to screen */
 .drop-hint{position:absolute;inset:0;z-index:5;display:grid;place-items:center;background:rgba(5,7,12,.72);backdrop-filter:blur(2px);pointer-events:none}
 .drop-hint div{border:2px dashed var(--accent);border-radius:14px;padding:22px 30px;font-weight:700;color:#dfe8ff;background:rgba(79,140,255,.12)}
+/* lock-screen overlay — shown when the remote device is on its Windows lock screen */
+.lock-overlay{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(5,7,12,.9);backdrop-filter:blur(6px);color:#e2e8f0;pointer-events:none}
+.lock-overlay svg{opacity:.6}
+.lock-overlay .lo-title{font-size:1.05rem;font-weight:600;letter-spacing:.01em}
+.lock-overlay .lo-sub{font-size:.83rem;color:#94a3b8}
 /* files search + search-results */
 .files-search{background:var(--panel3);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:6px 10px;font-size:13px;width:190px}
 .files-search:focus{outline:none;border-color:var(--accent)}

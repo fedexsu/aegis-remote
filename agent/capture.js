@@ -355,6 +355,14 @@ async function startStreaming() {
   } catch (e) {
     log('capture error: ' + e.message);
     streaming = false; $('#banner').classList.remove('show'); window.agent.sessionState(false);
+    // Tell the console the device is locked so it shows a proper overlay
+    // instead of staying at "Connecting…" indefinitely.
+    if (ws && ws.readyState === ws.OPEN) {
+      let scr = { w: 1920, h: 1080 };
+      try { scr = await window.agent.getScreenSize(); } catch {}
+      ws.send(JSON.stringify({ type: 'screen', w: scr.w, h: scr.h }));
+      ws.send(JSON.stringify({ type: 'locked', on: true }));
+    }
     // Retry: the device may be locked. Keep trying every 6 s so the session
     // auto-connects the moment the user unlocks without needing a re-join.
     if (!captureRetryTimer && ws && ws.readyState === ws.OPEN) {
@@ -364,6 +372,7 @@ async function startStreaming() {
   }
   if (captureRetryTimer) { clearTimeout(captureRetryTimer); captureRetryTimer = null; }
   if (ws) {
+    ws.send(JSON.stringify({ type: 'locked', on: false })); // clear lock overlay now that capture is live
     ws.send(JSON.stringify({ type: 'screen', w: canvas.width, h: canvas.height }));
     ws.send(JSON.stringify({
       type: 'monitors',

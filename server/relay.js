@@ -125,6 +125,7 @@ const opRoutes = new Map(); // reqId -> { consoleId, agentId } — routes op rep
 const guests = new Map();   // agentId -> Set(ws) — browser guest viewers (view-only JPEG)
 const guestTokens = new Map(); // token -> { adminId, agentId, exp } — share links
 const appTokens = new Map();   // token -> { adminId, exp } — desktop-app SSO handoff
+const graceTimers = new Map(); // deviceId → setTimeout — delay offline push so a quick relaunch/update doesn't flash offline in the dashboard
 let seq = 1;
 
 function send(ws, obj) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj)); }
@@ -1002,6 +1003,8 @@ wss.on('connection', (ws, req) => {
         db.upsertDevice(id, k.adminId, name, k.key, meta);
         ws.meta = { role: 'agent', id, adminId: k.adminId };
         agents.set(id, { ws, name, adminId: k.adminId, consoleId: null, screen: msg.screen || null });
+        // Cancel any pending offline-flash grace timer so the reconnect is seamless.
+        if (graceTimers.has(id)) { clearTimeout(graceTimers.get(id)); graceTimers.delete(id); }
         send(ws, { type: 'registered', id });
         logEnroll({ device: id, name, key: (k.key || '').slice(0, 8), host: meta.host || null, ip: ws.ip, result: 'ok', admin: k.adminId });
         // Self-heal legacy duplicates: older builds keyed the device id off the app's
@@ -1153,7 +1156,16 @@ wss.on('connection', (ws, req) => {
         if (c) send(c.ws, { type: 'opEnd', reqId });
         opRoutes.delete(reqId);
       }
-      if (adminId) pushDevices(adminId);
+      if (adminId) {
+        // Reconnect grace window: if the device reconnects within 8 s (e.g. auto-update
+        // relaunch, momentary VPN flip) cancel the timer — the dashboard never sees it go
+        // offline. Only push the offline state if no reconnect arrives in time.
+        if (graceTimers.has(id)) clearTimeout(graceTimers.get(id));
+        graceTimers.set(id, setTimeout(() => {
+          graceTimers.delete(id);
+          if (!agents.has(id)) pushDevices(adminId);
+        }, 8000));
+      }
       // Telegram "offline" alert, debounced so brief reconnects don't spam.
       // (A sleeping machine is reported as sleeping, not a hard offline.)
       if (adminId && !sleeping) {

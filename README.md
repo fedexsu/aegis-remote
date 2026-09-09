@@ -3,6 +3,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-blue)](https://github.com/fedexsu/aegis-remote)
 
+> **Created by [Cheyenne Smith](https://github.com/fedexsu)** &nbsp;·&nbsp; ftechworld5@gmail.com
+
+---
+
 HatchConnect is a **self-hosted, unattended remote desktop and support tool** for Windows. It lets you remotely view and control machines you own or manage, with no third-party servers — you run everything.
 
 It works through NAT and firewalls with no port-forwarding required. Both the agent (on the remote PC) and the console (your browser) connect outward to a relay server over WebSocket.
@@ -139,4 +143,4 @@ To build and test locally, you only need Node and the standard Windows toolchain
 
 ## License
 
-[MIT](LICENSE) — Copyright (c) 2026 HatchConnect
+[MIT](LICENSE) — Copyright (c) 2026 **Cheyenne Smith**

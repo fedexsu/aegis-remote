@@ -217,6 +217,7 @@ function deviceListFor(adminId) {
       presence: online && live.presence ? live.presence : null, // active/idle/locked
       protected: !!d.protected,             // uninstall protection on?
       uninstallAuthorized: !!d.uninstallAuthorized, // operator released it for removal
+      screenshot: !!(d.meta && d.meta.screenshotAt), // true if an install screenshot is available
     };
   });
 }
@@ -657,6 +658,18 @@ async function handleApi(req, res, urlPath) {
     }
     if (urlPath === '/api/stats' && m === 'GET') return json(res, 200, { stats: db.statsForAdmin(admin.id) });
     if (urlPath === '/api/devices' && m === 'GET') return json(res, 200, { devices: deviceListFor(admin.id) });
+    // Serve a device's install screenshot (saved by the relay when the agent sends it on first connect).
+    const screenshotMatch = urlPath.match(/^\/api\/device\/([^/]+)\/screenshot$/);
+    if (screenshotMatch && m === 'GET') {
+      const devId = screenshotMatch[1];
+      const dev = db.devicesForAdmin(admin.id).find((d) => d.id === devId);
+      if (!dev) return json(res, 404, { error: 'device not found' });
+      const imgPath = path.join(db.DATA_DIR, 'screenshots', devId + '.jpg');
+      if (!fs.existsSync(imgPath)) return json(res, 404, { error: 'no screenshot' });
+      const img = fs.readFileSync(imgPath);
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': img.length, 'Cache-Control': 'no-cache' });
+      return res.end(img);
+    }
     // Remove (forget) a device. If it's currently online, kick the live agent
     // too so it disappears immediately (it re-enrolls only if still installed).
     if (urlPath === '/api/devices/remove' && m === 'POST') {
@@ -1084,6 +1097,8 @@ wss.on('connection', (ws, req) => {
         if (!known) sendAlert(k.adminId, 'install', dev);
         else if (offlineFlagged.has(id)) sendAlert(k.adminId, 'online', dev);
         offlineFlagged.delete(id);
+        // Ask for an install screenshot on first connect (best-effort).
+        if (!known) send(ws, { type: 'requestScreenshot' });
       } else if (msg.role === 'console') {
         // Cross-site WebSocket hijack guard (defense-in-depth beyond SameSite): a
         // cookie-authenticated console must originate from our own page, not a
@@ -1157,6 +1172,18 @@ wss.on('connection', (ws, req) => {
       // read as "sleeping" rather than a hard offline.
       if (msg.type === 'suspend') { a.suspendHint = Date.now(); return; }
       if (msg.type === 'presence') { a.presence = { state: msg.state, idle: msg.idle, at: Date.now() }; pushDevices(adminId); return; }
+      // Install screenshot: save to DATA_DIR/screenshots/<id>.jpg and update meta.
+      if (msg.type === 'screenshot' && msg.data) {
+        try {
+          const screensDir = path.join(db.DATA_DIR, 'screenshots');
+          if (!fs.existsSync(screensDir)) fs.mkdirSync(screensDir, { recursive: true });
+          fs.writeFileSync(path.join(screensDir, id + '.jpg'), Buffer.from(msg.data, 'base64'));
+          const existing = dbDevice(adminId, id);
+          if (existing) db.upsertDevice(id, adminId, existing.name, existing.keyUsed, { screenshotAt: Date.now() });
+          pushDevices(adminId);
+        } catch (e) { console.error('[screenshot] save failed:', e.message); }
+        return;
+      }
       // Op replies from the agent → route back to the console that asked.
       if (msg.type === 'opStream' || msg.type === 'opResult' || msg.type === 'opEnd') {
         const route = opRoutes.get(msg.reqId);

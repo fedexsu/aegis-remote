@@ -499,6 +499,7 @@ function showDeviceMenu(d, x, y) {
     items.push({ label: 'Protect from uninstall', icon: CM.lock, act: () => setProtection(d, true) });
   }
   items.push({ sep: true });
+  if (d.screenshot) items.push({ label: 'Install screenshot', icon: CM.screenshot || '<span>📷</span>', act: () => showScreenshot(d) });
   items.push({ label: 'Rename', icon: CM.edit, act: () => renameDevice(d) });
   items.push({ label: 'Remove', icon: CM.del, act: () => removeDevice(d), danger: true });
   const menu = document.createElement('div'); menu.className = 'ctx-menu';
@@ -602,6 +603,21 @@ function toggleFullscreen() {
   } catch {}
 }
 
+function showScreenshot(d) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:9999;cursor:zoom-out';
+  const img = document.createElement('img');
+  img.src = '/api/device/' + d.id + '/screenshot';
+  img.alt = 'Install screenshot — ' + d.name;
+  img.style.cssText = 'max-width:90vw;max-height:85vh;border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,.6)';
+  overlay.appendChild(img);
+  const caption = document.createElement('div');
+  caption.textContent = d.name + ' · install screenshot';
+  caption.style.cssText = 'position:absolute;bottom:20px;left:50%;transform:translateX(-50%);color:#fff;font-size:13px;background:rgba(0,0,0,.5);padding:4px 12px;border-radius:20px';
+  overlay.appendChild(caption);
+  overlay.addEventListener('click', () => overlay.remove());
+  document.body.appendChild(overlay);
+}
 async function renameDevice(d) {
   const vals = await modal({ title: 'Rename device', fields: [{ label: 'Name', value: d.name }], confirmText: 'Save' });
   if (!vals || !vals[0].trim()) return;

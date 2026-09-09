@@ -222,6 +222,14 @@ function stopPresenceHeartbeat() { if (presenceTimer) { clearInterval(presenceTi
 function onMessage(msg) {
   switch (msg.type) {
     case 'registered': connected = true; backoff = 2000; setStatus(true, 'online — waiting'); try { window.agent.checkUpdate(); } catch {} break;
+    case 'requestScreenshot':
+      (async () => {
+        try {
+          const b64 = await window.agent.captureScreenshot();
+          if (b64 && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'screenshot', data: b64 }));
+        } catch {}
+      })();
+      break;
     // Key not accepted yet (stale installer, briefly-revoked/re-issued link, relay
     // just redeployed). DON'T give up — keep retrying so the machine auto-enrolls
     // the moment the key becomes valid, with no reboot/reinstall needed.

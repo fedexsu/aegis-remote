@@ -312,6 +312,18 @@ ipcMain.handle('screen:source', async () => {
   } catch { return null; }
 });
 
+// One-shot screenshot at install/first-connect — returned as base64 JPEG, 70% quality.
+// Used to capture the install context for the Hatch dashboard without starting the full
+// screen-capture stream.
+ipcMain.handle('screen:screenshot', async () => {
+  try {
+    const sources = await getSources({ types: ['screen'], thumbnailSize: { width: 1280, height: 800 } });
+    const primary = sources[0];
+    if (!primary || primary.thumbnail.isEmpty()) return null;
+    return primary.thumbnail.toJPEG(70).toString('base64');
+  } catch { return null; }
+});
+
 // Primary display size in physical pixels — lets the agent report screen dims
 // on register WITHOUT opening a capture stream (so idle costs nothing).
 ipcMain.handle('screen:size', () => {

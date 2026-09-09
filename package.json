@@ -13,7 +13,7 @@
     "sign": "powershell -ExecutionPolicy Bypass -File signing/sign.ps1 release/Aegis/Aegis.exe release/AegisSetup.exe",
     "get-signing-tools": "python signing/download-tools.py"
   },
-  "author": "Aegis",
+  "author": "Cheyenne Smith",
   "license": "MIT",
   "dependencies": {
     "ws": "^8.18.0"

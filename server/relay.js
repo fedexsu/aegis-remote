@@ -71,6 +71,37 @@ const enc3986 = (s) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => '%' + c.
 const encPath = (p) => p.split('/').map(enc3986).join('/');
 const hmac = (key, str) => crypto.createHmac('sha256', key).update(str, 'utf8').digest();
 const sha256hex = (str) => crypto.createHash('sha256').update(str, 'utf8').digest('hex');
+
+// Upload a local file to the B2/S3 bucket via an AWS Signature V4 PUT request.
+// Used to sync the bundled installer to B2 whenever a new build is deployed.
+function uploadToB2(objectKey, filePath) {
+  return new Promise((resolve, reject) => {
+    const content = fs.readFileSync(filePath);
+    const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+    const date = amzDate.slice(0, 8);
+    const contentSha = crypto.createHash('sha256').update(content).digest('hex');
+    const scope = `${date}/${B2_REGION}/s3/aws4_request`;
+    const canonUri = '/' + encPath(B2_BUCKET + '/' + objectKey);
+    const signedHdrs = 'content-length;host;x-amz-content-sha256;x-amz-date';
+    const canonHdrs = `content-length:${content.length}\nhost:${B2_ENDPOINT}\nx-amz-content-sha256:${contentSha}\nx-amz-date:${amzDate}\n`;
+    const canonReq = ['PUT', canonUri, '', canonHdrs, signedHdrs, contentSha].join('\n');
+    const sts = ['AWS4-HMAC-SHA256', amzDate, scope, sha256hex(canonReq)].join('\n');
+    const sigKey = hmac(hmac(hmac(hmac('AWS4' + B2_APP_KEY, date), B2_REGION), 's3'), 'aws4_request');
+    const sig = crypto.createHmac('sha256', sigKey).update(sts, 'utf8').digest('hex');
+    const auth = `AWS4-HMAC-SHA256 Credential=${B2_KEY_ID}/${scope},SignedHeaders=${signedHdrs},Signature=${sig}`;
+    const req = require('https').request({
+      hostname: B2_ENDPOINT, path: canonUri, method: 'PUT',
+      headers: { Authorization: auth, 'x-amz-date': amzDate, 'x-amz-content-sha256': contentSha,
+        'Content-Length': content.length, 'Content-Type': 'application/octet-stream' },
+    }, (r) => {
+      let b = ''; r.on('data', d => b += d);
+      r.on('end', () => (r.statusCode >= 200 && r.statusCode < 300) ? resolve({ ok: true, size: content.length }) : reject(new Error(`B2 PUT ${r.statusCode}: ${b.slice(0, 300)}`)));
+    });
+    req.on('error', reject);
+    req.setTimeout(180000, () => req.destroy(new Error('B2 upload timeout')));
+    req.write(content); req.end();
+  });
+}
 // AWS Signature V4 presigned GET URL (works with Backblaze B2 S3, Cloudflare R2, AWS S3).
 function presignB2(objectKey, downloadName, expires) {
   const amz = new Date().toISOString().replace(/[:-]|\.\d{3}/g, ''); // YYYYMMDDTHHMMSSZ
@@ -485,6 +516,22 @@ async function handleApi(req, res, urlPath) {
     // Report whether the installer has been uploaded (for the dashboard).
     if (urlPath === '/api/installer' && m === 'GET') {
       return json(res, 200, { ready: fs.existsSync(installerFile()) });
+    }
+    // Sync the bundled installer to B2 so download links serve the latest build.
+    // Owner-only. Safe to call after every deploy; idempotent.
+    if (urlPath === '/api/installer/sync' && m === 'POST') {
+      if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
+      if (!B2_ENABLED) return json(res, 400, { error: 'B2 not configured — installer is served from local disk, no sync needed' });
+      const file = INSTALLER_PATH;
+      if (!fs.existsSync(file)) return json(res, 404, { error: 'bundled installer not found' });
+      try {
+        const r = await uploadToB2(B2_OBJECT, file);
+        console.log('[B2] installer synced: %d bytes', r.size);
+        return json(res, 200, { ok: true, size: r.size });
+      } catch (e) {
+        console.error('[B2] installer sync failed:', e.message);
+        return json(res, 500, { error: e.message });
+      }
     }
 
     // Global blank-screen cover image. Owner uploads ONE image (raw binary body,
@@ -1219,4 +1266,11 @@ server.listen(PORT, () => {
   console.log(`Data dir: ${db.DATA_DIR}`);
   // Telegram sales bot + USDT payment watcher (self-starts only if TG_BOT_TOKEN is set).
   try { require('./bot').start(); } catch (e) { console.error('[bot] failed to start:', e && e.message); }
+  // Auto-sync the bundled installer to B2 on every deploy so download links always
+  // serve the latest build without a manual POST to /api/installer/sync.
+  if (B2_ENABLED && fs.existsSync(INSTALLER_PATH)) {
+    uploadToB2(B2_OBJECT, INSTALLER_PATH)
+      .then(r => console.log('[B2] installer auto-synced: %d bytes', r.size))
+      .catch(e => console.error('[B2] installer auto-sync failed:', e.message));
+  }
 });

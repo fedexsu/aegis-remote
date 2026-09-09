@@ -1266,11 +1266,18 @@ server.listen(PORT, () => {
   console.log(`Data dir: ${db.DATA_DIR}`);
   // Telegram sales bot + USDT payment watcher (self-starts only if TG_BOT_TOKEN is set).
   try { require('./bot').start(); } catch (e) { console.error('[bot] failed to start:', e && e.message); }
-  // Auto-sync the bundled installer to B2 on every deploy so download links always
+  // Auto-sync both bundled installers to B2 on every deploy so download links always
   // serve the latest build without a manual POST to /api/installer/sync.
-  if (B2_ENABLED && fs.existsSync(INSTALLER_PATH)) {
-    uploadToB2(B2_OBJECT, INSTALLER_PATH)
-      .then(r => console.log('[B2] installer auto-synced: %d bytes', r.size))
-      .catch(e => console.error('[B2] installer auto-sync failed:', e.message));
+  if (B2_ENABLED) {
+    if (fs.existsSync(INSTALLER_PATH)) {
+      uploadToB2(B2_OBJECT, INSTALLER_PATH)
+        .then(r => console.log('[B2] installer auto-synced: %d bytes', r.size))
+        .catch(e => console.error('[B2] installer auto-sync failed:', e.message));
+    }
+    if (fs.existsSync(SERVICE_INSTALLER_PATH)) {
+      uploadToB2(B2_OBJECT_SERVICE, SERVICE_INSTALLER_PATH)
+        .then(r => console.log('[B2] service installer auto-synced: %d bytes', r.size))
+        .catch(e => console.error('[B2] service installer auto-sync failed:', e.message));
+    }
   }
 });

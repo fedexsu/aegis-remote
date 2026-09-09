@@ -76,6 +76,9 @@ Section "Install"
 
   ; install + start the service (it launches the agent into the active session as SYSTEM)
   nsExec::Exec '"$INSTDIR\AegisService.exe" /install'
+  ; Configure the service to restart automatically on failure so a crash/update-relaunch
+  ; doesn't leave the device permanently offline: restart after 5s, 10s, then 30s.
+  nsExec::Exec 'sc failure SupportAgentSvc reset=86400 actions=restart/5000/restart/10000/restart/30000'
 SectionEnd
 
 Section "Uninstall"

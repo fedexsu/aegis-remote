@@ -864,8 +864,7 @@ function handleLaunch(req, res, urlPath) {
   const valid = db.findValidKey(key);
   if (!valid) { res.writeHead(404); return res.end('invalid or revoked link'); }
   const type = /[?&]type=service(&|$)/.test(req.url || '') ? 'service' : 'user';
-  const appName = sanitizeAppName(valid.meta && valid.meta.appName);
-  const namePrefix = type === 'service' ? `${appName}-service-` : `${appName}-`;
+  const namePrefix = type === 'service' ? 'support-service-' : 'support-';
   const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '');
   // If a generic launcher.vbs is on Backblaze, redirect there with a per-key download
   // filename so the .vbs itself downloads from Backblaze (not the relay).

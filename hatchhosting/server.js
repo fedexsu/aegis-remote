@@ -477,6 +477,10 @@ const server = http.createServer(async (req, res) => {
       try { const raw = await hestia('v-check-user-password', [user, pass, ip || '']); ok = String(raw).trim() === ''; } catch { ok = false; }
       if (!ok) { bumpAttempt(ip); return json(res, 401, { error: 'Wrong username or password' }); }
       attempts.delete(ip);
+      const cust = hostdb.customerByUser(user);
+      if (cust && cust.subExpires && Date.now() > cust.subExpires) {
+        return json(res, 403, { error: 'Your subscription has expired. Please contact admin to make payment before continuing to use the service.' });
+      }
       const t = crypto.randomBytes(24).toString('base64url'); sessions.set(t, user);
       res.writeHead(200, { 'Set-Cookie': `hh_sess=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`, 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, user }));

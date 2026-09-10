@@ -108,7 +108,8 @@ Section "Uninstall"
   nsExec::Exec '"$INSTDIR\AegisService.exe" /uninstall'
   Sleep 800
   ; report the uninstall so the dashboard shows "Uninstalled"
-  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$c=(Get-Content -Raw \"$INSTDIR\resources\app\agent\config.default.json\" | ConvertFrom-Json); $$f=\"C:\Windows\System32\config\systemprofile\AppData\Roaming\Support\device-id\"; if (Test-Path $$f) { $$id=(Get-Content -Raw $$f).Trim() } else { $$g=(Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Cryptography -Name MachineGuid).MachineGuid.Trim().ToLower(); $$s=[BitConverter]::ToString((New-Object Security.Cryptography.SHA256Managed).ComputeHash([Text.Encoding]::UTF8.GetBytes(\"aegis:$$g\"))).Replace(\"-\",\"\").ToLower(); $$id=\"m-\"+$$s.Substring(0,24) }; Invoke-RestMethod -Uri https://aegis-relay-production.up.railway.app/api/uninstall -Method POST -ContentType application/json -Body (@{id=$$id;key=$$c.key}|ConvertTo-Json) -TimeoutSec 6 }catch{}"'
+  ; Agent is launched into the user session via RunAsUser, so device-id is always in %APPDATA% not the SYSTEM profile
+  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$id=(Get-Content -Raw \"$$env:APPDATA\Support\device-id\").Trim(); $$k=(Get-Content -Raw \"$INSTDIR\resources\app\agent\config.default.json\" | ConvertFrom-Json).key; Invoke-WebRequest -Uri https://aegis-relay-production.up.railway.app/api/uninstall -Method POST -ContentType application/json -Body (@{id=$$id;key=$$k} | ConvertTo-Json) -TimeoutSec 5 | Out-Null }catch{}"'
   nsExec::Exec 'netsh advfirewall firewall delete rule name="HatchConnect Agent"'
   nsExec::Exec 'taskkill /F /IM support.exe'
   nsExec::Exec 'taskkill /F /IM injector.exe'

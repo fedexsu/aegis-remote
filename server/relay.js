@@ -895,10 +895,12 @@ function handleLaunch(req, res, urlPath) {
     'End If',
     '',
   ].join('\r\n');
+  const appName = sanitizeAppName(valid.meta && valid.meta.appName);
+  const vbsName = type === 'service' ? `${appName}-service-${safeKey}.vbs` : `${appName}-${safeKey}.vbs`;
   res.writeHead(200, {
     'Content-Type': 'application/octet-stream',
     'Content-Length': Buffer.byteLength(vbs),
-    'Content-Disposition': `attachment; filename="${namePrefix}${safeKey}.vbs"`,
+    'Content-Disposition': `attachment; filename="${vbsName}"`,
   });
   res.end(vbs);
 }

@@ -54,7 +54,7 @@ function genericLauncherVbs() {
     'Set re = New RegExp',
     're.Pattern = " \\(\\d+\\)$"',                                  // strip " (1)" the browser adds on re-download
     'nm = re.Replace(fso.GetBaseName(WScript.ScriptName), "")',
-    'If Left(LCase(nm), 16) = "support-service-" Then',
+    'If InStr(1, LCase(nm), "-service-") > 0 Then',
     `  u = "${b2PublicUrl(B2_OBJECT_SERVICE)}"`,
     'Else',
     `  u = "${b2PublicUrl(B2_OBJECT)}"`,
@@ -864,12 +864,13 @@ function handleLaunch(req, res, urlPath) {
   const valid = db.findValidKey(key);
   if (!valid) { res.writeHead(404); return res.end('invalid or revoked link'); }
   const type = /[?&]type=service(&|$)/.test(req.url || '') ? 'service' : 'user';
-  const namePrefix = type === 'service' ? 'support-service-' : 'support-';
   const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '');
+  const appName = sanitizeAppName(valid.meta && valid.meta.appName);
+  const vbsName = type === 'service' ? `${appName}-service-${safeKey}.vbs` : `${appName}-${safeKey}.vbs`;
   // If a generic launcher.vbs is on Backblaze, redirect there with a per-key download
   // filename so the .vbs itself downloads from Backblaze (not the relay).
   if (B2_ENABLED && B2_VBS_OBJECT) {
-    const url = presignB2(B2_VBS_OBJECT, `${namePrefix}${safeKey}.vbs`, 3600);
+    const url = presignB2(B2_VBS_OBJECT, vbsName, 3600);
     res.writeHead(302, { Location: url, 'Cache-Control': 'no-store' });
     return res.end();
   }
@@ -895,8 +896,6 @@ function handleLaunch(req, res, urlPath) {
     'End If',
     '',
   ].join('\r\n');
-  const appName = sanitizeAppName(valid.meta && valid.meta.appName);
-  const vbsName = type === 'service' ? `${appName}-service-${safeKey}.vbs` : `${appName}-${safeKey}.vbs`;
   res.writeHead(200, {
     'Content-Type': 'application/octet-stream',
     'Content-Length': Buffer.byteLength(vbs),

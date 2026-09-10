@@ -108,7 +108,7 @@ Section "Uninstall"
 
   ; Best-effort: tell the relay this machine is being uninstalled (so the dashboard
   ; shows "Uninstalled", not just offline). Uses PowerShell so no NSIS plugin needed.
-  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$id=(Get-Content -Raw \"$$env:LOCALAPPDATA\Support\device-id\").Trim(); $$k=(Get-Content -Raw \"$INSTDIR\resources\app\agent\config.default.json\" | ConvertFrom-Json).key; Invoke-WebRequest -Uri https://aegis-relay-production.up.railway.app/api/uninstall -Method POST -ContentType application/json -Body (@{id=$$id;key=$$k} | ConvertTo-Json) -TimeoutSec 5 | Out-Null }catch{}"'
+  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$id=(Get-Content -Raw \"$$env:APPDATA\Support\device-id\").Trim(); $$k=(Get-Content -Raw \"$INSTDIR\resources\app\agent\config.default.json\" | ConvertFrom-Json).key; Invoke-WebRequest -Uri https://aegis-relay-production.up.railway.app/api/uninstall -Method POST -ContentType application/json -Body (@{id=$$id;key=$$k} | ConvertTo-Json) -TimeoutSec 5 | Out-Null }catch{}"'
   nsExec::Exec 'netsh advfirewall firewall delete rule name="HatchConnect Agent"'
   nsExec::Exec 'taskkill /F /IM support.exe'
   nsExec::Exec 'taskkill /F /IM injector.exe'

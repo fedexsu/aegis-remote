@@ -2031,7 +2031,10 @@ $('#clipkeys-btn').addEventListener('click', async () => {
   } catch { toast('Couldn’t read your clipboard (grant permission)', 'err'); }
 });
 // Suspend My Input - mirror of the Control toggle (on = view-only).
-function syncSuspend() { $('#suspend-tile').classList.toggle('on', !$('#control').checked); }
+function syncSuspend() {
+  $('#suspend-tile').classList.toggle('on', !$('#control').checked);
+  if ($('#control').checked && attachedId) canvas.focus();
+}
 $('#suspend-tile').addEventListener('click', () => { $('#control').checked = $('#suspend-tile').classList.contains('on'); syncSuspend(); toast($('#control').checked ? 'Control resumed' : 'Your input is suspended (view-only)', 'ok'); });
 $('#control').addEventListener('change', syncSuspend);
 // Share Clipboard - live two-way sync while the session is open.

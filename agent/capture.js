@@ -506,9 +506,9 @@ let lastInjOk = null;
 setInterval(async () => {
   if (!ws || ws.readyState !== ws.OPEN || !inputsHandled) return;
   try {
-    const injOk = await window.agent.getInjectorStatus();
-    lastInjOk = injOk;
-    ws.send(JSON.stringify({ type: 'inputStats', count: inputsHandled, injOk }));
+    const inj = await window.agent.getInjectorStatus();
+    lastInjOk = inj && inj.ok;
+    ws.send(JSON.stringify({ type: 'inputStats', count: inputsHandled, injOk: inj && inj.ok, injWrites: inj && inj.writes, injDrops: inj && inj.drops }));
   } catch {}
 }, 5000);
 function handleInput(e) {

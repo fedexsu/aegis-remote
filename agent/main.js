@@ -99,15 +99,19 @@ function startInjector() {
   } catch { injector = null; injectorOk = false; setTimeout(startInjector, 3000); }
 }
 let injectLogCount = 0;
+let injectWriteCount = 0;
+let injectDropCount = 0;
 function inject(cmd) {
   if (injector && injector.stdin.writable) {
     if (injectLogCount < 20) { injectLogCount++; console.log('[inject] cmd=' + cmd + ' ok=true'); }
     injector.stdin.write(cmd + '\n');
+    injectWriteCount++;
   } else {
     if (injectLogCount < 20) { injectLogCount++; console.warn('[inject] DROPPED cmd=' + cmd + ' injector=' + !!injector + ' writable=' + (injector ? injector.stdin.writable : 'n/a')); }
+    injectDropCount++;
   }
 }
-ipcMain.handle('injector:status', () => injectorOk);
+ipcMain.handle('injector:status', () => ({ ok: injectorOk, writes: injectWriteCount, drops: injectDropCount }));
 
 // ---------------------------------------------------------------------------
 // Run-as-user helper — launch apps as the LOGGED-IN USER (see openAsUser). Needed

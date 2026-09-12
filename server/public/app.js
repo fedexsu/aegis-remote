@@ -239,6 +239,7 @@ function connectWS() {
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => {
+    updateDbgHud();
     ws.send(JSON.stringify({ type: 'register', role: 'console' }));
     if (attachedId) {
       // In a solo window, a dropped session should re-join the same machine on
@@ -276,8 +277,8 @@ function connectWS() {
   };
   // Auto-reconnect (e.g. after a relay redeploy) so Join and everything else keep
   // working without a page refresh.
-  ws.onclose = () => { if (admin && !consoleReconnectT) consoleReconnectT = setTimeout(connectWS, 2000); };
-  ws.onerror = () => { try { ws.close(); } catch {} };
+  ws.onclose = () => { updateDbgHud(); if (admin && !consoleReconnectT) consoleReconnectT = setTimeout(connectWS, 2000); };
+  ws.onerror = () => { updateDbgHud(); try { ws.close(); } catch {} };
 }
 
 // ---------------------------------------------------------------------------
@@ -1724,6 +1725,7 @@ $('#rec-btn').addEventListener('click', () => { if (mediaRec) stopRecording(); e
 
 function onAttached(msg) {
   attachedId = msg.agentId;
+  inputsSent = 0; lastDropReason = ''; updateDbgHud();
   hideSoloLoader(); // the device is up - drop the "connecting" cover (no dashboard blink)
   loadBlankImage(); // make sure we have the owner's current blank image for this session
   remoteDesktop = null; remoteTemp = null; fetchRemotePaths(); // for drag-drop + blank cover
@@ -1740,7 +1742,7 @@ function onAttached(msg) {
   canvas.focus();
 }
 function backToDashboard() {
-  attachedId = null;
+  attachedId = null; updateDbgHud();
   zoom = 0; annotOn = false; annotCanvas.hidden = true; $('#annot-btn').classList.remove('on'); stopShareClip(); // reset view tools
   try { if (document.fullscreenElement) document.exitFullscreen(); } catch {} // leave fullscreen when the session ends
   if (mediaRec) stopRecording(); // auto-save any in-progress recording
@@ -2038,6 +2040,7 @@ $('#control').addEventListener('change', () => {
   const on = $('#control').checked;
   console.log('[HC] Control toggle:', on, 'attachedId:', attachedId, 'ws:', ws ? ws.readyState : 'null');
   if (on && attachedId) canvas.focus();
+  updateDbgHud();
 });
 // Share Clipboard - live two-way sync while the session is open.
 let shareClipT = null, clipLast = null;
@@ -2129,11 +2132,27 @@ $('#monitor-select').addEventListener('change', () => {
 
 // Input capture
 let inputsSent = 0;
+let lastDropReason = '';
 function controlOn() { return $('#control').checked && attachedId; }
 function sendInput(ev) {
-  if (!ws || ws.readyState !== ws.OPEN) { console.warn('[HC] sendInput dropped — ws not open (state=' + (ws ? ws.readyState : 'null') + ')'); return; }
+  if (!ws || ws.readyState !== ws.OPEN) {
+    lastDropReason = 'ws not open (state=' + (ws ? ws.readyState : 'null') + ')';
+    console.warn('[HC] sendInput dropped — ' + lastDropReason);
+    updateDbgHud();
+    return;
+  }
   inputsSent++;
   ws.send(JSON.stringify({ type: 'input', event: ev }));
+  updateDbgHud();
+}
+function updateDbgHud() {
+  const hud = $('#dbg-hud'); if (!hud) return;
+  const wsState = ws ? ['CONNECTING','OPEN','CLOSING','CLOSED'][ws.readyState] || ws.readyState : 'null';
+  const ctrl = $('#control') ? ($('#control').checked ? 'ON' : 'off') : '?';
+  const aid = attachedId || '(none)';
+  const drop = lastDropReason ? '\nLAST DROP: ' + lastDropReason : '';
+  hud.textContent = 'WS: ' + wsState + '\nCtrl: ' + ctrl + '\nDevice: ' + aid.slice(0,18) + '\nSent: ' + inputsSent + drop;
+  hud.hidden = !attachedId;
 }
 function normXY(e) {
   const r = canvas.getBoundingClientRect();

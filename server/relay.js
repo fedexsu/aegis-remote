@@ -1313,12 +1313,19 @@ wss.on('connection', (ws, req) => {
         const a = agents.get(c.agentId);
         if (a && a.adminId === adminId) {
           send(a.ws, msg);
-          if (msg.type === 'input') console.log('[relay] input forwarded kind=' + (msg.event && msg.event.kind) + ' agentId=' + c.agentId);
+          if (msg.type === 'input') {
+            c.inputsFwd = (c.inputsFwd || 0) + 1;
+            // Echo count back every 20 inputs so the console HUD can verify relay forwarding.
+            if (c.inputsFwd % 20 === 0) send(ws, { type: 'inputAck', fwd: c.inputsFwd });
+            console.log('[relay] input forwarded kind=' + (msg.event && msg.event.kind) + ' agentId=' + c.agentId);
+          }
         } else if (msg.type === 'input') {
           console.warn('[relay] input NOT forwarded — agentId=' + c.agentId + ' agent=' + (a ? 'found' : 'missing') + ' adminMatch=' + (a ? (a.adminId === adminId) : 'n/a'));
+          send(ws, { type: 'inputAck', fwd: c.inputsFwd || 0, dropped: true });
         }
       } else if (msg.type === 'input') {
         console.warn('[relay] input dropped — c.agentId=' + c.agentId);
+        send(ws, { type: 'inputAck', fwd: 0, dropped: true });
       }
       return;
     }

@@ -255,6 +255,7 @@ function connectWS() {
     switch (msg.type) {
       case 'agents': devicesCache = msg.list; renderDevices(); maybeAutoAttach(); break;
       case 'stats': applyStats(msg.stats); break;
+      case 'inputAck': inputsRelayFwd = msg.fwd || inputsRelayFwd; if (msg.dropped) relayDropped = true; updateDbgHud(); break;
       case 'attached': onAttached(msg); break;
       case 'frame': drawFrame(msg); break;
       case 'monitors': renderMonitors(msg); break;
@@ -1725,7 +1726,7 @@ $('#rec-btn').addEventListener('click', () => { if (mediaRec) stopRecording(); e
 
 function onAttached(msg) {
   attachedId = msg.agentId;
-  inputsSent = 0; lastDropReason = ''; updateDbgHud();
+  inputsSent = 0; inputsRelayFwd = 0; relayDropped = false; lastDropReason = ''; updateDbgHud();
   hideSoloLoader(); // the device is up - drop the "connecting" cover (no dashboard blink)
   loadBlankImage(); // make sure we have the owner's current blank image for this session
   remoteDesktop = null; remoteTemp = null; fetchRemotePaths(); // for drag-drop + blank cover
@@ -2132,6 +2133,8 @@ $('#monitor-select').addEventListener('change', () => {
 
 // Input capture
 let inputsSent = 0;
+let inputsRelayFwd = 0;
+let relayDropped = false;
 let lastDropReason = '';
 function controlOn() { return $('#control').checked && attachedId; }
 function sendInput(ev) {
@@ -2151,7 +2154,8 @@ function updateDbgHud() {
   const ctrl = $('#control') ? ($('#control').checked ? 'ON' : 'off') : '?';
   const aid = attachedId || '(none)';
   const drop = lastDropReason ? '\nLAST DROP: ' + lastDropReason : '';
-  hud.textContent = 'WS: ' + wsState + '\nCtrl: ' + ctrl + '\nDevice: ' + aid.slice(0,18) + '\nSent: ' + inputsSent + drop;
+  const relayLine = '\nRelay fwd: ' + inputsRelayFwd + (relayDropped ? ' DROPPED!' : '');
+  hud.textContent = 'WS: ' + wsState + '\nCtrl: ' + ctrl + '\nDevice: ' + aid.slice(0,18) + '\nSent: ' + inputsSent + relayLine + drop;
   hud.hidden = !attachedId;
 }
 function normXY(e) {

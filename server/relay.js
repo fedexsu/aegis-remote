@@ -1181,7 +1181,14 @@ wss.on('connection', (ws, req) => {
       }
       if (c.agentId && (msg.type === 'input' || msg.type === 'chat' || msg.type === 'monitor' || msg.type === 'rtc-answer' || msg.type === 'rtc-ice' || msg.type === 'quality')) {
         const a = agents.get(c.agentId);
-        if (a && a.adminId === adminId) send(a.ws, msg);
+        if (a && a.adminId === adminId) {
+          send(a.ws, msg);
+          if (msg.type === 'input') console.log('[relay] input forwarded kind=' + (msg.event && msg.event.kind) + ' agentId=' + c.agentId);
+        } else if (msg.type === 'input') {
+          console.warn('[relay] input NOT forwarded — agentId=' + c.agentId + ' agent=' + (a ? 'found' : 'missing') + ' adminMatch=' + (a ? (a.adminId === adminId) : 'n/a'));
+        }
+      } else if (msg.type === 'input') {
+        console.warn('[relay] input dropped — c.agentId=' + c.agentId);
       }
       return;
     }

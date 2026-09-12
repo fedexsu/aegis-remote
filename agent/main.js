@@ -98,9 +98,13 @@ function startInjector() {
     injector.on('error', () => { injector = null; injectorOk = false; setTimeout(startInjector, 3000); });
   } catch { injector = null; injectorOk = false; setTimeout(startInjector, 3000); }
 }
+let injectLogCount = 0;
 function inject(cmd) {
   if (injector && injector.stdin.writable) {
+    if (injectLogCount < 20) { injectLogCount++; console.log('[inject] cmd=' + cmd + ' ok=true'); }
     injector.stdin.write(cmd + '\n');
+  } else {
+    if (injectLogCount < 20) { injectLogCount++; console.warn('[inject] DROPPED cmd=' + cmd + ' injector=' + !!injector + ' writable=' + (injector ? injector.stdin.writable : 'n/a')); }
   }
 }
 ipcMain.handle('injector:status', () => injectorOk);

@@ -2030,7 +2030,11 @@ $('#clipkeys-btn').addEventListener('click', async () => {
     toast('Typed your clipboard onto the remote', 'ok');
   } catch { toast('Couldn’t read your clipboard (grant permission)', 'err'); }
 });
-$('#control').addEventListener('change', () => { if ($('#control').checked && attachedId) canvas.focus(); });
+$('#control').addEventListener('change', () => {
+  const on = $('#control').checked;
+  console.log('[HC] Control toggle:', on, 'attachedId:', attachedId, 'ws:', ws ? ws.readyState : 'null');
+  if (on && attachedId) canvas.focus();
+});
 // Share Clipboard - live two-way sync while the session is open.
 let shareClipT = null, clipLast = null;
 $('#shareclip-tile').addEventListener('click', () => {
@@ -2120,8 +2124,13 @@ $('#monitor-select').addEventListener('change', () => {
 });
 
 // Input capture
+let inputsSent = 0;
 function controlOn() { return $('#control').checked && attachedId; }
-function sendInput(ev) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'input', event: ev })); }
+function sendInput(ev) {
+  if (!ws || ws.readyState !== ws.OPEN) { console.warn('[HC] sendInput dropped — ws not open (state=' + (ws ? ws.readyState : 'null') + ')'); return; }
+  inputsSent++;
+  ws.send(JSON.stringify({ type: 'input', event: ev }));
+}
 function normXY(e) {
   const r = canvas.getBoundingClientRect();
   return { x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) };
@@ -2133,7 +2142,13 @@ canvas.addEventListener('mousemove', (e) => {
   const now = performance.now(); if (now - lastMove < 16) return; lastMove = now;
   const { x, y } = normXY(e); sendInput({ kind: 'move', x, y });
 });
-canvas.addEventListener('mousedown', (e) => { if (!controlOn()) return; e.preventDefault(); canvas.focus(); const { x, y } = normXY(e); sendInput({ kind: 'down', button: BTN[e.button] || 'L', x, y }); });
+canvas.addEventListener('mousedown', (e) => {
+  if (!controlOn()) {
+    console.warn('[HC] mousedown ignored — controlOn()=false checked=' + $('#control').checked + ' attachedId=' + attachedId);
+    return;
+  }
+  e.preventDefault(); canvas.focus(); const { x, y } = normXY(e); sendInput({ kind: 'down', button: BTN[e.button] || 'L', x, y });
+});
 canvas.addEventListener('mouseup', (e) => { if (!controlOn()) return; const { x, y } = normXY(e); sendInput({ kind: 'up', button: BTN[e.button] || 'L', x, y }); });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('wheel', (e) => { if (!controlOn()) return; e.preventDefault(); sendInput({ kind: 'wheel', dy: e.deltaY < 0 ? 120 : -120 }); }, { passive: false });

@@ -499,7 +499,9 @@ function moveCmd(nx, ny) {
   return `MV ${vx.toFixed(5)} ${vy.toFixed(5)}`;
 }
 
+let inputLogCount = 0;
 function handleInput(e) {
+  if (inputLogCount < 20) { inputLogCount++; console.log('[agent] handleInput kind=' + e.kind); }
   switch (e.kind) {
     case 'move': window.agent.inject(moveCmd(e.x, e.y)); break;
     case 'down': window.agent.inject(moveCmd(e.x, e.y)); window.agent.inject(`D ${e.button}`); break;

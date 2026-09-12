@@ -51,6 +51,15 @@ class Injector {
 
   [DllImport("user32.dll", SetLastError = true)]
   static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+  // SetCursorPos is not subject to AV/EDR synthetic-input blocks (unlike SendInput).
+  // Used for mouse moves so cursor tracking works even when Norton/Defender blocks SendInput.
+  [DllImport("user32.dll", SetLastError = true)]
+  static extern bool SetCursorPos(int X, int Y);
+  [DllImport("user32.dll")]
+  static extern int GetSystemMetrics(int nIndex);
+  const int SM_CXSCREEN = 0, SM_CYSCREEN = 1;
+  const int SM_CXVIRTUALSCREEN = 78, SM_CYVIRTUALSCREEN = 79;
+  const int SM_XVIRTUALSCREEN = 76, SM_YVIRTUALSCREEN = 77;
   [DllImport("user32.dll")]
   static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
   // Second lock mechanism (belt-and-suspenders): BlockInput blocks physical input
@@ -259,18 +268,23 @@ class Injector {
   static void MoveNorm(double nx, double ny) {
     if (nx < 0) nx = 0; if (nx > 1) nx = 1;
     if (ny < 0) ny = 0; if (ny > 1) ny = 1;
-    int ax = (int)Math.Round(nx * 65535.0);
-    int ay = (int)Math.Round(ny * 65535.0);
-    SendMouse(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, ax, ay, 0);
+    // Use SetCursorPos — not intercepted by AV/EDR behavioral blocks (unlike SendInput).
+    int sw = GetSystemMetrics(SM_CXSCREEN);
+    int sh = GetSystemMetrics(SM_CYSCREEN);
+    bool ok = SetCursorPos((int)Math.Round(nx * (sw - 1)), (int)Math.Round(ny * (sh - 1)));
+    if (logInputs > 0 || !ok) { logInputs--; Log("SetCursorPos -> " + ok + (ok ? "" : " err=" + Marshal.GetLastWin32Error())); }
   }
   // Move across the whole virtual desktop (multi-monitor); coords normalized
   // 0..1 over the union of all displays.
   static void MoveNormVirtual(double nx, double ny) {
     if (nx < 0) nx = 0; if (nx > 1) nx = 1;
     if (ny < 0) ny = 0; if (ny > 1) ny = 1;
-    int ax = (int)Math.Round(nx * 65535.0);
-    int ay = (int)Math.Round(ny * 65535.0);
-    SendMouse(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, ax, ay, 0);
+    int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    bool ok = SetCursorPos(vx + (int)Math.Round(nx * (vw - 1)), vy + (int)Math.Round(ny * (vh - 1)));
+    if (logInputs > 0 || !ok) { logInputs--; Log("SetCursorPos(virtual) -> " + ok + (ok ? "" : " err=" + Marshal.GetLastWin32Error())); }
   }
 
   static void Main() {

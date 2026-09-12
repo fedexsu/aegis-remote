@@ -256,7 +256,7 @@ function connectWS() {
       case 'agents': devicesCache = msg.list; renderDevices(); maybeAutoAttach(); break;
       case 'stats': applyStats(msg.stats); break;
       case 'inputAck': inputsRelayFwd = msg.fwd || inputsRelayFwd; if (msg.dropped) relayDropped = true; updateDbgHud(); break;
-      case 'inputStats': inputsAgentRcvd = msg.count || inputsAgentRcvd; if (msg.injOk !== undefined) { injectorOk = msg.injOk; injWrites = msg.injWrites; injDrops = msg.injDrops; } updateDbgHud(); break;
+      case 'inputStats': inputsAgentRcvd = msg.count || inputsAgentRcvd; if (msg.injOk !== undefined) { injectorOk = msg.injOk; injWrites = msg.injWrites; injDrops = msg.injDrops; if (msg.injLog) injLog = msg.injLog; } updateDbgHud(); break;
       case 'attached': onAttached(msg); break;
       case 'frame': drawFrame(msg); break;
       case 'monitors': renderMonitors(msg); break;
@@ -1727,7 +1727,7 @@ $('#rec-btn').addEventListener('click', () => { if (mediaRec) stopRecording(); e
 
 function onAttached(msg) {
   attachedId = msg.agentId;
-  inputsSent = 0; inputsRelayFwd = 0; inputsAgentRcvd = 0; relayDropped = false; lastDropReason = ''; injectorOk = null; injWrites = null; injDrops = null; updateDbgHud();
+  inputsSent = 0; inputsRelayFwd = 0; inputsAgentRcvd = 0; relayDropped = false; lastDropReason = ''; injectorOk = null; injWrites = null; injDrops = null; injLog = ''; updateDbgHud();
   hideSoloLoader(); // the device is up - drop the "connecting" cover (no dashboard blink)
   loadBlankImage(); // make sure we have the owner's current blank image for this session
   remoteDesktop = null; remoteTemp = null; fetchRemotePaths(); // for drag-drop + blank cover
@@ -2141,6 +2141,7 @@ let lastDropReason = '';
 let injectorOk = null; // null=unknown, true=ok, false=dead
 let injWrites = null;
 let injDrops = null;
+let injLog = '';
 function controlOn() { return $('#control').checked && attachedId; }
 function sendInput(ev) {
   if (!ws || ws.readyState !== ws.OPEN) {
@@ -2161,7 +2162,7 @@ function updateDbgHud() {
   const drop = lastDropReason ? '\nLAST DROP: ' + lastDropReason : '';
   const relayLine = '\nRelay fwd: ' + inputsRelayFwd + (relayDropped ? ' DROPPED!' : '') + '\nAgent rcvd: ' + inputsAgentRcvd;
   const injStatus = injectorOk === null ? '(waiting...)' : injectorOk ? 'OK' : '*** DEAD ***';
-  const injLine = '\nInjector: ' + injStatus + (injWrites !== null ? '  writes:' + injWrites + (injDrops ? ' drops:' + injDrops : '') : '');
+  const injLine = '\nInjector: ' + injStatus + (injWrites !== null ? '  writes:' + injWrites + (injDrops ? ' drops:' + injDrops : '') : '') + (injLog ? '\n── inject log ──\n' + injLog : '');
   hud.textContent = 'WS: ' + wsState + '\nCtrl: ' + ctrl + '\nDevice: ' + aid.slice(0,18) + '\nSent: ' + inputsSent + relayLine + injLine + drop;
   hud.hidden = !attachedId;
 }

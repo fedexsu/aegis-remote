@@ -111,7 +111,15 @@ function inject(cmd) {
     injectDropCount++;
   }
 }
-ipcMain.handle('injector:status', () => ({ ok: injectorOk, writes: injectWriteCount, drops: injectDropCount }));
+ipcMain.handle('injector:status', () => {
+  // Also read hc-inject.log so the console HUD can display what the injector is doing
+  let log = '';
+  const logPaths = [path.join(os.tmpdir(), 'hc-inject.log'), 'C:\\Windows\\Temp\\hc-inject.log'];
+  for (const p of logPaths) {
+    try { const c = fs.readFileSync(p, 'utf8'); if (c) { log = c.trim().split('\n').slice(-15).join('\n'); break; } } catch {}
+  }
+  return { ok: injectorOk, writes: injectWriteCount, drops: injectDropCount, log };
+});
 
 // ---------------------------------------------------------------------------
 // Run-as-user helper — launch apps as the LOGGED-IN USER (see openAsUser). Needed

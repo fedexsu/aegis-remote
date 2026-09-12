@@ -1723,7 +1723,7 @@ function onAttached(msg) {
   hideSoloLoader(); // the device is up - drop the "connecting" cover (no dashboard blink)
   loadBlankImage(); // make sure we have the owner's current blank image for this session
   remoteDesktop = null; remoteTemp = null; fetchRemotePaths(); // for drag-drop + blank cover
-  $('#control').checked = false; syncSuspend(); // start in view-only; technician flips Control on to take over
+  $('#control').checked = false; // start in view-only; technician flips Control on to take over
   $('#ka-tile').classList.remove('on');
   rtcIceServers = msg.iceServers || null;
   $('#session-name').textContent = msg.name;
@@ -2030,13 +2030,7 @@ $('#clipkeys-btn').addEventListener('click', async () => {
     toast('Typed your clipboard onto the remote', 'ok');
   } catch { toast('Couldn’t read your clipboard (grant permission)', 'err'); }
 });
-// Suspend My Input - mirror of the Control toggle (on = view-only).
-function syncSuspend() {
-  $('#suspend-tile').classList.toggle('on', !$('#control').checked);
-  if ($('#control').checked && attachedId) canvas.focus();
-}
-$('#suspend-tile').addEventListener('click', () => { $('#control').checked = $('#suspend-tile').classList.contains('on'); syncSuspend(); toast($('#control').checked ? 'Control resumed' : 'Your input is suspended (view-only)', 'ok'); });
-$('#control').addEventListener('change', syncSuspend);
+$('#control').addEventListener('change', () => { if ($('#control').checked && attachedId) canvas.focus(); });
 // Share Clipboard - live two-way sync while the session is open.
 let shareClipT = null, clipLast = null;
 $('#shareclip-tile').addEventListener('click', () => {

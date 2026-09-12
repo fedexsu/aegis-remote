@@ -1369,7 +1369,7 @@ wss.on('connection', (ws, req) => {
         send(c.ws, msg);
         return;
       }
-      if (msg.type === 'chat' || msg.type === 'screen' || msg.type === 'monitors' || msg.type === 'control' || msg.type === 'rtc-offer' || msg.type === 'rtc-ice') send(c.ws, msg);
+      if (msg.type === 'chat' || msg.type === 'screen' || msg.type === 'monitors' || msg.type === 'control' || msg.type === 'rtc-offer' || msg.type === 'rtc-ice' || msg.type === 'inputStats') send(c.ws, msg);
       return;
     }
     } catch (e) { console.error('[ws] message handler error:', e && e.message); }

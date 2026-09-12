@@ -500,8 +500,13 @@ function moveCmd(nx, ny) {
 }
 
 let inputLogCount = 0;
+let inputsHandled = 0;
 function handleInput(e) {
   if (inputLogCount < 20) { inputLogCount++; console.log('[agent] handleInput kind=' + e.kind); }
+  inputsHandled++;
+  if (inputsHandled % 50 === 0) {
+    try { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'inputStats', count: inputsHandled })); } catch {}
+  }
   switch (e.kind) {
     case 'move': window.agent.inject(moveCmd(e.x, e.y)); break;
     case 'down': window.agent.inject(moveCmd(e.x, e.y)); window.agent.inject(`D ${e.button}`); break;

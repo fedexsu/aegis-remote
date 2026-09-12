@@ -67,13 +67,20 @@ class Injector {
   [DllImport("sas.dll", SetLastError = true)]
   static extern void SendSAS(bool asUser);
 
-  // ---- secure-desktop switching (control the LOCK SCREEN) ----
-  // When Windows locks (or shows UAC/Ctrl-Alt-Del), the INPUT desktop switches to
-  // the protected "Winlogon" desktop. SendInput only lands on the desktop the
-  // calling thread is attached to, so to move the mouse / type the password on the
-  // lock screen we must SetThreadDesktop() to the current input desktop first.
-  // OpenInputDesktop of Winlogon is only granted to a SYSTEM process — so this
-  // works on the elevated/service build and safely no-ops on the per-user build.
+  // ---- window-station + desktop switching ----
+  // When the agent runs as SYSTEM (service), it lives in Session 0's non-interactive
+  // window station (e.g. Service-0x0-3e7$). SendInput sent from there never reaches
+  // the interactive Session 1 user — not even with SetThreadDesktop — because the
+  // process's window station is wrong. Fix: switch the PROCESS to WinSta0 once at
+  // startup, THEN use SetThreadDesktop to track the input desktop normally.
+  [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+  static extern IntPtr OpenWindowStation(string name, bool inherit, uint access);
+  [DllImport("user32.dll", SetLastError = true)]
+  static extern bool SetProcessWindowStation(IntPtr hWinSta);
+  [DllImport("user32.dll")]
+  static extern IntPtr GetProcessWindowStation();
+  [DllImport("user32.dll")]
+  static extern bool CloseWindowStation(IntPtr hWinSta);
   [DllImport("user32.dll", SetLastError = true)]
   static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
   [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
@@ -85,6 +92,7 @@ class Injector {
   [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "GetUserObjectInformationW")]
   static extern bool GetUserObjectInformation(IntPtr hObj, int nIndex, byte[] pvInfo, int nLength, out int lpnLengthNeeded);
   const int UOI_NAME = 2;
+  const uint WINSTA_ALL_ACCESS = 0x37f;
   // Only request the rights we actually need — DESKTOP_GENERIC (0x01FF) includes
   // JOURNALRECORD/JOURNALPLAYBACK which the Winlogon desktop DACL denies even to
   // SYSTEM, causing OpenInputDesktop to fail with ERROR_ACCESS_DENIED (5).
@@ -96,6 +104,40 @@ class Injector {
   static IntPtr curDesk = IntPtr.Zero;
   static string curDeskName = "";
   static long lastDeskCheck = 0;
+
+  // Called once at startup. If we are in a non-interactive window station (Session 0
+  // service), switch the process to WinSta0 so that SetThreadDesktop + SendInput
+  // reach the interactive user's desktop.
+  static void EnsureInteractiveWinSta() {
+    try {
+      IntPtr cur = GetProcessWindowStation();
+      string name = ObjName(cur);
+      if (string.Compare(name, "WinSta0", StringComparison.OrdinalIgnoreCase) == 0) {
+        Log("WinSta already WinSta0 — no switch needed");
+        return;
+      }
+      IntPtr ws = OpenWindowStation("WinSta0", false, WINSTA_ALL_ACCESS);
+      if (ws == IntPtr.Zero) { Log("OpenWindowStation(WinSta0) FAILED err=" + Marshal.GetLastWin32Error() + " (running as non-SYSTEM?)"); return; }
+      if (!SetProcessWindowStation(ws)) {
+        Log("SetProcessWindowStation(WinSta0) FAILED err=" + Marshal.GetLastWin32Error());
+        CloseWindowStation(ws);
+        return;
+      }
+      Log("Switched process WinSta: '" + name + "' -> WinSta0 (Session 0 -> interactive)");
+      // Do NOT close the old window station handle — the process may still reference it.
+    } catch (Exception ex) { Log("EnsureInteractiveWinSta ex: " + ex.Message); }
+  }
+  static string ObjName(IntPtr h) {
+    try {
+      if (h == IntPtr.Zero) return "";
+      int need;
+      GetUserObjectInformation(h, UOI_NAME, null, 0, out need);
+      if (need <= 0) return "";
+      byte[] buf = new byte[need];
+      GetUserObjectInformation(h, UOI_NAME, buf, need, out need);
+      return System.Text.Encoding.Unicode.GetString(buf).TrimEnd('\0');
+    } catch { return ""; }
+  }
 
   // ---- diagnostic log (retrieve via dashboard Files: %TEMP%\hc-inject.log,
   // which is C:\Windows\Temp\hc-inject.log when the agent runs as SYSTEM) ----
@@ -110,16 +152,7 @@ class Injector {
       }
     } catch { }
   }
-  static string DesktopName(IntPtr h) {
-    try {
-      int need;
-      GetUserObjectInformation(h, UOI_NAME, null, 0, out need);
-      if (need <= 0) return "";
-      byte[] buf = new byte[need];
-      if (!GetUserObjectInformation(h, UOI_NAME, buf, need, out need)) return "";
-      return System.Text.Encoding.Unicode.GetString(buf).TrimEnd('\0');
-    } catch { return ""; }
-  }
+  static string DesktopName(IntPtr h) { return ObjName(h); }
   // Open a handle to the desktop that currently owns input, with the minimum
   // access needed for SetThreadDesktop. Falls back to opening "Winlogon" by name
   // so we still get a handle even if OpenInputDesktop returns ACCESS_DENIED.
@@ -242,6 +275,8 @@ class Injector {
 
   static void Main() {
     var ci = CultureInfo.InvariantCulture;
+    EnsureInteractiveWinSta();   // switch to WinSta0 if we are a Session-0 service
+    logInputs = 20;              // log first 20 SendInput results on every startup
     Thread hookThread = new Thread(HookThread);
     hookThread.IsBackground = true;
     hookThread.Start();

@@ -256,7 +256,7 @@ function connectWS() {
       case 'agents': devicesCache = msg.list; renderDevices(); maybeAutoAttach(); break;
       case 'stats': applyStats(msg.stats); break;
       case 'inputAck': inputsRelayFwd = msg.fwd || inputsRelayFwd; if (msg.dropped) relayDropped = true; updateDbgHud(); break;
-      case 'inputStats': inputsAgentRcvd = msg.count || inputsAgentRcvd; updateDbgHud(); break;
+      case 'inputStats': inputsAgentRcvd = msg.count || inputsAgentRcvd; if (msg.injOk !== undefined) injectorOk = msg.injOk; updateDbgHud(); break;
       case 'attached': onAttached(msg); break;
       case 'frame': drawFrame(msg); break;
       case 'monitors': renderMonitors(msg); break;
@@ -1727,7 +1727,7 @@ $('#rec-btn').addEventListener('click', () => { if (mediaRec) stopRecording(); e
 
 function onAttached(msg) {
   attachedId = msg.agentId;
-  inputsSent = 0; inputsRelayFwd = 0; inputsAgentRcvd = 0; relayDropped = false; lastDropReason = ''; updateDbgHud();
+  inputsSent = 0; inputsRelayFwd = 0; inputsAgentRcvd = 0; relayDropped = false; lastDropReason = ''; injectorOk = null; updateDbgHud();
   hideSoloLoader(); // the device is up - drop the "connecting" cover (no dashboard blink)
   loadBlankImage(); // make sure we have the owner's current blank image for this session
   remoteDesktop = null; remoteTemp = null; fetchRemotePaths(); // for drag-drop + blank cover
@@ -2138,6 +2138,7 @@ let inputsRelayFwd = 0;
 let inputsAgentRcvd = 0;
 let relayDropped = false;
 let lastDropReason = '';
+let injectorOk = null; // null=unknown, true=ok, false=dead
 function controlOn() { return $('#control').checked && attachedId; }
 function sendInput(ev) {
   if (!ws || ws.readyState !== ws.OPEN) {
@@ -2157,7 +2158,8 @@ function updateDbgHud() {
   const aid = attachedId || '(none)';
   const drop = lastDropReason ? '\nLAST DROP: ' + lastDropReason : '';
   const relayLine = '\nRelay fwd: ' + inputsRelayFwd + (relayDropped ? ' DROPPED!' : '') + '\nAgent rcvd: ' + inputsAgentRcvd;
-  hud.textContent = 'WS: ' + wsState + '\nCtrl: ' + ctrl + '\nDevice: ' + aid.slice(0,18) + '\nSent: ' + inputsSent + relayLine + drop;
+  const injLine = '\nInjector: ' + (injectorOk === null ? '(waiting...)' : injectorOk ? 'OK' : '*** DEAD ***');
+  hud.textContent = 'WS: ' + wsState + '\nCtrl: ' + ctrl + '\nDevice: ' + aid.slice(0,18) + '\nSent: ' + inputsSent + relayLine + injLine + drop;
   hud.hidden = !attachedId;
 }
 function normXY(e) {

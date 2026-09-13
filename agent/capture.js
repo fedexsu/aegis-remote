@@ -501,16 +501,6 @@ function moveCmd(nx, ny) {
 
 let inputLogCount = 0;
 let inputsHandled = 0;
-let lastInjOk = null;
-// Every 5s report how many inputs were handled + injector health.
-setInterval(async () => {
-  if (!ws || ws.readyState !== ws.OPEN || !inputsHandled) return;
-  try {
-    const inj = await window.agent.getInjectorStatus();
-    lastInjOk = inj && inj.ok;
-    ws.send(JSON.stringify({ type: 'inputStats', count: inputsHandled, injOk: inj && inj.ok, injWrites: inj && inj.writes, injDrops: inj && inj.drops, injLog: (inj && inj.log) || '' }));
-  } catch {}
-}, 5000);
 function handleInput(e) {
   if (inputLogCount < 20) { inputLogCount++; console.log('[agent] handleInput kind=' + e.kind); }
   inputsHandled++;

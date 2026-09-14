@@ -901,7 +901,11 @@ tbody tr:hover{background:var(--panel-2)}
       }).join('');
     }catch(e){ empty(list,4,'Could not load files.'); }
   }
-  function fmOpen(){ fmPopulate(); fmPopulatePages(); fmLoad(); }
+  function fmOpen(){
+    fmPopulate(); fmPopulatePages(); fmLoad();
+    // refresh site list in case we arrived before the initial overview fetch resolved
+    getJSON('/api/websites').then(function(list){ if(list&&list.length){ fillSites(list); fmPopulate(); fmPopulatePages(); } }).catch(function(){});
+  }
   function wireFm(){
     var sel=document.getElementById('fm-site'); if(sel) sel.onchange=function(){ fmSite=sel.value; fmPath=''; fmPopulatePages(); fmLoad(); };
     var pg=document.getElementById('fm-page'); if(pg) pg.onchange=function(){ fmPath=pg.value||''; fmLoad(); };

@@ -348,6 +348,16 @@ function renameDevice(adminId, id, name) {
   if (d) { d.name = name; save(); }
   return !!d;
 }
+// Move a device to a different admin account (owner-only operation). The device
+// keeps all its metadata and history; only the owning admin changes. Used when
+// devices were accidentally enrolled under the wrong account.
+function reassignDevice(deviceId, newAdminId) {
+  const d = db.devices.find((x) => x.id === deviceId);
+  if (!d) return false;
+  d.adminId = newAdminId;
+  save();
+  return true;
+}
 
 // ---- credential vault (per admin) ----
 // Returns credentials with passwords DECRYPTED, for the authenticated owner to use
@@ -543,7 +553,7 @@ module.exports = {
   createSession, getSession, deleteSession, deleteSessionsForAdmin,
   createKey, keysForAdmin, findValidKey, revokeKey, unrevokeKey, deleteKey, incKeyDownload, statsForAdmin,
   getAlerts, setAlerts,
-  upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, markUninstalled, setAsleep, ownerOfDevice,
+  upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, reassignDevice, markUninstalled, setAsleep, ownerOfDevice,
   setDeviceProtection, allowUninstall, uninstallAllowed, uninstallDecision,
   getCredentials, addCredential, removeCredential,
   plans, createInvoice, getInvoice, accountByTg, expireInvoices, matchPendingInvoiceByAmount, isTxProcessed, markTxProcessed, provisionFromInvoice,

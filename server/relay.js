@@ -804,6 +804,25 @@ async function handleApi(req, res, urlPath) {
       if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
       return json(res, 200, { log: enrollLog.slice().reverse() });
     }
+    // Owner: move a device from its current account to another. Fixes the common
+    // case where devices were enrolled with the owner's key instead of the
+    // customer's key, so they appear in the owner's panel but not the customer's.
+    if (urlPath === '/api/owner/reassign-device' && m === 'POST') {
+      if (!isOwner) return json(res, 403, { error: 'owner only' });
+      const b = await readBody(req);
+      const { deviceId, targetAdminId } = b;
+      if (!deviceId || !targetAdminId) return json(res, 400, { error: 'deviceId and targetAdminId required' });
+      if (!db.findAdminById(targetAdminId)) return json(res, 404, { error: 'target account not found' });
+      const fromAdminId = db.ownerOfDevice(deviceId);
+      if (!fromAdminId) return json(res, 404, { error: 'device not found' });
+      if (fromAdminId === targetAdminId) return json(res, 200, { ok: true });
+      const live = agents.get(deviceId);
+      if (live) live.adminId = targetAdminId;
+      db.reassignDevice(deviceId, targetAdminId);
+      pushDevices(fromAdminId);
+      pushDevices(targetAdminId);
+      return json(res, 200, { ok: true, from: fromAdminId, to: targetAdminId });
+    }
     if (urlPath === '/api/keys/delete' && m === 'POST') {
       const b = await readBody(req);
       const ok = db.deleteKey(admin.id, b.key);

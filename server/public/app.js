@@ -48,14 +48,17 @@ function toast(msg, kind = '') {
   setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 260); }, 2800);
 }
 
-// Promise-based modal. type: 'prompt' | 'confirm' | 'password'
+// Promise-based modal. type: 'prompt' | 'confirm' | 'password' | 'select'
 function modal({ title, message, fields = [], confirmText = 'Confirm', cancelText = 'Cancel', danger = false }) {
   return new Promise((resolve) => {
     const back = document.createElement('div');
     back.className = 'modal-back';
-    const fieldHtml = fields.map((f, i) =>
-      `<label class="field"><span>${f.label}</span>
-        <input data-i="${i}" type="${f.type || 'text'}" placeholder="${f.placeholder || ''}" value="${f.value || ''}"/></label>`).join('');
+    const fieldHtml = fields.map((f, i) => {
+      const ctrl = f.type === 'select'
+        ? `<select data-i="${i}">${(f.options || []).map((o, oi) => `<option value="${oi}">${o.label !== undefined ? o.label : o}</option>`).join('')}</select>`
+        : `<input data-i="${i}" type="${f.type || 'text'}" placeholder="${f.placeholder || ''}" value="${f.value || ''}"/>`;
+      return `<label class="field"><span>${f.label}</span>${ctrl}</label>`;
+    }).join('');
     back.innerHTML = `<div class="modal">
       <h3></h3>${message ? '<p></p>' : ''}${fieldHtml}
       <div class="modal-actions">
@@ -66,8 +69,9 @@ function modal({ title, message, fields = [], confirmText = 'Confirm', cancelTex
     back.querySelector('h3').textContent = title;
     if (message) back.querySelector('p').textContent = message;
     document.body.appendChild(back);
-    const inputs = $$('input', back);
-    if (inputs[0]) inputs[0].focus();
+    const inputs = $$('input,select', back);
+    const firstText = $$('input', back)[0];
+    if (firstText) firstText.focus();
     const done = (val) => { back.remove(); resolve(val); };
     back.addEventListener('click', (e) => { if (e.target === back) done(null); });
     back.querySelector('[data-act="cancel"]').onclick = () => done(null);
@@ -239,7 +243,6 @@ function connectWS() {
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => {
-    updateDbgHud();
     ws.send(JSON.stringify({ type: 'register', role: 'console' }));
     if (attachedId) {
       // In a solo window, a dropped session should re-join the same machine on
@@ -279,8 +282,8 @@ function connectWS() {
   };
   // Auto-reconnect (e.g. after a relay redeploy) so Join and everything else keep
   // working without a page refresh.
-  ws.onclose = () => { updateDbgHud(); if (admin && !consoleReconnectT) consoleReconnectT = setTimeout(connectWS, 2000); };
-  ws.onerror = () => { updateDbgHud(); try { ws.close(); } catch {} };
+  ws.onclose = () => { if (admin && !consoleReconnectT) consoleReconnectT = setTimeout(connectWS, 2000); };
+  ws.onerror = () => { try { ws.close(); } catch {} };
 }
 
 // ---------------------------------------------------------------------------
@@ -504,6 +507,26 @@ function showDeviceMenu(d, x, y) {
   items.push({ sep: true });
   if (d.screenshot) items.push({ label: 'Install screenshot', icon: CM.screenshot || '<span>📷</span>', act: () => showScreenshot(d) });
   items.push({ label: 'Rename', icon: CM.edit, act: () => renameDevice(d) });
+  if (admin && admin.role === 'owner') {
+    items.push({ label: 'Move to account…', act: async () => {
+      let accounts;
+      try { const r = await api('/api/accounts'); accounts = r.accounts; } catch { toast('Could not load accounts', 'err'); return; }
+      if (!accounts || !accounts.length) { toast('No customer accounts found', 'err'); return; }
+      const vals = await modal({
+        title: 'Move device to account',
+        message: 'Select the account to assign "' + d.name + '" to:',
+        fields: [{ label: 'Target account', type: 'select', options: accounts.map((a) => a.username + (a.name && a.name !== a.username ? ' (' + a.name + ')' : '')) }],
+        confirmText: 'Move',
+      });
+      if (!vals) return;
+      const idx = parseInt(vals[0], 10); const target = accounts[isNaN(idx) ? 0 : idx];
+      if (!target) return;
+      try {
+        await api('/api/owner/reassign-device', 'POST', { deviceId: d.id, targetAdminId: target.id });
+        toast(d.name + ' moved to ' + target.username, 'ok');
+      } catch (e) { toast(e.message, 'err'); }
+    }});
+  }
   items.push({ label: 'Remove', icon: CM.del, act: () => removeDevice(d), danger: true });
   const menu = document.createElement('div'); menu.className = 'ctx-menu';
   menu.addEventListener('click', (e) => e.stopPropagation());

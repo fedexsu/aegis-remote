@@ -265,7 +265,7 @@ function connectWS() {
       case 'monitors': renderMonitors(msg); break;
       case 'rtc-offer': onRtcOffer(msg); break;
       case 'rtc-ice': if (rtcPc && msg.candidate) { rtcDiag.remoteCand.add(candType(msg.candidate)); rtcLog('remote candidate', candType(msg.candidate)); rtcPc.addIceCandidate(msg.candidate).catch((e) => rtcLog('addIceCandidate error', e.message)); } break;
-      case 'control': $('#ctl-warn').hidden = msg.available !== false ? true : false; if (msg.available === false) toast('Control is blocked on this device (antivirus removed the input helper)', 'err'); break;
+      case 'control': $('#ctl-warn').hidden = msg.available !== false ? true : false; if (msg.available === false) toast('Control is blocked on this device — antivirus is blocking the input helper. Allow/whitelist it on the remote PC, or use a code-signed build.', 'err'); break;
       case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); leaveSolo(); break;
       // Agent reports its screen dimensions (also sent when locked so the console
       // can size the canvas correctly without waiting for the first JPEG frame).
@@ -1766,7 +1766,7 @@ function onAttached(msg) {
   canvas.focus();
 }
 function backToDashboard() {
-  attachedId = null; updateDbgHud();
+  attachedId = null;
   zoom = 0; annotOn = false; annotCanvas.hidden = true; $('#annot-btn').classList.remove('on'); stopShareClip(); // reset view tools
   try { if (document.fullscreenElement) document.exitFullscreen(); } catch {} // leave fullscreen when the session ends
   if (mediaRec) stopRecording(); // auto-save any in-progress recording
@@ -2064,7 +2064,6 @@ $('#control').addEventListener('change', () => {
   const on = $('#control').checked;
   console.log('[HC] Control toggle:', on, 'attachedId:', attachedId, 'ws:', ws ? ws.readyState : 'null');
   if (on && attachedId) canvas.focus();
-  updateDbgHud();
 });
 // Share Clipboard - live two-way sync while the session is open.
 let shareClipT = null, clipLast = null;

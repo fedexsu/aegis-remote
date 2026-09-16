@@ -66,7 +66,8 @@ function saveConfig(cfg) {
 // Input injector (persistent child process)
 // ---------------------------------------------------------------------------
 let injector = null;
-let injectorOk = false;
+let injectorOk = false;      // injector process is running
+let injectBlocked = false;   // process runs but SendInput (clicks/keys) is being blocked (AV/EDR)
 // Recompile injector.exe from source using the .NET Framework csc.exe that ships
 // with Windows. Self-heals when antivirus quarantines the tiny unsigned binary
 // (a common false positive for anything that synthesizes input).
@@ -92,11 +93,31 @@ function startInjector() {
     if (!compileInjector() || !fs.existsSync(exe)) { injectorOk = false; setTimeout(startInjector, 60000); return; }
   }
   try {
-    injector = spawn(exe, [], { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true });
+    injector = spawn(exe, [], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
     injectorOk = true;
-    injector.on('exit', () => { injector = null; injectorOk = false; setTimeout(startInjector, 2000); });
-    injector.on('error', () => { injector = null; injectorOk = false; setTimeout(startInjector, 3000); });
+    injectBlocked = false;
+    // The injector reports on stdout whether its SendInput (clicks/keys) is
+    // actually landing. AV/EDR commonly lets the process run but blocks synthetic
+    // input, so process-alive alone isn't proof control works.
+    let stdoutBuf = '';
+    if (injector.stdout) injector.stdout.on('data', (d) => {
+      stdoutBuf += d.toString();
+      let nl;
+      while ((nl = stdoutBuf.indexOf('\n')) >= 0) {
+        const line = stdoutBuf.slice(0, nl).trim();
+        stdoutBuf = stdoutBuf.slice(nl + 1);
+        if (line === '!BLOCKED' && !injectBlocked) { injectBlocked = true; pushControlStatus(); }
+        else if (line === '!OK' && injectBlocked) { injectBlocked = false; pushControlStatus(); }
+      }
+    });
+    injector.on('exit', () => { injector = null; injectorOk = false; injectBlocked = false; pushControlStatus(); setTimeout(startInjector, 2000); });
+    injector.on('error', () => { injector = null; injectorOk = false; injectBlocked = false; pushControlStatus(); setTimeout(startInjector, 3000); });
   } catch { injector = null; injectorOk = false; setTimeout(startInjector, 3000); }
+}
+// Push the current control availability to the renderer, which forwards it to the
+// technician's console so a blocked injector surfaces instead of failing silently.
+function pushControlStatus() {
+  try { if (win && !win.isDestroyed()) win.webContents.send('control:status', injectorOk && !injectBlocked); } catch {}
 }
 let injectLogCount = 0;
 let injectWriteCount = 0;
@@ -118,7 +139,9 @@ ipcMain.handle('injector:status', () => {
   for (const p of logPaths) {
     try { const c = fs.readFileSync(p, 'utf8'); if (c) { log = c.trim().split('\n').slice(-15).join('\n'); break; } } catch {}
   }
-  return { ok: injectorOk, writes: injectWriteCount, drops: injectDropCount, log };
+  // ok reflects REAL control health: the process must be running AND its
+  // synthetic input must not be blocked by antivirus.
+  return { ok: injectorOk && !injectBlocked, running: injectorOk, blocked: injectBlocked, writes: injectWriteCount, drops: injectDropCount, log };
 });
 
 // ---------------------------------------------------------------------------

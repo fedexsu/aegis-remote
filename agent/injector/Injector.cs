@@ -62,6 +62,26 @@ class Injector {
   const int SM_XVIRTUALSCREEN = 76, SM_YVIRTUALSCREEN = 77;
   [DllImport("user32.dll")]
   static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
+  // ---- PostMessage fallback (used only when SendInput is blocked by AV/EDR) ----
+  // Posting window messages does NOT go through the SendInput hook AV installs, so
+  // it restores clicks/keys on machines where SendInput is silently dropped.
+  // Best-effort: classic Win32 apps (Explorer, Office, dialogs, login fields)
+  // honour posted input; some apps (Chrome, UWP) ignore it and still need a
+  // code-signed helper. Mouse moves already use SetCursorPos, which AV allows.
+  [DllImport("user32.dll")]
+  static extern IntPtr WindowFromPoint(POINT p);
+  [DllImport("user32.dll")]
+  static extern bool GetCursorPos(out POINT p);
+  [DllImport("user32.dll", SetLastError = true)]
+  static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+  [DllImport("user32.dll")]
+  static extern bool ScreenToClient(IntPtr hWnd, ref POINT p);
+  [DllImport("user32.dll")]
+  static extern IntPtr GetForegroundWindow();
+  const uint WM_MOUSEMOVE = 0x0200, WM_LBUTTONDOWN = 0x0201, WM_LBUTTONUP = 0x0202;
+  const uint WM_RBUTTONDOWN = 0x0204, WM_RBUTTONUP = 0x0205, WM_MBUTTONDOWN = 0x0207, WM_MBUTTONUP = 0x0208;
+  const uint WM_MOUSEWHEEL = 0x020A, WM_KEYDOWN = 0x0100, WM_KEYUP = 0x0101, WM_CHAR = 0x0102;
+  const uint MK_LBUTTON = 0x0001, MK_RBUTTON = 0x0002, MK_MBUTTON = 0x0010;
   // Second lock mechanism (belt-and-suspenders): BlockInput blocks physical input
   // but NOT input injected by the calling thread. Some AV/EDR blocks the global
   // low-level hooks (anti-keylogger), so this covers the case where those fail.
@@ -249,21 +269,76 @@ class Injector {
   // After a desktop switch, log the SendInput result of the next few events so we
   // can see whether injection actually lands on the (lock) desktop.
   static int logInputs = 0;
-  static void SendMouse(uint flags, int dx, int dy, uint data) {
+  // Track whether SendInput (clicks/keys) is actually landing. Antivirus/EDR often
+  // lets this process run but silently blocks its synthetic input (SendInput
+  // returns 0) — cursor moves still work via SetCursorPos, so the technician sees
+  // the pointer move but nothing responds to clicks/typing. Report that state to
+  // the agent (stdout) so the console can show a real "Control blocked" warning
+  // instead of failing silently. Emitted only on change.
+  static int failStreak = 0;
+  static bool sendBlocked = false;
+  static void ReportSend(uint n) {
+    if (n == 0) {
+      if (++failStreak >= 3 && !sendBlocked) { sendBlocked = true; try { Console.Out.WriteLine("!BLOCKED"); Console.Out.Flush(); } catch {} }
+    } else {
+      failStreak = 0;
+      if (sendBlocked) { sendBlocked = false; try { Console.Out.WriteLine("!OK"); Console.Out.Flush(); } catch {} }
+    }
+  }
+  static bool SendMouse(uint flags, int dx, int dy, uint data) {
     INPUT[] inp = new INPUT[1];
     inp[0].type = INPUT_MOUSE;
     inp[0].u.mi.dx = dx; inp[0].u.mi.dy = dy; inp[0].u.mi.mouseData = data; inp[0].u.mi.dwFlags = flags;
     inp[0].u.mi.dwExtraInfo = MAGIC;
     uint n = SendInput(1, inp, Marshal.SizeOf(typeof(INPUT)));
+    ReportSend(n);
     if (logInputs > 0 || n == 0) { logInputs--; Log("SendInput(mouse flags=0x" + flags.ToString("X") + ") -> " + n + (n == 0 ? " err=" + Marshal.GetLastWin32Error() : "") + " desk='" + curDeskName + "'"); }
+    return n != 0;
   }
-  static void SendKey(ushort vk, ushort scan, uint flags) {
+  static bool SendKey(ushort vk, ushort scan, uint flags) {
     INPUT[] inp = new INPUT[1];
     inp[0].type = INPUT_KEYBOARD;
     inp[0].u.ki.wVk = vk; inp[0].u.ki.wScan = scan; inp[0].u.ki.dwFlags = flags;
     inp[0].u.ki.dwExtraInfo = MAGIC;
     uint n = SendInput(1, inp, Marshal.SizeOf(typeof(INPUT)));
+    ReportSend(n);
     if (logInputs > 0 || n == 0) { logInputs--; Log("SendInput(key vk=" + vk + ") -> " + n + (n == 0 ? " err=" + Marshal.GetLastWin32Error() : "") + " desk='" + curDeskName + "'"); }
+    return n != 0;
+  }
+  // ---- PostMessage fallbacks (invoked only when the matching SendInput failed) ----
+  static IntPtr MakeLParam(int lo, int hi) { return (IntPtr)((hi << 16) | (lo & 0xFFFF)); }
+  // Post a mouse button event to the window under the cursor. `down` picks the
+  // *DOWN vs *UP message; `btn` is 'L' | 'R' | 'M'.
+  static void PostMouseBtn(string btn, bool down) {
+    try {
+      POINT p; if (!GetCursorPos(out p)) return;
+      IntPtr h = WindowFromPoint(p); if (h == IntPtr.Zero) return;
+      POINT c = p; ScreenToClient(h, ref c);
+      IntPtr l = MakeLParam(c.x, c.y);
+      uint msg; uint mk;
+      if (btn == "R") { msg = down ? WM_RBUTTONDOWN : WM_RBUTTONUP; mk = MK_RBUTTON; }
+      else if (btn == "M") { msg = down ? WM_MBUTTONDOWN : WM_MBUTTONUP; mk = MK_MBUTTON; }
+      else { msg = down ? WM_LBUTTONDOWN : WM_LBUTTONUP; mk = MK_LBUTTON; }
+      PostMessage(h, WM_MOUSEMOVE, IntPtr.Zero, l);
+      PostMessage(h, msg, (IntPtr)(down ? mk : 0), l);
+      Log("PostMessage fallback: mouse " + btn + (down ? " down" : " up"));
+    } catch { }
+  }
+  static void PostWheel(int delta) {
+    try {
+      POINT p; if (!GetCursorPos(out p)) return;
+      IntPtr h = WindowFromPoint(p); if (h == IntPtr.Zero) return;
+      // WM_MOUSEWHEEL uses SCREEN coords in lParam, wheel delta in the high word of wParam.
+      IntPtr l = MakeLParam(p.x, p.y);
+      IntPtr w = (IntPtr)((delta << 16) & unchecked((int)0xFFFF0000));
+      PostMessage(h, WM_MOUSEWHEEL, w, l);
+    } catch { }
+  }
+  static void PostKey(ushort vk, bool down) {
+    try { IntPtr h = GetForegroundWindow(); if (h != IntPtr.Zero) PostMessage(h, down ? WM_KEYDOWN : WM_KEYUP, (IntPtr)vk, IntPtr.Zero); } catch { }
+  }
+  static void PostChar(ushort cp) {
+    try { IntPtr h = GetForegroundWindow(); if (h != IntPtr.Zero) PostMessage(h, WM_CHAR, (IntPtr)cp, IntPtr.Zero); } catch { }
   }
   static void MoveNorm(double nx, double ny) {
     if (nx < 0) nx = 0; if (nx > 1) nx = 1;
@@ -312,10 +387,10 @@ class Injector {
             uint f = b == "R" ? (down ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP)
                    : b == "M" ? (down ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP)
                               : (down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP);
-            SendMouse(f, 0, 0, 0);
+            if (!SendMouse(f, 0, 0, 0)) PostMouseBtn(b, down);   // AV blocked SendInput -> post window message
             break;
           }
-          case "W": SendMouse(MOUSEEVENTF_WHEEL, 0, 0, unchecked((uint)int.Parse(p[1], ci))); break;
+          case "W": { int wd = int.Parse(p[1], ci); if (!SendMouse(MOUSEEVENTF_WHEEL, 0, 0, unchecked((uint)wd))) PostWheel(wd); break; }
           case "B": {                                    // lock/unlock local input
             blocking = (p[1] == "1");                     // low-level-hook path
             try { BlockInput(blocking); } catch { }       // + BlockInput path (works if hooks are AV-blocked)
@@ -323,11 +398,17 @@ class Injector {
           }
           case "AFF": SetWindowDisplayAffinity((IntPtr)long.Parse(p[1], ci), uint.Parse(p[2], ci)); break;
           case "SAS": try { SendSAS(true); } catch { } break;   // Ctrl+Alt+Del (best-effort)
-          case "K": SendKey((ushort)int.Parse(p[1], ci), 0, p[2] == "1" ? 0 : KEYEVENTF_KEYUP); break;
+          case "K": {
+            ushort vk = (ushort)int.Parse(p[1], ci);
+            bool kdown = p[2] == "1";
+            if (!SendKey(vk, 0, kdown ? 0 : KEYEVENTF_KEYUP)) PostKey(vk, kdown);   // AV blocked -> post to foreground window
+            break;
+          }
           case "T": {
             ushort u = (ushort)int.Parse(p[1], ci);
-            SendKey(0, u, KEYEVENTF_UNICODE);
+            bool ok = SendKey(0, u, KEYEVENTF_UNICODE);
             SendKey(0, u, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP);
+            if (!ok) PostChar(u);   // AV blocked SendInput -> post WM_CHAR
             break;
           }
         }

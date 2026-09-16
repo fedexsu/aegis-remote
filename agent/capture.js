@@ -87,6 +87,12 @@ const BACKOFF_MAX = 15000;
   if (window.agent.onOpMessage) window.agent.onOpMessage((m) => {
     try { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(m)); } catch {}
   });
+  // The main process pushes control availability live (e.g. antivirus starts
+  // blocking the injector's synthetic input mid-session) so the technician's
+  // console can surface it instead of silently doing nothing.
+  if (window.agent.onControlStatus) window.agent.onControlStatus((available) => {
+    try { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'control', available: !!available })); } catch {}
+  });
 })();
 
 // The main button toggles the master online/offline state.
@@ -389,7 +395,9 @@ async function startStreaming() {
     }));
     // Tell the console whether input control is actually available (the injector
     // can be blocked/removed by antivirus), so it's not a silent failure.
-    try { const ok = await window.agent.getInjectorStatus(); ws.send(JSON.stringify({ type: 'control', available: !!ok })); } catch {}
+    // getInjectorStatus() returns an object {ok,...}; check the .ok field (a bare
+    // !! on the object is always true and made the "Control blocked" banner dead).
+    try { const st = await window.agent.getInjectorStatus(); ws.send(JSON.stringify({ type: 'control', available: !!(st && st.ok) })); } catch {}
   }
   dynScale = 1; dynQ = JPEG_Q; fpSent = 0; fpSkip = 0;
   captureTimer = setInterval(sendFrame, 1000 / FPS);

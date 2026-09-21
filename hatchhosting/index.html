@@ -445,6 +445,17 @@ tbody tr:hover{background:var(--panel-2)}
           <div id="ad-result" style="display:none;margin-top:16px;padding:16px;border:1px solid var(--ok,#2f9e44);border-radius:12px;background:var(--panel-2)"></div>
         </div>
 
+        <div class="card" style="margin-top:20px;max-width:560px;padding:22px">
+          <div class="sec-h" style="margin-top:0"><h2>Bot protection</h2></div>
+          <p class="dim" style="font-size:13px;margin:0 0 14px">Blocks search engines, crawlers, scrapers and scripts (any bot user-agent, plus blank ones) from viewing <b>every website you host</b>. Your panel and admin tools are never affected. Applies to new sites automatically. <b>Note:</b> while on, hosted sites won’t appear in Google or other search engines.</p>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span id="bb-status" class="chip">…</span>
+            <button class="btn primary sm" id="bb-toggle" style="display:none">…</button>
+            <button class="btn ghost sm" id="bb-reapply" style="display:none">Re-apply to all sites</button>
+          </div>
+          <div id="bb-msg" class="dim" style="font-size:12.5px;margin-top:10px;min-height:16px"></div>
+        </div>
+
         <div class="sec-h"><h2>Existing accounts</h2><button class="btn ghost sm" id="ad-refresh">Refresh</button></div>
         <div class="card scroll">
           <table>
@@ -1306,6 +1317,8 @@ tbody tr:hover{background:var(--panel-2)}
     var adc=document.getElementById('ad-create'); if(adc) adc.onclick=adCreate;
     var adr=document.getElementById('ad-refresh'); if(adr) adr.onclick=adLoadUsers;
     var adt=document.getElementById('ad-users'); if(adt) adt.addEventListener('click',function(e){ var btn=e.target.closest('button[data-act]'); if(!btn) return; adAction(btn.getAttribute('data-act'), btn.getAttribute('data-u')); });
+    var bbt=document.getElementById('bb-toggle'); if(bbt) bbt.onclick=function(){ var next=bbt.dataset.next==='1'; if(!next && !confirm('Turn OFF bot protection? All hosted sites will become visible to search engines, crawlers and scrapers again.')) return; bbApply(next, bbt); };
+    var bbr=document.getElementById('bb-reapply'); if(bbr) bbr.onclick=function(){ bbApply(null, bbr); };
     var adp=document.getElementById('ad-pkg'); if(adp) adp.onchange=adPkgInfo;
     var hb=document.querySelector('.icon-btn[title="Help"]'); if(hb) hb.onclick=function(){ goTab('support'); };
     var nb=document.getElementById('notif-btn'); if(nb) nb.onclick=function(e){ e.stopPropagation(); var p=document.getElementById('notif-panel'); if(!p) return; var open=p.style.display==='block'; p.style.display=open?'none':'block'; if(!open) loadNotifications(); };
@@ -1404,7 +1417,27 @@ tbody tr:hover{background:var(--panel-2)}
       api('/api/admin/user/delete',{username:user}).then(function(){ toast('Deleted '+user); adLoadUsers(); }).catch(function(e){ toast(e.message||'Failed',false); });
     }
   }
-  function adOpen(){ if(!adPkgsLoaded){ adPkgsLoaded=true; adLoadPackages(); } adLoadUsers(); }
+  // --- bot protection status/toggle ---
+  function bbRender(enabled){
+    var st=document.getElementById('bb-status'), tg=document.getElementById('bb-toggle'), rp=document.getElementById('bb-reapply');
+    if(!st) return;
+    st.textContent=enabled?'On — all sites blocked to bots':'Off';
+    st.style.background=enabled?'var(--accent-soft,rgba(80,120,255,.15))':'var(--panel-3)';
+    if(tg){ tg.style.display='inline-flex'; tg.textContent=enabled?'Turn off':'Turn on'; tg.dataset.next=enabled?'0':'1'; }
+    if(rp){ rp.style.display=enabled?'inline-flex':'none'; }
+  }
+  async function bbLoad(){ try{ var d=await getJSON('/api/admin/botblock'); bbRender(d.enabled!==false); }catch(e){} }
+  async function bbApply(enabled, btn){
+    var msg=document.getElementById('bb-msg'); msg.textContent='Applying to all hosted sites…';
+    var lbl; if(btn){ btn.disabled=true; lbl=btn.textContent; btn.textContent='Working…'; }
+    try{
+      var d=await api('/api/admin/botblock', enabled==null?{}:{enabled:enabled});
+      bbRender(d.enabled!==false);
+      msg.textContent=(d.enabled!==false)?('Active on '+ (d.protected||0) +' site'+((d.protected===1)?'':'s')+' ('+(d.skipped||0)+' of your own skipped).'):'Bot protection turned off — all sites are open to bots again.';
+    }catch(ex){ msg.textContent=ex.message||'Could not apply.'; }
+    if(btn){ btn.disabled=false; btn.textContent=lbl; }
+  }
+  function adOpen(){ if(!adPkgsLoaded){ adPkgsLoaded=true; adLoadPackages(); } adLoadUsers(); bbLoad(); }
   async function adCreate(){
     var err=document.getElementById('ad-err'), out=document.getElementById('ad-result'), btn=document.getElementById('ad-create');
     err.textContent=''; out.style.display='none';

@@ -419,6 +419,72 @@ const sessionUser = (req) => { const c = getCookie(req); return c ? (sessions.ge
 const clientIp = (req) => (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
 const readBody = (req) => new Promise((r) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { try { r(JSON.parse(b || '{}')); } catch { r({}); } }); });
 
+// ---- bot blocking (nginx, all hosted customer sites) --------------------
+// Every customer domain gets an nginx include that 403s any request whose
+// User-Agent looks like a bot/crawler/tool (or is empty). Implemented as a
+// global `map` in conf.d (defines $hh_bad_bot) + a per-domain include dropped
+// into HestiaCP's `nginx.conf_*` / `nginx.ssl.conf_*` hook (survives rebuilds).
+// OUR OWN infra domains are skipped so panel/payment webhooks are never blocked.
+const BOTBLOCK_MAP_FILE = '/etc/nginx/conf.d/hh-botblock.conf';
+const BOTBLOCK_MAP_CONTENT = `# HatchHosting — global bot detection (managed; do not edit). $hh_bad_bot=1 => bot/crawler/tool.
+map $http_user_agent $hh_bad_bot {
+\tdefault 0;
+\t""      1;
+\t"~*(bot|crawl|spider|slurp|mediapartners|adsbot|feedfetcher|facebookexternalhit|facebot|ia_archiver|semrush|ahrefs|mj12|majestic|dotbot|blexbot|dataforseo|petalbot|bytespider|serpstat|screamingfrog|python|curl|wget|libwww|winhttp|go-http-client|okhttp|java/|jakarta|perl|ruby|scrapy|httpclient|apache-httpclient|axios|node-fetch|aiohttp|httpx|headless|phantomjs|selenium|puppeteer|playwright|gptbot|chatgpt|ccbot|claudebot|claude-web|anthropic|amazonbot|applebot|google-extended|cohere|perplexity|yandex|baiduspider|sogou|exabot|duckduckbot|qwantbot|censys|masscan|zgrab|nikto|sqlmap|wpscan)" 1;
+}
+`;
+const BOTBLOCK_RULE = 'if ($hh_bad_bot) { return 403; }\n';
+// Domains we NEVER block (ours): panel, hestia, leadfinder + their www. Override/extend with HH_BOTBLOCK_SKIP (comma-sep).
+const BOTBLOCK_SKIP = new Set(
+  String(process.env.HH_BOTBLOCK_SKIP || 'hatchhosting.app,cpanel.hatchhosting.app,hatchleadfinder.top')
+    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+    .flatMap((d) => [d, 'www.' + d])
+);
+const BOTBLOCK_STATE = path.join(hostdb.DATA_DIR, 'botblock.json');
+function botblockEnabled() { try { return JSON.parse(fs.readFileSync(BOTBLOCK_STATE, 'utf8')).enabled !== false; } catch { return true; } } // default ON
+function setBotblockEnabled(on) { try { fs.mkdirSync(hostdb.DATA_DIR, { recursive: true }); fs.writeFileSync(BOTBLOCK_STATE, JSON.stringify({ enabled: !!on })); } catch (e) {} }
+async function nginxReloadSafe() {
+  await execFileP('nginx', ['-t']);           // throws if the config is broken — we never reload a bad config
+  await execFileP('systemctl', ['reload', 'nginx']);
+}
+async function writeBotBlockForDomain(user, domain) {
+  const dir = '/home/' + user + '/conf/web/' + domain;
+  await fsp.writeFile(dir + '/nginx.conf_botblock', BOTBLOCK_RULE);
+  try { await fsp.unlink(dir + '/nginx.ssl.conf_botblock'); } catch {}
+  try { await fsp.symlink(dir + '/nginx.conf_botblock', dir + '/nginx.ssl.conf_botblock'); } catch {}
+}
+async function removeBotBlockForDomain(user, domain) {
+  const dir = '/home/' + user + '/conf/web/' + domain;
+  for (const f of ['nginx.conf_botblock', 'nginx.ssl.conf_botblock']) { try { await fsp.unlink(dir + '/' + f); } catch {} }
+}
+// Apply/refresh the block across every hosted domain. Skips our own infra.
+async function botblockSweep() {
+  if (!LIVE) return { ok: false, error: 'not connected' };
+  const on = botblockEnabled();
+  try { const cur = await fsp.readFile(BOTBLOCK_MAP_FILE, 'utf8').catch(() => ''); if (cur !== BOTBLOCK_MAP_CONTENT) await fsp.writeFile(BOTBLOCK_MAP_FILE, BOTBLOCK_MAP_CONTENT); } catch (e) {}
+  let protectedN = 0, skipped = 0;
+  const users = (await hestiaJson('v-list-users').catch(() => ({}))) || {};
+  for (const user of Object.keys(users)) {
+    let doms = {}; try { doms = (await hestiaJson('v-list-web-domains', [user])) || {}; } catch { continue; }
+    for (const domain of Object.keys(doms)) {
+      const skip = !on || BOTBLOCK_SKIP.has(domain);
+      try {
+        if (skip) { await removeBotBlockForDomain(user, domain); if (BOTBLOCK_SKIP.has(domain)) skipped++; }
+        else { await writeBotBlockForDomain(user, domain); protectedN++; }
+      } catch (e) { console.error('[botblock]', domain, e.message); }
+    }
+  }
+  try { await nginxReloadSafe(); } catch (e) { return { ok: false, error: 'nginx reload failed: ' + e.message, protected: protectedN, skipped }; }
+  console.log('[botblock] sweep done — enabled=' + on + ' protected=' + protectedN + ' skipped(ours)=' + skipped);
+  return { ok: true, enabled: on, protected: protectedN, skipped };
+}
+// Apply to a single freshly-created domain (best-effort, own reload).
+async function botblockApplyOne(user, domain) {
+  if (!LIVE || !botblockEnabled() || BOTBLOCK_SKIP.has(domain)) return;
+  try { const cur = await fsp.readFile(BOTBLOCK_MAP_FILE, 'utf8').catch(() => ''); if (cur !== BOTBLOCK_MAP_CONTENT) await fsp.writeFile(BOTBLOCK_MAP_FILE, BOTBLOCK_MAP_CONTENT); } catch {}
+  try { await writeBotBlockForDomain(user, domain); await nginxReloadSafe(); } catch (e) { console.error('[botblock] apply', domain, e.message); }
+}
+
 const server = http.createServer(async (req, res) => {
   const parsed = new URL(req.url || '/', 'http://x');
   const url = parsed.pathname;
@@ -563,6 +629,18 @@ const server = http.createServer(async (req, res) => {
           }
           const host = (req.headers.host || HOSTNAME || '').split(':')[0];
           return json(res, 200, { ok: true, username, password, package: pkg, email: acctEmail, subExpires, loginUrl: host ? ('https://' + host + '/') : '/' });
+        }
+
+        // Bot blocking across all hosted sites (nginx). GET = status, POST = toggle/re-apply.
+        if (url === '/api/admin/botblock' && req.method === 'GET') {
+          return json(res, 200, { enabled: botblockEnabled(), skip: [...BOTBLOCK_SKIP] });
+        }
+        if (url === '/api/admin/botblock' && req.method === 'POST') {
+          const b = await readBody(req);
+          if (typeof b.enabled === 'boolean') setBotblockEnabled(b.enabled);
+          const r = await botblockSweep();
+          if (!r.ok) return json(res, 200, { ok: false, error: r.error || 'Could not apply', enabled: botblockEnabled() });
+          return json(res, 200, { ok: true, enabled: r.enabled, protected: r.protected, skipped: r.skipped });
         }
 
         // The management actions below all target an existing account. Guard: the
@@ -744,6 +822,7 @@ const server = http.createServer(async (req, res) => {
           if (!okDomain(domain)) return json(res, 400, { error: 'Enter a valid domain like mysite.com' });
           const r = await hestiaDo('v-add-web-domain', [u, domain]);
           if (r.ok) { try { await applyCleanUrls(siteBase(u, domain), true); } catch {} } // clean URLs on by default
+          if (r.ok) { botblockApplyOne(u, domain).catch(() => {}); } // new sites are bot-blocked by default
           return json(res, 200, r);
         }
         if (url === '/api/website/pages/add') {
@@ -1037,6 +1116,13 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { json(res, 500, { error: e.message }); }
 });
 server.listen(PORT, () => console.log('HatchHosting panel on :' + PORT + (LIVE ? ' (connected to server)' : ' — NOT connected: set HESTIA_URL and HESTIA_KEY')));
+
+// Keep bot blocking applied across all hosted sites (startup + hourly), so new
+// domains and any HestiaCP rebuilds are always re-covered. Skips our own infra.
+if (LIVE) {
+  setTimeout(() => { botblockSweep().catch((e) => console.error('[botblock] startup sweep:', e.message)); }, 20000).unref?.();
+  setInterval(() => { botblockSweep().catch(() => {}); }, 60 * 60 * 1000).unref?.();
+}
 
 // ---- Auto-SSL: issue Let's Encrypt automatically once a domain points here --------
 // Background job: for every site without a certificate, the moment its domain

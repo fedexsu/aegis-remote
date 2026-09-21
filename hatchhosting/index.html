@@ -212,6 +212,7 @@ tbody tr:hover{background:var(--panel-2)}
       <button class="nav-item" data-p="cron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg>Scheduled</button>
       <button class="nav-item" data-p="support"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/><path d="M9 10h.01M12.5 10h.01M16 10h.01" stroke-linecap="round"/></svg>Support</button>
       <button class="nav-item" data-p="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.5 12a7.5 7.5 0 0 0-.1-1.3l1.9-1.4-1.9-3.3-2.2 1a7.5 7.5 0 0 0-2.2-1.3L14.4 2h-3.8l-.3 2.4a7.5 7.5 0 0 0-2.2 1.3l-2.2-1L2 8l1.9 1.4a7.5 7.5 0 0 0 0 2.6L2 13.4l1.9 3.3 2.2-1a7.5 7.5 0 0 0 2.2 1.3l.3 2.4h3.8l.3-2.4a7.5 7.5 0 0 0 2.2-1.3l2.2 1 1.9-3.3-1.9-1.4c.1-.4.1-.8.1-1.3z"/></svg>Settings</button>
+      <button class="nav-item" data-p="admin" id="nav-admin" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 11a4 4 0 1 0-4-4M6 21v-1a4 4 0 0 1 4-4h1"/><circle cx="8" cy="7" r="3"/><path d="M18 15v6M15 18h6" stroke-linecap="round"/></svg>Admin</button>
     </nav>
     <div class="side-foot">
       <div class="side-user">
@@ -423,6 +424,32 @@ tbody tr:hover{background:var(--panel-2)}
         <div class="card" style="margin-top:20px;max-width:620px">
           <table>
             <tbody><tr><td colspan="2" class="dim" style="padding:18px">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ADMIN (owner only) -->
+      <section class="page" data-page="admin">
+        <h1 class="page-title">Admin</h1>
+        <p class="page-sub">Create hosting accounts for your customers and hand them their login.</p>
+
+        <div class="card" style="margin-top:20px;max-width:560px;padding:22px">
+          <div class="sec-h" style="margin-top:0"><h2>Create a new account</h2></div>
+          <label style="display:block;margin-bottom:12px"><span style="display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:5px">Username <span class="dim">(optional — leave blank to auto-generate)</span></span><input id="ad-user" type="text" placeholder="e.g. acme (or leave blank)" autocapitalize="none" spellcheck="false" style="width:100%;padding:10px 12px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:14px;box-sizing:border-box"/></label>
+          <label style="display:block;margin-bottom:12px"><span style="display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:5px">Contact email <span class="dim">(optional)</span></span><input id="ad-email" type="email" placeholder="customer@example.com" autocapitalize="none" spellcheck="false" style="width:100%;padding:10px 12px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:14px;box-sizing:border-box"/></label>
+          <label style="display:block;margin-bottom:6px"><span style="display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:5px">Plan / limits</span><select id="ad-pkg" style="width:100%;padding:10px 12px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:14px;box-sizing:border-box"><option>Loading…</option></select></label>
+          <div id="ad-pkg-info" class="dim" style="font-size:12px;margin:0 0 12px;min-height:16px"></div>
+          <label style="display:block;margin-bottom:16px"><span style="display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:5px">Term in days <span class="dim">(optional — blank = never expires)</span></span><input id="ad-days" type="number" min="0" placeholder="e.g. 30" style="width:100%;padding:10px 12px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--ink);font-size:14px;box-sizing:border-box"/></label>
+          <button class="btn primary" id="ad-create" style="width:100%;justify-content:center">Create account</button>
+          <div id="ad-err" style="color:var(--crit);font-size:12.5px;margin-top:10px;min-height:16px"></div>
+          <div id="ad-result" style="display:none;margin-top:16px;padding:16px;border:1px solid var(--ok,#2f9e44);border-radius:12px;background:var(--panel-2)"></div>
+        </div>
+
+        <div class="sec-h"><h2>Existing accounts</h2><button class="btn ghost sm" id="ad-refresh">Refresh</button></div>
+        <div class="card scroll">
+          <table>
+            <thead><tr><th>Username</th><th>Plan</th><th>Websites</th><th>Disk</th><th>Expires</th></tr></thead>
+            <tbody id="ad-users"><tr><td colspan="5" class="dim" style="text-align:center;padding:22px">Loading…</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -1276,6 +1303,9 @@ tbody tr:hover{background:var(--panel-2)}
     var an=document.getElementById('an-site'); if(an) an.onchange=function(){ anSite=an.value; loadAnalytics(); };
     var pma=document.getElementById('open-pma'); if(pma) pma.onclick=function(){ var u=serverInfo.pmaUrl||('https://'+location.hostname+'/phpmyadmin/'); window.open(u,'_blank'); };
     var wm=document.getElementById('open-webmail'); if(wm) wm.onclick=function(){ var u=serverInfo.webmailUrl||('https://'+location.hostname+'/webmail/'); window.open(u,'_blank'); };
+    var adc=document.getElementById('ad-create'); if(adc) adc.onclick=adCreate;
+    var adr=document.getElementById('ad-refresh'); if(adr) adr.onclick=adLoadUsers;
+    var adp=document.getElementById('ad-pkg'); if(adp) adp.onchange=adPkgInfo;
     var hb=document.querySelector('.icon-btn[title="Help"]'); if(hb) hb.onclick=function(){ goTab('support'); };
     var nb=document.getElementById('notif-btn'); if(nb) nb.onclick=function(e){ e.stopPropagation(); var p=document.getElementById('notif-panel'); if(!p) return; var open=p.style.display==='block'; p.style.display=open?'none':'block'; if(!open) loadNotifications(); };
     document.addEventListener('click',function(e){ var p=document.getElementById('notif-panel'); if(p&&p.style.display==='block'&&!e.target.closest('#notif-panel')&&!e.target.closest('#notif-btn')) p.style.display='none'; });
@@ -1294,11 +1324,72 @@ tbody tr:hover{background:var(--panel-2)}
     if(p==='files'){ fmOpen(); }
     if(p==='analytics'){ anOpen(); }
     if(p==='cron' && !loaded.cron){ loaded.cron=1; loadCron(); }
+    if(p==='admin'){ adOpen(); }
   };
 
+  // --- Admin (owner only): create & list customer accounts ---
+  var adPkgsLoaded=false;
+  function fmtLimit(v){ return (v==null||v===''||v==='unlimited')?'unlimited':v; }
+  function adPkgInfo(){
+    var sel=document.getElementById('ad-pkg'), info=document.getElementById('ad-pkg-info');
+    if(!sel||!info) return; var p=sel._pkgs&&sel._pkgs[sel.value];
+    if(!p){ info.textContent=''; return; }
+    var disk=fmtLimit(p.disk), bw=fmtLimit(p.bandwidth);
+    info.textContent='Disk '+(disk==='unlimited'?disk:(disk+' MB'))+' · Bandwidth '+(bw==='unlimited'?bw:(bw+' MB'))+' · Websites '+fmtLimit(p.webDomains)+' · Databases '+fmtLimit(p.databases)+' · Email '+fmtLimit(p.mailAccounts);
+  }
+  async function adLoadPackages(){
+    var sel=document.getElementById('ad-pkg'); if(!sel) return;
+    try{
+      var d=await getJSON('/api/admin/packages'); var pkgs=(d&&d.packages)||[]; sel._pkgs={};
+      sel.innerHTML=pkgs.map(function(p){ sel._pkgs[p.name]=p; return '<option value="'+esc(p.name)+'">'+esc(p.name)+'</option>'; }).join('')||'<option value="default">default</option>';
+      if(pkgs.length){ var d2=pkgs.find(function(p){return p.name==='default';}); if(d2) sel.value='default'; }
+      adPkgInfo();
+    }catch(e){ sel.innerHTML='<option value="default">default</option>'; }
+  }
+  async function adLoadUsers(){
+    var tb=document.getElementById('ad-users'); if(!tb) return; loading(tb,5);
+    try{
+      var d=await getJSON('/api/admin/users'); var us=(d&&d.users)||[];
+      if(!us.length){ empty(tb,5,'No accounts yet.'); return; }
+      tb.innerHTML=us.map(function(x){
+        var disk=x.diskQuotaMB?(gb(x.diskUsedMB)+' / '+gb(x.diskQuotaMB)+' GB'):(gb(x.diskUsedMB)+' GB');
+        var exp=x.subExpires?new Date(x.subExpires).toLocaleDateString():'—';
+        var web=x.webDomains+(x.webLimit?(' / '+x.webLimit):'');
+        return '<tr><td class="mono">'+esc(x.username)+(x.suspended?' <span class="chip">paused</span>':'')+'</td><td>'+esc(x.package||'—')+'</td><td>'+web+'</td><td class="mono dim">'+disk+'</td><td class="dim">'+exp+'</td></tr>';
+      }).join('');
+    }catch(e){ empty(tb,5,'Could not load accounts.'); }
+  }
+  function adOpen(){ if(!adPkgsLoaded){ adPkgsLoaded=true; adLoadPackages(); } adLoadUsers(); }
+  async function adCreate(){
+    var err=document.getElementById('ad-err'), out=document.getElementById('ad-result'), btn=document.getElementById('ad-create');
+    err.textContent=''; out.style.display='none';
+    var body={ username:document.getElementById('ad-user').value.trim(), email:document.getElementById('ad-email').value.trim(), package:document.getElementById('ad-pkg').value, days:document.getElementById('ad-days').value.trim() };
+    btn.disabled=true; var lbl=btn.textContent; btn.textContent='Creating…';
+    try{
+      var d=await api('/api/admin/create-user', body);
+      out.innerHTML='<div style="font-weight:700;margin-bottom:10px">Account created — copy these now</div>'
+        +'<div style="font-size:12.5px;color:var(--ink-2);margin-bottom:12px">The password is shown once. Send it to your customer over a secure channel.</div>'
+        +'<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13.5px;align-items:center">'
+        +'<span class="dim">Login URL</span><span class="mono">'+esc(d.loginUrl||'')+'</span>'
+        +'<span class="dim">Username</span><span class="mono" style="font-weight:700">'+esc(d.username)+'</span>'
+        +'<span class="dim">Password</span><span class="mono" style="font-weight:700">'+esc(d.password)+'</span>'
+        +'<span class="dim">Plan</span><span>'+esc(d.package)+'</span>'
+        +(d.subExpires?('<span class="dim">Expires</span><span>'+new Date(d.subExpires).toLocaleDateString()+'</span>'):'')
+        +'</div>'
+        +'<button class="btn ghost sm" id="ad-copy" style="margin-top:14px">Copy login details</button>';
+      out.style.display='block';
+      var txt='HatchHosting login\nURL: '+(d.loginUrl||'')+'\nUsername: '+d.username+'\nPassword: '+d.password+'\nPlan: '+d.package+(d.subExpires?('\nExpires: '+new Date(d.subExpires).toLocaleDateString()):'');
+      var cp=document.getElementById('ad-copy'); if(cp) cp.onclick=function(){ navigator.clipboard.writeText(txt).then(function(){ toast('Login details copied'); },function(){ toast('Copy failed — select manually',false); }); };
+      document.getElementById('ad-user').value=''; document.getElementById('ad-email').value=''; document.getElementById('ad-days').value='';
+      adLoadUsers();
+    }catch(ex){ err.textContent=ex.message||'Could not create the account'; }
+    btn.disabled=false; btn.textContent=lbl;
+  }
+
+  function revealAdmin(on){ var n=document.getElementById('nav-admin'); if(n) n.style.display=on?'flex':'none'; }
   function showLogin(v){ var l=document.getElementById('hh-login'); if(l)l.style.display=v?'flex':'none'; if(shell)shell.style.filter=v?'blur(3px)':''; }
   var notifTimer=null;
-  function afterLogin(){ showLogin(false); loaded={}; loadOverview(); loadSubscription(); loadNotifications(); if(!notifTimer) notifTimer=setInterval(loadNotifications,180000); getJSON('/api/server').then(function(d){ serverInfo=d||{}; serverIP=(d&&d.ip)||''; }).catch(function(){}); fetch('/api/cleanurls-all',{method:'POST'}).catch(function(){}); if(window.routePanel) window.routePanel(); }
+  function afterLogin(){ showLogin(false); loaded={}; getJSON('/api/session').then(function(s){ revealAdmin(!!(s&&s.admin)); }).catch(function(){}); loadOverview(); loadSubscription(); loadNotifications(); if(!notifTimer) notifTimer=setInterval(loadNotifications,180000); getJSON('/api/server').then(function(d){ serverInfo=d||{}; serverIP=(d&&d.ip)||''; }).catch(function(){}); fetch('/api/cleanurls-all',{method:'POST'}).catch(function(){}); if(window.routePanel) window.routePanel(); }
 
   async function init(){
     wireButtons();

@@ -401,6 +401,16 @@ function accountFrom(u) {
   };
 }
 
+// ---- admin (owner) ------------------------------------------------------
+// Which Hestia logins are the panel OWNER(s) — they see the Admin section that
+// creates customer accounts. Defaults to Hestia's superadmin. Override with a
+// comma-separated list, e.g. HH_ADMIN_USERS="admin,seyi".
+const ADMIN_USERS = new Set(String(process.env.HH_ADMIN_USERS || 'admin').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+const isAdmin = (u) => !!u && ADMIN_USERS.has(String(u).toLowerCase());
+// Strong random password that satisfies Hestia's policy (upper+lower+digit).
+const genPassword = () => { let s = ''; while (s.length < 16) s += crypto.randomBytes(12).toString('base64').replace(/[^A-Za-z0-9]/g, ''); return 'H' + s.slice(0, 15); };
+async function userExists(uName) { try { const d = await hestiaJson('v-list-user', [uName]); return !!(d && d[uName]); } catch { return false; } }
+
 // ---- http ---------------------------------------------------------------
 const json = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
 const getCookie = (req) => { const m = (req.headers.cookie || '').match(/hh_sess=([^;]+)/); return m ? m[1] : null; };
@@ -414,7 +424,7 @@ const server = http.createServer(async (req, res) => {
   const url = parsed.pathname;
   const qp = parsed.searchParams;
   try {
-    if (url === '/api/session') { const u = sessionUser(req); return json(res, 200, { authed: !!u, user: u }); }
+    if (url === '/api/session') { const u = sessionUser(req); return json(res, 200, { authed: !!u, user: u, admin: isAdmin(u) }); }
 
     // Subscription status for the panel's renew banner. Login is never blocked for
     // hosting — when a term lapses we pause the sites, not the account, so this just
@@ -491,6 +501,73 @@ const server = http.createServer(async (req, res) => {
       if (!LIVE) return json(res, 503, { error: 'HatchHosting is not connected to a server yet (set HESTIA_URL and HESTIA_KEY)' });
       const u = sessionUser(req);
       if (!u) return json(res, 401, { error: 'login required' });
+
+      // ---- Admin (owner) only: create & list customer hosting accounts ----
+      // The owner logs into the panel with the Hestia superadmin login (or any
+      // login in HH_ADMIN_USERS) and gets this section. It creates a Hestia user
+      // on the chosen package (= the account's limits) and hands back the
+      // username + password to give the customer.
+      if (url.startsWith('/api/admin/')) {
+        if (!isAdmin(u)) return json(res, 403, { error: 'This area is for administrators only.' });
+
+        if (url === '/api/admin/packages' && req.method === 'GET') {
+          const pk = (await hestiaJson('v-list-user-packages').catch(() => ({}))) || {};
+          const packages = Object.entries(pk).map(([name, p]) => ({
+            name,
+            disk: p.DISK_QUOTA, bandwidth: p.BANDWIDTH,
+            webDomains: p.WEB_DOMAINS, databases: p.DATABASES,
+            mailAccounts: p.MAIL_ACCOUNTS != null ? p.MAIL_ACCOUNTS : p.MAIL_DOMAINS,
+            cron: p.CRON_JOBS,
+          }));
+          return json(res, 200, { packages });
+        }
+
+        if (url === '/api/admin/users' && req.method === 'GET') {
+          const list = (await hestiaJson('v-list-users').catch(() => ({}))) || {};
+          const users = Object.entries(list).map(([name, x]) => {
+            const c = hostdb.customerByUser(name);
+            return {
+              username: name, package: x.PACKAGE || '', email: x.CONTACT || '',
+              suspended: x.SUSPENDED === 'yes',
+              diskUsedMB: parseInt(x.U_DISK, 10) || 0, diskQuotaMB: numOrNull(x.DISK_QUOTA),
+              webDomains: parseInt(x.U_WEB_DOMAINS, 10) || 0, webLimit: numOrNull(x.WEB_DOMAINS),
+              created: x.DATE || '', subExpires: c ? (c.subExpires || null) : null,
+            };
+          }).sort((a, b) => a.username.localeCompare(b.username));
+          return json(res, 200, { users });
+        }
+
+        if (url === '/api/admin/create-user' && req.method === 'POST') {
+          const b = await readBody(req);
+          let username = String(b.username || '').trim().toLowerCase();
+          const email = String(b.email || '').trim();
+          const pkg = String(b.package || 'default').trim() || 'default';
+          const days = Math.max(0, parseInt(b.days, 10) || 0);
+          if (username) {
+            if (!/^[a-z][a-z0-9._-]{1,31}$/.test(username)) return json(res, 200, { ok: false, error: 'Username must start with a letter and be 2–32 chars (letters, numbers, . _ -).' });
+            if (await userExists(username)) return json(res, 200, { ok: false, error: 'That username is already taken. Pick another or leave it blank to auto-generate.' });
+          } else {
+            let tries = 0; do { username = 'hh' + crypto.randomBytes(3).toString('hex'); tries++; } while (tries < 30 && (await userExists(username)));
+          }
+          if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(res, 200, { ok: false, error: 'That email address looks invalid.' });
+          const acctEmail = email || (username + '@' + (process.env.HH_ACCT_EMAIL_DOMAIN || 'hatchhosting.app'));
+          const password = genPassword();
+          const r = await hestiaDo('v-add-user', [username, password, acctEmail, pkg, 'HatchHosting'], 60000);
+          if (!r.ok) return json(res, 200, { ok: false, error: 'Could not create the account: ' + r.error });
+          let subExpires = null;
+          if (days > 0) {
+            subExpires = Date.now() + days * 86400000;
+            // Register a term so the existing expiry sweep pauses the sites when it
+            // lapses (login stays open). Synthetic tgUserId avoids bot collisions.
+            try { hostdb.upsertCustomer({ tgUserId: 'admin:' + username, username, plan: 'admin-' + days + 'd', subStart: Date.now(), subExpires, suspended: false, remindedAt: 0 }); } catch (e) {}
+          }
+          const host = (req.headers.host || HOSTNAME || '').split(':')[0];
+          return json(res, 200, { ok: true, username, password, package: pkg, email: acctEmail, subExpires, loginUrl: host ? ('https://' + host + '/') : '/' });
+        }
+
+        return json(res, 404, { error: 'not found' });
+      }
+
       if (url === '/api/account') {
         const d = await hestiaJson('v-list-user', [u]);
         return json(res, 200, accountFrom(d[u] || {}));

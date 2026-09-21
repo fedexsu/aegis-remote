@@ -90,6 +90,11 @@ function setSuspended(username, val) {
   const c = db.customers.find((x) => x.username === username);
   if (c) { c.suspended = !!val; save(); }
 }
+function removeCustomer(username) {
+  const n = db.customers.length;
+  db.customers = db.customers.filter((x) => x.username !== username);
+  if (db.customers.length !== n) save();
+}
 // Customers whose term lapsed more than a day ago and aren't suspended yet (the
 // expiry sweep pauses their sites; login stays open). 1-day grace after expiry.
 const SUB_GRACE_MS = 24 * 60 * 60 * 1000;
@@ -107,6 +112,6 @@ function setReminded(username, ts) { const c = db.customers.find((x) => x.userna
 module.exports = {
   DATA_DIR, plans,
   createInvoice, getInvoice, expireInvoices, matchPendingInvoiceByAmount, isTxProcessed, markTxProcessed,
-  customerByTg, customerByUser, upsertCustomer, markInvoicePaid, setSuspended, lapsedActive,
+  customerByTg, customerByUser, upsertCustomer, markInvoicePaid, setSuspended, removeCustomer, lapsedActive,
   customerReminders, setReminded,
 };

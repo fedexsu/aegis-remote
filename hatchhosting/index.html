@@ -448,8 +448,8 @@ tbody tr:hover{background:var(--panel-2)}
         <div class="sec-h"><h2>Existing accounts</h2><button class="btn ghost sm" id="ad-refresh">Refresh</button></div>
         <div class="card scroll">
           <table>
-            <thead><tr><th>Username</th><th>Plan</th><th>Websites</th><th>Disk</th><th>Expires</th></tr></thead>
-            <tbody id="ad-users"><tr><td colspan="5" class="dim" style="text-align:center;padding:22px">Loading…</td></tr></tbody>
+            <thead><tr><th>Username</th><th>Plan</th><th>Websites</th><th>Disk</th><th>Expires</th><th style="text-align:right">Actions</th></tr></thead>
+            <tbody id="ad-users"><tr><td colspan="6" class="dim" style="text-align:center;padding:22px">Loading…</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -1305,6 +1305,7 @@ tbody tr:hover{background:var(--panel-2)}
     var wm=document.getElementById('open-webmail'); if(wm) wm.onclick=function(){ var u=serverInfo.webmailUrl||('https://'+location.hostname+'/webmail/'); window.open(u,'_blank'); };
     var adc=document.getElementById('ad-create'); if(adc) adc.onclick=adCreate;
     var adr=document.getElementById('ad-refresh'); if(adr) adr.onclick=adLoadUsers;
+    var adt=document.getElementById('ad-users'); if(adt) adt.addEventListener('click',function(e){ var btn=e.target.closest('button[data-act]'); if(!btn) return; adAction(btn.getAttribute('data-act'), btn.getAttribute('data-u')); });
     var adp=document.getElementById('ad-pkg'); if(adp) adp.onchange=adPkgInfo;
     var hb=document.querySelector('.icon-btn[title="Help"]'); if(hb) hb.onclick=function(){ goTab('support'); };
     var nb=document.getElementById('notif-btn'); if(nb) nb.onclick=function(e){ e.stopPropagation(); var p=document.getElementById('notif-panel'); if(!p) return; var open=p.style.display==='block'; p.style.display=open?'none':'block'; if(!open) loadNotifications(); };
@@ -1337,27 +1338,71 @@ tbody tr:hover{background:var(--panel-2)}
     var disk=fmtLimit(p.disk), bw=fmtLimit(p.bandwidth);
     info.textContent='Disk '+(disk==='unlimited'?disk:(disk+' MB'))+' · Bandwidth '+(bw==='unlimited'?bw:(bw+' MB'))+' · Websites '+fmtLimit(p.webDomains)+' · Databases '+fmtLimit(p.databases)+' · Email '+fmtLimit(p.mailAccounts);
   }
+  var adPkgNames=[], adUsers=[];
   async function adLoadPackages(){
     var sel=document.getElementById('ad-pkg'); if(!sel) return;
     try{
-      var d=await getJSON('/api/admin/packages'); var pkgs=(d&&d.packages)||[]; sel._pkgs={};
+      var d=await getJSON('/api/admin/packages'); var pkgs=(d&&d.packages)||[]; sel._pkgs={}; adPkgNames=pkgs.map(function(p){return p.name;});
       sel.innerHTML=pkgs.map(function(p){ sel._pkgs[p.name]=p; return '<option value="'+esc(p.name)+'">'+esc(p.name)+'</option>'; }).join('')||'<option value="default">default</option>';
       if(pkgs.length){ var d2=pkgs.find(function(p){return p.name==='default';}); if(d2) sel.value='default'; }
       adPkgInfo();
-    }catch(e){ sel.innerHTML='<option value="default">default</option>'; }
+    }catch(e){ sel.innerHTML='<option value="default">default</option>'; adPkgNames=['default']; }
   }
   async function adLoadUsers(){
-    var tb=document.getElementById('ad-users'); if(!tb) return; loading(tb,5);
+    var tb=document.getElementById('ad-users'); if(!tb) return; loading(tb,6);
     try{
-      var d=await getJSON('/api/admin/users'); var us=(d&&d.users)||[];
-      if(!us.length){ empty(tb,5,'No accounts yet.'); return; }
+      var d=await getJSON('/api/admin/users'); var us=(d&&d.users)||[]; adUsers=us;
+      if(!us.length){ empty(tb,6,'No accounts yet.'); return; }
       tb.innerHTML=us.map(function(x){
         var disk=x.diskQuotaMB?(gb(x.diskUsedMB)+' / '+gb(x.diskQuotaMB)+' GB'):(gb(x.diskUsedMB)+' GB');
         var exp=x.subExpires?new Date(x.subExpires).toLocaleDateString():'—';
         var web=x.webDomains+(x.webLimit?(' / '+x.webLimit):'');
-        return '<tr><td class="mono">'+esc(x.username)+(x.suspended?' <span class="chip">paused</span>':'')+'</td><td>'+esc(x.package||'—')+'</td><td>'+web+'</td><td class="mono dim">'+disk+'</td><td class="dim">'+exp+'</td></tr>';
+        var acts=x.admin?'<span class="dim" style="font-size:12px">—</span>'
+          :'<div style="display:inline-flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">'
+            +'<button class="btn ghost sm" data-act="plan" data-u="'+esc(x.username)+'">Plan</button>'
+            +'<button class="btn ghost sm" data-act="password" data-u="'+esc(x.username)+'">Password</button>'
+            +'<button class="btn ghost sm" data-act="suspend" data-u="'+esc(x.username)+'">'+(x.suspended?'Resume':'Suspend')+'</button>'
+            +'<button class="btn ghost sm" data-act="delete" data-u="'+esc(x.username)+'" style="color:var(--crit);border-color:var(--crit)">Delete</button>'
+          +'</div>';
+        return '<tr><td class="mono">'+esc(x.username)+(x.suspended?' <span class="chip">paused</span>':'')+'</td><td>'+esc(x.package||'—')+'</td><td>'+web+'</td><td class="mono dim">'+disk+'</td><td class="dim">'+exp+'</td><td style="text-align:right">'+acts+'</td></tr>';
       }).join('');
-    }catch(e){ empty(tb,5,'Could not load accounts.'); }
+    }catch(e){ empty(tb,6,'Could not load accounts.'); }
+  }
+  // Show a copy-once credential box (used by password reset).
+  function adShowSecret(title, lines, copyText){
+    var ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:360;background:rgba(10,12,16,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+    ov.innerHTML='<div style="width:min(420px,94vw);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:var(--shadow)">'
+      +'<h3 style="margin:0 0 6px;font-family:Archivo,system-ui,sans-serif;font-size:17px">'+esc(title)+'</h3>'
+      +'<div style="font-size:12.5px;color:var(--ink-2);margin-bottom:14px">Shown once — copy it now and send it to the customer securely.</div>'
+      +'<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13.5px;align-items:center">'+lines+'</div>'
+      +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px"><button class="btn ghost" data-copy>Copy</button><button class="btn primary" data-close>Done</button></div></div>';
+    document.body.appendChild(ov);
+    function close(){ ov.remove(); }
+    ov.querySelector('[data-close]').onclick=close;
+    ov.addEventListener('mousedown',function(e){ if(e.target===ov) close(); });
+    ov.querySelector('[data-copy]').onclick=function(){ navigator.clipboard.writeText(copyText).then(function(){ toast('Copied'); },function(){ toast('Copy failed',false); }); };
+  }
+  function adAction(act, user){
+    var x=adUsers.find(function(u){return u.username===user;})||{};
+    if(act==='plan'){
+      var opts=adPkgNames.slice(); if(x.package){ opts=opts.filter(function(n){return n!==x.package;}); opts.unshift(x.package); }
+      openForm('Change plan — '+user, [{name:'package',label:'Plan / limits',type:'select',options:opts}], 'Change plan', async function(v){
+        await api('/api/admin/user/package',{username:user,package:v.package}); toast('Plan changed to '+v.package); adLoadUsers();
+      });
+    } else if(act==='password'){
+      if(!confirm('Reset the password for "'+user+'"? Their current password will stop working immediately.')) return;
+      api('/api/admin/user/password',{username:user}).then(function(d){
+        adShowSecret('New password — '+user, '<span class="dim">Username</span><span class="mono" style="font-weight:700">'+esc(user)+'</span><span class="dim">Password</span><span class="mono" style="font-weight:700">'+esc(d.password)+'</span>', 'Username: '+user+'\nPassword: '+d.password);
+      }).catch(function(e){ toast(e.message||'Failed',false); });
+    } else if(act==='suspend'){
+      var sus=!x.suspended;
+      api('/api/admin/user/suspend',{username:user,suspend:sus}).then(function(){ toast(sus?('Suspended '+user):('Resumed '+user)); adLoadUsers(); }).catch(function(e){ toast(e.message||'Failed',false); });
+    } else if(act==='delete'){
+      if(!confirm('Permanently DELETE "'+user+'"?\n\nThis removes the account and ALL its websites, databases, email and files. This cannot be undone.')) return;
+      if(!confirm('Are you absolutely sure? Type OK on the next prompt.\n\nDelete "'+user+'" for good?')) return;
+      api('/api/admin/user/delete',{username:user}).then(function(){ toast('Deleted '+user); adLoadUsers(); }).catch(function(e){ toast(e.message||'Failed',false); });
+    }
   }
   function adOpen(){ if(!adPkgsLoaded){ adPkgsLoaded=true; adLoadPackages(); } adLoadUsers(); }
   async function adCreate(){

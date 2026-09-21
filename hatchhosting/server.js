@@ -528,7 +528,7 @@ const server = http.createServer(async (req, res) => {
             const c = hostdb.customerByUser(name);
             return {
               username: name, package: x.PACKAGE || '', email: x.CONTACT || '',
-              suspended: x.SUSPENDED === 'yes',
+              admin: isAdmin(name), suspended: x.SUSPENDED === 'yes',
               diskUsedMB: parseInt(x.U_DISK, 10) || 0, diskQuotaMB: numOrNull(x.DISK_QUOTA),
               webDomains: parseInt(x.U_WEB_DOMAINS, 10) || 0, webLimit: numOrNull(x.WEB_DOMAINS),
               created: x.DATE || '', subExpires: c ? (c.subExpires || null) : null,
@@ -563,6 +563,47 @@ const server = http.createServer(async (req, res) => {
           }
           const host = (req.headers.host || HOSTNAME || '').split(':')[0];
           return json(res, 200, { ok: true, username, password, package: pkg, email: acctEmail, subExpires, loginUrl: host ? ('https://' + host + '/') : '/' });
+        }
+
+        // The management actions below all target an existing account. Guard: the
+        // target must exist and must NOT itself be an admin login (so the owner
+        // can't lock themselves out or delete their own control account).
+        if (['/api/admin/user/package', '/api/admin/user/suspend', '/api/admin/user/password', '/api/admin/user/delete'].includes(url) && req.method === 'POST') {
+          const b = await readBody(req);
+          const target = String(b.username || '').trim().toLowerCase();
+          if (!okName(target)) return json(res, 200, { ok: false, error: 'Invalid username.' });
+          if (isAdmin(target)) return json(res, 200, { ok: false, error: 'This is an administrator account and can’t be changed from here.' });
+          if (!(await userExists(target))) return json(res, 200, { ok: false, error: 'That account no longer exists.' });
+
+          if (url === '/api/admin/user/package') {
+            const pkg = String(b.package || '').trim();
+            if (!pkg) return json(res, 200, { ok: false, error: 'Choose a plan.' });
+            const r = await hestiaDo('v-change-user-package', [target, pkg, 'yes'], 60000);
+            if (!r.ok) return json(res, 200, { ok: false, error: 'Could not change the plan: ' + r.error });
+            return json(res, 200, { ok: true, username: target, package: pkg });
+          }
+
+          if (url === '/api/admin/user/suspend') {
+            const suspend = b.suspend !== false;
+            const r = await hestiaDo(suspend ? 'v-suspend-user' : 'v-unsuspend-user', [target], 60000);
+            if (!r.ok) return json(res, 200, { ok: false, error: (suspend ? 'Could not suspend: ' : 'Could not resume: ') + r.error });
+            try { hostdb.setSuspended(target, suspend); } catch (e) {}
+            return json(res, 200, { ok: true, username: target, suspended: suspend });
+          }
+
+          if (url === '/api/admin/user/password') {
+            const password = genPassword();
+            const r = await hestiaDo('v-change-user-password', [target, password], 60000);
+            if (!r.ok) return json(res, 200, { ok: false, error: 'Could not reset the password: ' + r.error });
+            return json(res, 200, { ok: true, username: target, password });
+          }
+
+          if (url === '/api/admin/user/delete') {
+            const r = await hestiaDo('v-delete-user', [target], 120000);
+            if (!r.ok) return json(res, 200, { ok: false, error: 'Could not delete the account: ' + r.error });
+            try { hostdb.removeCustomer(target); } catch (e) {}
+            return json(res, 200, { ok: true, username: target, deleted: true });
+          }
         }
 
         return json(res, 404, { error: 'not found' });

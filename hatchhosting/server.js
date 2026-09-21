@@ -426,14 +426,24 @@ const readBody = (req) => new Promise((r) => { let b = ''; req.on('data', (c) =>
 // into HestiaCP's `nginx.conf_*` / `nginx.ssl.conf_*` hook (survives rebuilds).
 // OUR OWN infra domains are skipped so panel/payment webhooks are never blocked.
 const BOTBLOCK_MAP_FILE = '/etc/nginx/conf.d/hh-botblock.conf';
-const BOTBLOCK_MAP_CONTENT = `# HatchHosting — global bot detection (managed; do not edit). $hh_bad_bot=1 => bot/crawler/tool.
+const BOTBLOCK_MAP_CONTENT = `# HatchHosting — global bot detection (managed; do not edit). $hh_block=1 => 403.
 map $http_user_agent $hh_bad_bot {
 \tdefault 0;
 \t""      1;
 \t"~*(bot|crawl|spider|slurp|mediapartners|adsbot|feedfetcher|facebookexternalhit|facebot|ia_archiver|semrush|ahrefs|mj12|majestic|dotbot|blexbot|dataforseo|petalbot|bytespider|serpstat|screamingfrog|python|curl|wget|libwww|winhttp|go-http-client|okhttp|java/|jakarta|perl|ruby|scrapy|httpclient|apache-httpclient|axios|node-fetch|aiohttp|httpx|headless|phantomjs|selenium|puppeteer|playwright|gptbot|chatgpt|ccbot|claudebot|claude-web|anthropic|amazonbot|applebot|google-extended|cohere|perplexity|yandex|baiduspider|sogou|exabot|duckduckbot|qwantbot|censys|masscan|zgrab|nikto|sqlmap|wpscan)" 1;
 }
+# Never block the Let's Encrypt / ACME HTTP-01 challenge path, whatever the UA —
+# so SSL issuance and renewals always work.
+map $uri $hh_is_acme {
+\tdefault 0;
+\t"~*^/\\.well-known/acme-challenge/" 1;
+}
+map "$hh_bad_bot$hh_is_acme" $hh_block {
+\tdefault 0;
+\t"10"    1;
+}
 `;
-const BOTBLOCK_RULE = 'if ($hh_bad_bot) { return 403; }\n';
+const BOTBLOCK_RULE = 'if ($hh_block) { return 403; }\n';
 // Domains we NEVER block (ours): panel, hestia, leadfinder + their www. Override/extend with HH_BOTBLOCK_SKIP (comma-sep).
 const BOTBLOCK_SKIP = new Set(
   String(process.env.HH_BOTBLOCK_SKIP || 'hatchhosting.app,cpanel.hatchhosting.app,hatchleadfinder.top')

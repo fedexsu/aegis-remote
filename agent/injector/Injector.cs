@@ -118,6 +118,14 @@ class Injector {
   static extern bool SetThreadDesktop(IntPtr hDesktop);
   [DllImport("user32.dll", SetLastError = true)]
   static extern bool CloseDesktop(IntPtr hDesktop);
+  // The desktop this thread was created on (interactive "Default"). Windows opens it
+  // with FULL generic rights at process creation; SendInput works on it. We keep this
+  // handle and prefer it over any handle we re-open, because a desktop re-opened with
+  // reduced rights (READ|WRITE|SWITCH) is denied SendInput (err=5). Never CloseDesktop it.
+  [DllImport("user32.dll", SetLastError = true)]
+  static extern IntPtr GetThreadDesktop(uint dwThreadId);
+  [DllImport("kernel32.dll")]
+  static extern uint GetCurrentThreadId();
   [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "GetUserObjectInformationW")]
   static extern bool GetUserObjectInformation(IntPtr hObj, int nIndex, byte[] pvInfo, int nLength, out int lpnLengthNeeded);
   const int UOI_NAME = 2;
@@ -130,8 +138,10 @@ class Injector {
   const uint DESKTOP_SWITCHDESKTOP  = 0x0100;
   const uint DESKTOP_ACCESS = DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS | DESKTOP_SWITCHDESKTOP;
 
-  static IntPtr curDesk = IntPtr.Zero;
+  static IntPtr curDesk = IntPtr.Zero;   // a DIFFERENT (secure/Winlogon) desktop we switched to, or Zero when on origDesk
   static string curDeskName = "";
+  static IntPtr origDesk = IntPtr.Zero;  // our home desktop's full-rights handle (interactive "Default")
+  static string origDeskName = "";
   static long lastDeskCheck = 0;
 
   // Called once at startup. If we are in a non-interactive window station (Session 0
@@ -208,6 +218,29 @@ class Injector {
       IntPtr h = OpenCurrentInputDesktop();
       if (h == IntPtr.Zero) return; // no access (per-user build or early boot) — stay put
       string name = DesktopName(h);
+      // NORMAL desktop case: the desktop that owns input is our home desktop
+      // ("Default"). Do NOT SetThreadDesktop onto the freshly-opened handle `h` —
+      // it carries only reduced rights (READ|WRITE|SWITCH) and SendInput on it is
+      // denied with ERROR_ACCESS_DENIED (err=5), so the cursor moves (SetCursorPos)
+      // but clicks/keys silently die. Stay on — or return to — our ORIGINAL
+      // full-rights handle instead. This is the fix for "mouse moves but clicks
+      // don't work"; the old code re-attached here on the very first input event.
+      if (origDesk != IntPtr.Zero && origDeskName.Length > 0 && name == origDeskName) {
+        CloseDesktop(h);
+        if (curDesk != IntPtr.Zero) {               // we had switched away to a secure desktop — come home
+          if (SetThreadDesktop(origDesk)) {
+            CloseDesktop(curDesk); curDesk = IntPtr.Zero; curDeskName = "";
+            logInputs = 8;
+            Log("returned to home input desktop '" + origDeskName + "' (full rights)");
+          } else {
+            Log("SetThreadDesktop(home '" + origDeskName + "') FAILED err=" + Marshal.GetLastWin32Error());
+          }
+        }
+        return;
+      }
+      // A DIFFERENT desktop owns input (UAC/Winlogon secure desktop). The service
+      // build switches to it so it can drive the lock screen; a per-user build
+      // usually can't open it (h would be Zero above). Already there? nothing to do.
       if (curDesk != IntPtr.Zero && name == curDeskName) { CloseDesktop(h); return; }
       if (SetThreadDesktop(h)) {
         IntPtr old = curDesk;
@@ -218,7 +251,7 @@ class Injector {
       } else {
         int err = Marshal.GetLastWin32Error();
         CloseDesktop(h);                            // couldn't switch -> stay put
-        Log("SetThreadDesktop to '" + name + "' FAILED err=" + err + " (staying on '" + curDeskName + "')");
+        Log("SetThreadDesktop to '" + name + "' FAILED err=" + err + " (staying on '" + (curDesk != IntPtr.Zero ? curDeskName : origDeskName) + "')");
       }
     } catch (Exception ex) { Log("EnsureInputDesktop ex: " + ex.Message); }
   }
@@ -292,7 +325,7 @@ class Injector {
     inp[0].u.mi.dwExtraInfo = MAGIC;
     uint n = SendInput(1, inp, Marshal.SizeOf(typeof(INPUT)));
     ReportSend(n);
-    if (logInputs > 0 || n == 0) { logInputs--; Log("SendInput(mouse flags=0x" + flags.ToString("X") + ") -> " + n + (n == 0 ? " err=" + Marshal.GetLastWin32Error() : "") + " desk='" + curDeskName + "'"); }
+    if (logInputs > 0 || n == 0) { logInputs--; Log("SendInput(mouse flags=0x" + flags.ToString("X") + ") -> " + n + (n == 0 ? " err=" + Marshal.GetLastWin32Error() : "") + " desk='" + (curDesk != IntPtr.Zero ? curDeskName : origDeskName) + "'"); }
     return n != 0;
   }
   static bool SendKey(ushort vk, ushort scan, uint flags) {
@@ -302,7 +335,7 @@ class Injector {
     inp[0].u.ki.dwExtraInfo = MAGIC;
     uint n = SendInput(1, inp, Marshal.SizeOf(typeof(INPUT)));
     ReportSend(n);
-    if (logInputs > 0 || n == 0) { logInputs--; Log("SendInput(key vk=" + vk + ") -> " + n + (n == 0 ? " err=" + Marshal.GetLastWin32Error() : "") + " desk='" + curDeskName + "'"); }
+    if (logInputs > 0 || n == 0) { logInputs--; Log("SendInput(key vk=" + vk + ") -> " + n + (n == 0 ? " err=" + Marshal.GetLastWin32Error() : "") + " desk='" + (curDesk != IntPtr.Zero ? curDeskName : origDeskName) + "'"); }
     return n != 0;
   }
   // ---- PostMessage fallbacks (invoked only when the matching SendInput failed) ----
@@ -365,6 +398,13 @@ class Injector {
   static void Main() {
     var ci = CultureInfo.InvariantCulture;
     EnsureInteractiveWinSta();   // switch to WinSta0 if we are a Session-0 service
+    // Remember our home desktop (full-rights handle). EnsureInputDesktop keeps this
+    // for the normal desktop so SendInput never gets ERROR_ACCESS_DENIED from a
+    // reduced-rights re-open. Captured AFTER the winsta switch so it reflects the
+    // interactive desktop we will actually inject on.
+    origDesk = GetThreadDesktop(GetCurrentThreadId());
+    origDeskName = DesktopName(origDesk);
+    Log("home input desktop = '" + origDeskName + "' (handle " + origDesk + ")");
     logInputs = 20;              // log first 20 SendInput results on every startup
     Thread hookThread = new Thread(HookThread);
     hookThread.IsBackground = true;

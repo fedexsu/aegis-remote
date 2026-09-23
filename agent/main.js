@@ -919,6 +919,7 @@ async function checkForUpdate() {
     if (!data || data.upToDate || !data.files || !(data.version > CODE_VERSION)) return;
     // Sanity: every file must be non-empty before we overwrite anything.
     const entries = Object.entries(data.files);
+    const binEntries = Object.entries(data.bin || {}).filter(([, b]) => typeof b === 'string' && b.length);
     if (!entries.length || entries.some(([, c]) => typeof c !== 'string' || !c.length)) return;
     updating = true;
     let injectorChanged = false, blankerChanged = false, runasChanged = false;
@@ -932,18 +933,36 @@ async function checkForUpdate() {
       if (name === 'blanker/Blanker.cs') blankerChanged = true;
       if (name === 'runas/RunAsUser.cs') runasChanged = true;
     }
-    // The run-as-user helper is a compiled binary too — drop the stale .exe so it
-    // recompiles from the new source on next use.
-    if (runasChanged) { try { fs.unlinkSync(path.join(__dirname, 'runas', 'RunAsUser.exe')); } catch {} }
-    // The injector is a compiled binary, not JS — if its source changed, kill the
-    // running one (to unlock the .exe) and recompile so the update actually ships.
-    if (injectorChanged) {
+    // Signed native binaries shipped with the update. Write them and PREFER them
+    // over recompiling from source — a client-recompiled binary would be UNSIGNED
+    // and antivirus flags it (the "Control blocked - removed the input helper"
+    // banner). Kill a running injector/blanker first so its .exe unlocks.
+    let injectorBinOk = false, blankerBinOk = false, runasBinOk = false;
+    for (const [name, b64] of binEntries) {
+      const base = path.basename(name).toLowerCase();
+      if (base === 'injector.exe' && injector) { try { injector.kill(); } catch {} injector = null; }
+      if (base === 'blanker.exe' && blankProc) { try { blankProc.kill(); } catch {} blankProc = null; }
+      try {
+        const dest = path.join(__dirname, name);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        const tmp = dest + '.new';
+        fs.writeFileSync(tmp, Buffer.from(b64, 'base64'));
+        try { fs.unlinkSync(dest); } catch {} // old copy may be briefly locked
+        fs.renameSync(tmp, dest);
+        if (base === 'injector.exe') injectorBinOk = true;
+        if (base === 'blanker.exe') blankerBinOk = true;
+        if (base === 'runasuser.exe') runasBinOk = true;
+      } catch { /* locked/failed — previous signed .exe stays; retry next update */ }
+    }
+    // Recompile from source ONLY when no signed binary was delivered (older
+    // bundles / a build without signed binaries) — keeps backward compatibility.
+    if (runasChanged && !runasBinOk) { try { fs.unlinkSync(path.join(__dirname, 'runas', 'RunAsUser.exe')); } catch {} }
+    if (injectorChanged && !injectorBinOk) {
       if (injector) { try { injector.kill(); } catch {} injector = null; }
       try { fs.unlinkSync(path.join(__dirname, 'injector', 'injector.exe')); } catch {}
       compileInjector();
     }
-    // Same for the blanker helper.
-    if (blankerChanged) {
+    if (blankerChanged && !blankerBinOk) {
       if (blankProc) { try { blankProc.kill(); } catch {} blankProc = null; }
       try { fs.unlinkSync(path.join(__dirname, 'blanker', 'blanker.exe')); } catch {}
       compileBlanker();

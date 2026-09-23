@@ -473,7 +473,7 @@ async function handleApi(req, res, urlPath) {
     if (urlPath === '/api/agent-update' && m === 'GET') {
       const have = parseInt((req.url.split('?')[1] || '').match(/have=(\d+)/)?.[1] || '0', 10);
       if (have >= AGENT_BUNDLE.version) return json(res, 200, { version: AGENT_BUNDLE.version, upToDate: true });
-      return json(res, 200, { version: AGENT_BUNDLE.version, files: AGENT_BUNDLE.files });
+      return json(res, 200, { version: AGENT_BUNDLE.version, files: AGENT_BUNDLE.files, bin: AGENT_BUNDLE.bin || {} });
     }
 
     // Public: the remote uninstaller asks here whether it's allowed to remove the

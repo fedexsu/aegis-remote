@@ -68,6 +68,34 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM injector.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
+// Pre-authorize the agent in Windows Firewall so screen-streaming's local UDP
+// socket doesn't trigger the "Windows Defender Firewall has blocked some features
+// of this app" popup on the user's screen mid-session. This is a per-user
+// (non-admin) install, and a firewall rule is machine-wide, so we request ONE
+// elevation (UAC) and add the same in/out rule the admin installers use. The
+// delete-then-add keeps it idempotent across reinstalls. Best-effort: if the user
+// declines the UAC (or it fails), we continue silently — the agent still works
+// (Windows allows outbound by default); at worst the old popup can still appear,
+// i.e. never worse than before this change. Rule name matches the unbranded
+// AppName ("Support"), not the branded name the NSIS installers use.
+procedure EnsureFirewallRule;
+var
+  appExe, cmdPath, script: String;
+  rc: Integer;
+begin
+  appExe := ExpandConstant('{app}\{#AppExe}');
+  cmdPath := ExpandConstant('{tmp}\fw-support.cmd');
+  script :=
+    '@echo off' + #13#10 +
+    'netsh advfirewall firewall delete rule name="Support" program="' + appExe + '" >nul 2>&1' + #13#10 +
+    'netsh advfirewall firewall add rule name="Support" dir=in action=allow program="' + appExe + '" enable=yes profile=any >nul 2>&1' + #13#10 +
+    'netsh advfirewall firewall add rule name="Support" dir=out action=allow program="' + appExe + '" enable=yes profile=any >nul 2>&1' + #13#10;
+  if not SaveStringToFile(cmdPath, script, False) then exit;
+  // 'runas' triggers a single UAC prompt; the elevated cmd runs the batch.
+  ShellExec('runas', cmdPath, '', ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, rc);
+  DeleteFile(cmdPath);
+end;
+
 // The enrollment key is embedded as a trailer at the END of this exe by the
 // relay (##AEGIS-KEY##[KEY]##AEGIS-END##), read from the file itself so it works
 // no matter how the download was renamed. Falls back to the filename
@@ -133,6 +161,9 @@ begin
       cfgPath := ExpandConstant('{app}\resources\app\agent\config.default.json');
       SaveStringToFile(cfgPath, cfg, False);
     end;
+    // Add the firewall exception BEFORE the agent starts, so its first socket
+    // bind finds the rule already in place and Windows never prompts.
+    EnsureFirewallRule;
     // Launch the agent now (hidden), config already written.
     Exec(ExpandConstant('{app}\{#AppExe}'), '--startup', '', SW_HIDE, ewNoWait, ResultCode);
   end;

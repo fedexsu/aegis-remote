@@ -90,11 +90,16 @@ class Blanker {
   }
   static void SetupGif(Form f, Image gif) {
     f.BackColor = Color.Black;
+    if (f is BlackForm) ((BlackForm)f).EnableDoubleBuffer();   // kill the per-frame black-erase flicker
     bool anim = false; try { anim = ImageAnimator.CanAnimate(gif); } catch { }
     f.Paint += delegate (object s, PaintEventArgs e) {
       try {
         if (anim) ImageAnimator.UpdateFrames(gif);
         Rectangle cr = f.ClientRectangle;
+        // Paint the black background inside the (double-buffered) Paint pass:
+        // DoubleBuffered suppresses the separate WM_ERASEBKGND, so we clear here so
+        // background + frame composite in one blit (no flicker, no smearing).
+        e.Graphics.Clear(Color.Black);
         double k = Math.Min((double)cr.Width / gif.Width, (double)cr.Height / gif.Height);
         int w = (int)(gif.Width * k), h = (int)(gif.Height * k);
         e.Graphics.DrawImage(gif, (cr.Width - w) / 2, (cr.Height - h) / 2, w, h);
@@ -136,6 +141,11 @@ class Blanker {
 
   // A black window that never steals focus and is invisible to screen capture.
   class BlackForm : Form {
+    // Opt-in double buffering (used by the GIF cover). Without it, ImageAnimator's
+    // per-frame Invalidate() makes the form erase to black THEN draw the frame, so
+    // the animated cover blinks at its frame rate. DoubleBuffered composites the
+    // black background + frame off-screen and blits once, so the loop is smooth.
+    public void EnableDoubleBuffer() { this.DoubleBuffered = true; }
     protected override bool ShowWithoutActivation { get { return true; } }
     protected override CreateParams CreateParams {
       get {

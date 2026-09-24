@@ -27,6 +27,7 @@ using System.Threading;
 
 class Blanker {
   [DllImport("user32.dll")] static extern bool SetWindowDisplayAffinity(IntPtr h, uint affinity);
+  [DllImport("user32.dll")] static extern bool GetWindowDisplayAffinity(IntPtr h, out uint affinity);
   [DllImport("user32.dll", SetLastError = true)] static extern int GetWindowLong(IntPtr h, int index);
   [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int index, int val);
   [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
@@ -54,8 +55,19 @@ class Blanker {
     try {
       EnumChildWindows(parent, delegate (IntPtr h, IntPtr lp) {
         try {
-          SetWindowDisplayAffinity(h, WDA_EXCLUDEFROMCAPTURE);
-          SetWindowLong(h, GWL_EXSTYLE, GetWindowLong(h, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
+          // Idempotent: only touch a child window when it isn't already set the
+          // way we want. This runs from the 150ms topmost timer to catch WMP's
+          // late-created render window, but RE-applying WDA_EXCLUDEFROMCAPTURE to
+          // the video surface every tick forces the compositor to flush it, which
+          // shows as a ~7Hz blink over the looping video. Setting each property
+          // once (then skipping) keeps the loop seamless while still catching a
+          // render window that appears after the first pass.
+          uint aff;
+          if (!GetWindowDisplayAffinity(h, out aff) || aff != WDA_EXCLUDEFROMCAPTURE)
+            SetWindowDisplayAffinity(h, WDA_EXCLUDEFROMCAPTURE);
+          int ex = GetWindowLong(h, GWL_EXSTYLE);
+          if ((ex & WS_EX_TRANSPARENT) == 0)
+            SetWindowLong(h, GWL_EXSTYLE, ex | WS_EX_TRANSPARENT);
         } catch { }
         return true;
       }, IntPtr.Zero);

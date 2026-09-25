@@ -23,5 +23,10 @@ contextBridge.exposeInMainWorld('agent', {
   getPresence: () => ipcRenderer.invoke('presence:get'),
   getInjectorStatus: () => ipcRenderer.invoke('injector:status'),
   onControlStatus: (cb) => ipcRenderer.on('control:status', (_e, available) => cb(available)),
+  // Secure-desktop (lock screen) capture: start/stop the SYSTEM helper and receive
+  // its JPEG frames to relay to the console when the machine is locked.
+  sdStart: () => ipcRenderer.send('sd:start'),
+  sdStop: () => ipcRenderer.send('sd:stop'),
+  onSdFrame: (cb) => ipcRenderer.on('sd:frame', (_e, buf) => cb(buf)),
   captureScreenshot: () => ipcRenderer.invoke('screen:screenshot'),
 });

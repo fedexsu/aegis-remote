@@ -17,13 +17,13 @@ const OUT = path.join(ROOT, 'server', 'agent-bundle.json');
 // Text files that are safe to hot-swap and relaunch. The .cs sources are kept so
 // the agent can still self-heal (recompile) as a LAST resort if a signed binary
 // is ever missing. NOT config.default.json (holds the per-install relay+key).
-const FILES = ['main.js', 'preload.js', 'capture.js', 'index.html', 'version.json', 'injector/Injector.cs', 'blanker/Blanker.cs', 'runas/RunAsUser.cs'];
+const FILES = ['main.js', 'preload.js', 'capture.js', 'index.html', 'version.json', 'injector/Injector.cs', 'blanker/Blanker.cs', 'runas/RunAsUser.cs', 'sdcap/SecureCapture.cs'];
 
 // Compiled native helper binaries, shipped base64 so a self-update carries the
 // SIGNED .exe instead of forcing the client to recompile an UNSIGNED one (which
 // antivirus then flags → the "Control blocked" banner). The agent writes these
 // out and prefers them over recompiling. Build+sign them first (build-all.js).
-const BIN = ['injector/injector.exe', 'blanker/blanker.exe', 'runas/RunAsUser.exe'];
+const BIN = ['injector/injector.exe', 'blanker/blanker.exe', 'runas/RunAsUser.exe', 'sdcap/sdcap.exe'];
 
 const version = JSON.parse(fs.readFileSync(path.join(AGENT, 'version.json'), 'utf8')).codeVersion;
 const files = {};

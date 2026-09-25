@@ -349,6 +349,32 @@ async function startCapture(sourceId) {
 }
 
 let captureRetryTimer = null;
+// ---- secure-desktop (lock screen) relay ----
+// When the remote is locked, desktopCapturer can't see the Winlogon desktop, so
+// main.js runs a SYSTEM helper (sdcap.exe) that BitBlts it and streams JPEG frames
+// here. We forward each frame to the console over the SAME binary path as normal
+// JPEG frames, and only tell the console it's a LIVE lock-screen view once real
+// frames arrive — so a per-user agent (whose helper can't open Winlogon and sends
+// nothing) still just shows the "Device is locked" placeholder, unchanged.
+let sdActive = false;   // asked the helper to capture the lock screen
+let sdLiveSent = false; // told the console we have a live secure-desktop view
+window.agent.onSdFrame((buf) => {
+  if (!sdActive || !buf || !ws || ws.readyState !== ws.OPEN) return;
+  if (ws.bufferedAmount > SEND_HIWATER) return; // link behind → drop, keep it live
+  if (!sdLiveSent) { sdLiveSent = true; try { ws.send(JSON.stringify({ type: 'locked', on: true, live: true })); } catch {} }
+  try { ws.send(buf); } catch {}
+});
+function startSecureDesktop() {
+  if (sdActive) return;
+  sdActive = true; sdLiveSent = false;
+  try { window.agent.sdStart(); } catch {}
+}
+function stopSecureDesktop() {
+  if (!sdActive) return;
+  sdActive = false; sdLiveSent = false;
+  try { window.agent.sdStop(); } catch {}
+}
+
 async function startStreaming() {
   if (streaming) return;
   streaming = true;
@@ -376,6 +402,10 @@ async function startStreaming() {
       try { scr = await window.agent.getScreenSize(); } catch {}
       ws.send(JSON.stringify({ type: 'screen', w: scr.w, h: scr.h }));
       ws.send(JSON.stringify({ type: 'locked', on: true }));
+      // Start the SYSTEM lock-screen capturer. If it produces frames (elevated
+      // install) the console switches from the placeholder to the live lock
+      // screen; if not (per-user), the placeholder stays.
+      startSecureDesktop();
     }
     // Retry: the device may be locked. Keep trying every 6 s so the session
     // auto-connects the moment the user unlocks without needing a re-join.
@@ -385,6 +415,7 @@ async function startStreaming() {
     return;
   }
   if (captureRetryTimer) { clearTimeout(captureRetryTimer); captureRetryTimer = null; }
+  stopSecureDesktop(); // normal capture is live now (unlocked) — stop the lock-screen helper
   if (ws) {
     ws.send(JSON.stringify({ type: 'locked', on: false })); // clear lock overlay now that capture is live
     ws.send(JSON.stringify({ type: 'screen', w: canvas.width, h: canvas.height }));
@@ -419,6 +450,7 @@ function stopStreaming() {
   guestCount = 0;
   $('#banner').classList.remove('show');
   window.agent.sessionState(false);
+  stopSecureDesktop(); // never leave the lock-screen capturer running past a session
   if (captureRetryTimer) { clearTimeout(captureRetryTimer); captureRetryTimer = null; }
   if (captureTimer) { clearInterval(captureTimer); captureTimer = null; }
   if (adaptTimer) { clearInterval(adaptTimer); adaptTimer = null; }

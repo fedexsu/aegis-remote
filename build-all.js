@@ -39,6 +39,7 @@ const CSC = [
 const NATIVE = [
   { name: 'injector', script: 'agent/injector/build-injector.js', exe: 'agent/injector/injector.exe' },
   { name: 'blanker', script: 'agent/blanker/build-blanker.js', exe: 'agent/blanker/blanker.exe' },
+  { name: 'sdcap', script: 'agent/sdcap/build-sdcap.js', exe: 'agent/sdcap/sdcap.exe' },
   { name: 'runas', src: 'agent/runas/RunAsUser.cs', exe: 'agent/runas/RunAsUser.exe' },
 ];
 console.log('0/5  Building + signing native helpers...');

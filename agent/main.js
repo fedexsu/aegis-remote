@@ -766,6 +766,60 @@ function blankImageFromPayload(payload) {
   } catch { return null; }
 }
 
+// ---- secure-desktop capture (Windows lock screen) ----
+// Electron's desktopCapturer can't see the Winlogon/lock desktop, so when the
+// remote is locked a dedicated SYSTEM helper (sdcap.exe) BitBlts that desktop and
+// streams JPEG frames to us; we forward them to the renderer, which relays them
+// to the console over the SAME binary-frame path as normal JPEG frames. Only the
+// elevated/service (SYSTEM) install can open Winlogon — a per-user agent's sdcap
+// fails and exits, so the console keeps its "Device is locked" placeholder (no
+// change from today).
+function compileSdcap() {
+  const dir = path.join(__dirname, 'sdcap');
+  const src = path.join(dir, 'SecureCapture.cs');
+  const out = path.join(dir, 'sdcap.exe');
+  const csc = ['C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe',
+    'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe'].find((p) => fs.existsSync(p));
+  if (!csc || !fs.existsSync(src)) return false;
+  try {
+    require('child_process').execFileSync(csc, ['/nologo', '/optimize+', '/target:winexe',
+      '/r:System.Drawing.dll', '/out:' + out, src], { stdio: 'ignore', windowsHide: true });
+    return fs.existsSync(out);
+  } catch { return false; }
+}
+let sdProc = null;
+function startSecureCapture() {
+  if (sdProc) return;
+  const exe = path.join(__dirname, 'sdcap', 'sdcap.exe');
+  if (!fs.existsSync(exe) && !compileSdcap()) return; // self-heal if AV removed it
+  try { sdProc = spawn(exe, [], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true }); }
+  catch { sdProc = null; return; }
+  let buf = Buffer.alloc(0);
+  sdProc.stdout.on('data', (chunk) => {
+    buf = buf.length ? Buffer.concat([buf, chunk]) : chunk;
+    // Drain every complete [4-byte BE length][jpeg] frame in the buffer.
+    while (buf.length >= 4) {
+      const len = buf.readUInt32BE(0);
+      if (len <= 0 || len > 16 * 1024 * 1024) { buf = Buffer.alloc(0); break; } // desync guard
+      if (buf.length < 4 + len) break; // rest not here yet
+      const frame = Buffer.from(buf.slice(4, 4 + len)); // copy: detach from the shared backing buffer
+      buf = buf.slice(4 + len);
+      try { if (win && !win.isDestroyed()) win.webContents.send('sd:frame', frame); } catch {}
+    }
+  });
+  sdProc.on('exit', () => { sdProc = null; });
+  sdProc.on('error', () => { sdProc = null; });
+}
+function stopSecureCapture() {
+  if (!sdProc) return;
+  const p = sdProc; sdProc = null;
+  try { p.stdin.end(); } catch {}                      // graceful: stdin EOF makes it exit
+  const t = setTimeout(() => { try { p.kill(); } catch {} }, 1500);
+  p.on('exit', () => clearTimeout(t));
+}
+ipcMain.on('sd:start', () => startSecureCapture());
+ipcMain.on('sd:stop', () => stopSecureCapture());
+
 function procKill(reqId, pid) {
   const exe = process.env.SystemRoot ? path.join(process.env.SystemRoot, 'System32', 'taskkill.exe') : 'taskkill';
   const ps = spawn(exe, ['/PID', String(pid), '/F', '/T'], { windowsHide: true });

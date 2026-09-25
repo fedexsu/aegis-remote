@@ -271,7 +271,15 @@ function connectWS() {
       // can size the canvas correctly without waiting for the first JPEG frame).
       case 'screen': if (msg.w && msg.h) { frameW = msg.w; frameH = msg.h; canvas.width = msg.w; canvas.height = msg.h; fit(); } if (!$('#screen-wrap').classList.contains('rtc') && !$('#rtc-mode').classList.contains('sd')) setRtcMode('sd'); break;
       // Agent signals the Windows lock screen is active/cleared.
-      case 'locked': { const lo = $('#lock-overlay'); if (lo) lo.hidden = !msg.on; } if (msg.on && !$('#rtc-mode').classList.contains('sd') && !$('#screen-wrap').classList.contains('rtc')) setRtcMode('sd'); break;
+      case 'locked': {
+        const lo = $('#lock-overlay');
+        // live:true means the SYSTEM helper is streaming the real lock screen, so
+        // hide the "waiting to unlock" placeholder and let the frames show (input
+        // already routes to the Winlogon desktop). Without live, keep the placeholder.
+        if (lo) lo.hidden = !msg.on || !!msg.live;
+        if (msg.on && !$('#screen-wrap').classList.contains('rtc')) setRtcMode('sd');
+        break;
+      }
       case 'error': toast(msg.text, 'err'); break;
       case 'info': toast(msg.text, 'ok'); break;
       case 'opStream': if (msg.reqId === termReqId) onOpStream(msg); else fsDispatch('stream', msg); break;

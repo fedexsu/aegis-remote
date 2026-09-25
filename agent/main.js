@@ -1071,7 +1071,12 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (win) { if (!win.isVisible()) win.show(); win.focus(); }
+    // Stay headless on a deployed device: a second launch (login auto-start
+    // racing the installer's launch, or anyone re-running the exe) must NOT pop
+    // the config window — it shows the relay + access key to the person on the
+    // device. The single-instance lock already stops a duplicate agent. Only the
+    // dev build (electron .) surfaces the window here.
+    if (win && !app.isPackaged) { if (!win.isVisible()) win.show(); win.focus(); }
   });
 }
 

@@ -47,6 +47,18 @@ fs.rmSync(path.join(OUT, 'resources', 'default_app.asar'), { force: true });
 const appDir = path.join(OUT, 'resources', 'app');
 copyDir(path.join(ROOT, 'agent'), path.join(appDir, 'agent'));
 copyDir(path.join(ROOT, 'build'), path.join(appDir, 'build'));
+
+// The service installer (installer-service.nsi) runs `"$INSTDIR\AegisService.exe"
+// /install` at the install ROOT — the SYSTEM helper that registers the Windows
+// service and launches the agent into the active session. build-agent.js copies
+// agent/ into resources/app/agent/, so AegisService.exe ended up nested at
+// resources/app/agent/service/AegisService.exe — the NSIS call silently failed
+// and the elevated install completed with NO service registered → agent never
+// ran → device never enrolled. Copy it to the install root so the NSIS
+// expectation is met.
+const svcSrc = path.join(ROOT, 'agent', 'service', 'AegisService.exe');
+if (fs.existsSync(svcSrc)) fs.copyFileSync(svcSrc, path.join(OUT, 'AegisService.exe'));
+else console.warn('WARNING: agent/service/AegisService.exe not built — the elevated installer will fail to register its service. Run agent/service/build-service.js first.');
 // productName 'Support' → Task Manager shows "support.exe" / product "Support".
 fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify(
   { name: 'support', version: '0.1.0', productName: 'Support', main: 'agent/main.js' },

@@ -109,12 +109,13 @@ begin
   if Result = '' then Result := GetKeyFromFilename;
 end;
 
-// TRULY SILENT install (no wizard, like before). A plain double-click isn't
-// silent, so we relaunch OURSELVES /VERYSILENT. The catch: the running setup
-// holds its own srcexe open, so Exec'ing {srcexe} directly is ACCESS DENIED
-// (rc=5). Fix: copy the exe to a fresh temp file — keeping the key in the name so
-// the silent child still reads it — and exec THAT copy. This instance then quits
-// with no UI. Falls back to a normal install only if the copy/exec fails.
+// IMPORTANT: do NOT try to self-relaunch /VERYSILENT here. Inno 6.7's
+// RedirectionGuard denies a setup Exec'ing its own exe (ACCESS DENIED / rc=5),
+// and every workaround (copy-to-temp + re-exec, cmd start, etc.) either fails
+// the same way or spawns errant popups. A double-click therefore shows a brief
+// wizard. Customers download via /dl/<key> → the VBS launcher calls this with
+// /VERYSILENT → truly silent for real users. That is the intended path; the
+// wizard on a plain double-click is a test-only artifact.
 // After install: write the agent's config (relay + enrollment key) and launch it.
 procedure CurStepChanged(CurStep: TSetupStep);
 var

@@ -771,6 +771,16 @@ async function loadKeys() {
         b.className = 'method-tag warn'; b.textContent = 'Elevated'; b.style.marginLeft = '8px';
         b.title = 'Installs as a SYSTEM service (one-time UAC on the remote)';
         row.querySelector('.link-label').appendChild(b);
+      } else {
+        // Per-user (Silent) links are temporarily disabled — grey the whole row
+        // and label it so operators don't share these until we re-enable the build type.
+        row.style.opacity = '.45';
+        row.style.filter = 'grayscale(1)';
+        row.title = 'Silent (per-user) is temporarily disabled. Create a new Elevated link and share that instead.';
+        const b = document.createElement('span');
+        b.className = 'method-tag'; b.textContent = 'Silent — unavailable'; b.style.marginLeft = '8px';
+        b.title = 'This link type is temporarily disabled site-wide.';
+        row.querySelector('.link-label').appendChild(b);
       }
       row.querySelector('.link-url').textContent = k.downloadUrl;
       const acts = row.querySelector('.link-actions');

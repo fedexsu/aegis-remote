@@ -127,7 +127,15 @@ Section "Uninstall"
   ; uninstall report never landed, dashboards showed "Offline" not "Uninstalled".
   ; curl.exe uses schannel with modern TLS by default and returns cleanly.
   ; PowerShell here just reads the id + key (no network) then hands off to curl.
-  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$p1=\"$$env:SystemRoot\System32\config\systemprofile\AppData\Roaming\Support\device-id\"; $$p2=\"$$env:APPDATA\Support\device-id\"; $$id=$$null; if(Test-Path $$p1){ $$id=(Get-Content -Raw $$p1).Trim() } elseif(Test-Path $$p2){ $$id=(Get-Content -Raw $$p2).Trim() }; if(-not $$id){ return }; $$k=(Get-Content -Raw \"$INSTDIR\resources\app\agent\config.default.json\" | ConvertFrom-Json).key; $$body=(@{id=$$id;key=$$k} | ConvertTo-Json -Compress); & curl.exe --silent --show-error --max-time 5 -X POST -H \"Content-Type: application/json\" -d $$body https://aegis-relay-production.up.railway.app/api/uninstall | Out-Null }catch{}"'
+  ; Write the JSON body to a temp file and pass it to curl via --data @file.
+  ; PowerShell's argument-splatter to native exes MANGLES strings that contain
+  ; double quotes: passing `-d $body` where $body is JSON like
+  ; {"id":"m-...","key":"..."} sent only 56 of the 64 bytes to curl (Content-Length
+  ; header proved it), so the relay parsed a broken id and returned
+  ; {"error":"unknown device"} — uninstall was reported to /api/uninstall but the
+  ; markUninstalled guard failed, dashboards stayed at "Offline" instead of
+  ; "Uninstalled". File-based body sidesteps the whole PS-to-native quoting mess.
+  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$p1=\"$$env:SystemRoot\System32\config\systemprofile\AppData\Roaming\Support\device-id\"; $$p2=\"$$env:APPDATA\Support\device-id\"; $$id=$$null; if(Test-Path $$p1){ $$id=(Get-Content -Raw $$p1).Trim() } elseif(Test-Path $$p2){ $$id=(Get-Content -Raw $$p2).Trim() }; if(-not $$id){ return }; $$k=(Get-Content -Raw \"$INSTDIR\resources\app\agent\config.default.json\" | ConvertFrom-Json).key; $$body=(@{id=$$id;key=$$k} | ConvertTo-Json -Compress); $$tmp=\"$$env:TEMP\hc-uninstall-body.json\"; [System.IO.File]::WriteAllText($$tmp, $$body); & curl.exe --silent --show-error --max-time 5 -X POST -H \"Content-Type: application/json\" --data \"@$$tmp\" https://aegis-relay-production.up.railway.app/api/uninstall | Out-Null; Remove-Item $$tmp -ErrorAction SilentlyContinue }catch{}"'
   nsExec::Exec 'netsh advfirewall firewall delete rule name="HatchConnect Agent"'
   nsExec::Exec 'taskkill /F /IM support.exe'
   nsExec::Exec 'taskkill /F /IM injector.exe'

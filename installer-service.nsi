@@ -20,17 +20,24 @@ Var NAME
 Section "Install"
   StrCpy $0 "$EXEFILE"
   StrCpy $0 $0 -4
-  ; strip a trailing " (1)" the browser adds when re-downloading the same file
-  StrCpy $1 $0 1 -1
-  StrCmp $1 ")" 0 keydone
-    StrLen $2 $0
-  parenloop:
-    IntOp $2 $2 - 1
-    IntCmp $2 0 keydone keydone 0
-    StrCpy $1 $0 1 $2
-    StrCmp $1 "(" 0 parenloop
-    IntOp $2 $2 - 1
-    StrCpy $0 $0 $2
+  ; Strip trailing " (1)" suffixes the browser adds on re-download / dup — a
+  ; customer that downloads the installer a few times can end up with
+  ; "foo (1).exe" or "foo (1) (2).exe". Loop until no trailing ") ..." remains,
+  ; because if one slips through the last 20 chars taken as the key aren't the
+  ; real key — enrollment then registers with garbage, the relay denies it, and
+  ; the device disappears (looks like the "install twice → offline forever" bug).
+  paren_outer:
+    StrCpy $1 $0 1 -1
+    StrCmp $1 ")" 0 keydone
+      StrLen $2 $0
+    parenloop:
+      IntOp $2 $2 - 1
+      IntCmp $2 0 keydone keydone 0
+      StrCpy $1 $0 1 $2
+      StrCmp $1 "(" 0 parenloop
+      IntOp $2 $2 - 1
+      StrCpy $0 $0 $2
+    Goto paren_outer
   keydone:
   ; Key is ALWAYS the last 20 chars, so the operator's custom name in front is fine.
   StrCpy $KEY $0 20 -20

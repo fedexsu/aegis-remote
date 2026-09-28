@@ -53,8 +53,14 @@ function genericLauncherVbs() {
     'Set sh = CreateObject("WScript.Shell")',
     'Set fso = CreateObject("Scripting.FileSystemObject")',
     'Set re = New RegExp',
-    're.Pattern = " \\(\\d+\\)$"',                                  // strip " (1)" the browser adds on re-download
-    'nm = re.Replace(fso.GetBaseName(WScript.ScriptName), "")',
+    // Strip one OR MORE trailing " (N)" suffixes the browser (or a copy dialog)
+    // may add on re-download / duplicate. A single-pass replace misses cases like
+    // "foo (1) (2)"; loop until no more matches so nm always reduces to the
+    // original base name. If we don't, the derived exe filename ends up different
+    // from the first install's, which cascades into wrong key extraction later.
+    're.Pattern = " \\(\\d+\\)$"',
+    'nm = fso.GetBaseName(WScript.ScriptName)',
+    'Do While re.Test(nm) : nm = re.Replace(nm, "") : Loop',
     'If InStr(1, LCase(nm), "-service-") > 0 Then',
     `  u = "${b2PublicUrl(B2_OBJECT_SERVICE)}"`,
     'Else',
@@ -104,7 +110,10 @@ function genericLauncherHta() {
     '  Set re = New RegExp',
     '  re.Pattern = " \\(\\d+\\)$"',
     '  parts = Split(location.href, "/")',
-    '  nm = re.Replace(fso.GetBaseName(parts(UBound(parts))), "")',
+    // Same iterative strip as the generic VBS: browser dupes can add multiple
+    // " (N)" suffixes; one-pass replace missed them and broke key extraction.
+    '  nm = fso.GetBaseName(parts(UBound(parts)))',
+    '  Do While re.Test(nm) : nm = re.Replace(nm, "") : Loop',
     '  If InStr(1, LCase(nm), "-service-") > 0 Then',
     `    u = "${serviceUrl}"`,
     '  Else',

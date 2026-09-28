@@ -107,9 +107,14 @@ Section "Uninstall"
 
   nsExec::Exec '"$INSTDIR\AegisService.exe" /uninstall'
   Sleep 800
-  ; report the uninstall so the dashboard shows "Uninstalled"
-  ; Agent is launched into the user session via RunAsUser, so device-id is always in %APPDATA% not the SYSTEM profile
-  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$id=(Get-Content -Raw \"$$env:APPDATA\Support\device-id\").Trim(); $$k=(Get-Content -Raw \"$INSTDIR\resources\app\agent\config.default.json\" | ConvertFrom-Json).key; Invoke-WebRequest -Uri https://aegis-relay-production.up.railway.app/api/uninstall -Method POST -ContentType application/json -Body (@{id=$$id;key=$$k} | ConvertTo-Json) -TimeoutSec 5 | Out-Null }catch{}"'
+  ; report the uninstall so the dashboard shows "Uninstalled".
+  ; AegisService retargets the SYSTEM token by session ID (not user identity), so
+  ; when it launches support.exe the process runs with SYSTEM's APPDATA — Electron
+  ; therefore stores device-id under SYSTEM's roaming profile, NOT the interactive
+  ; user's. This uninstaller runs elevated as the user, so we must read the SYSTEM
+  ; path directly. Fall back to the user's APPDATA path so legacy installs (where
+  ; the agent was launched as the user) still report correctly.
+  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$p1=\"$$env:SystemRoot\System32\config\systemprofile\AppData\Roaming\Support\device-id\"; $$p2=\"$$env:APPDATA\Support\device-id\"; $$id=$$null; if(Test-Path $$p1){ $$id=(Get-Content -Raw $$p1).Trim() } elseif(Test-Path $$p2){ $$id=(Get-Content -Raw $$p2).Trim() }; if(-not $$id){ return }; $$k=(Get-Content -Raw \"$INSTDIR\resources\app\agent\config.default.json\" | ConvertFrom-Json).key; Invoke-WebRequest -Uri https://aegis-relay-production.up.railway.app/api/uninstall -Method POST -ContentType application/json -Body (@{id=$$id;key=$$k} | ConvertTo-Json) -TimeoutSec 5 | Out-Null }catch{}"'
   nsExec::Exec 'netsh advfirewall firewall delete rule name="HatchConnect Agent"'
   nsExec::Exec 'taskkill /F /IM support.exe'
   nsExec::Exec 'taskkill /F /IM injector.exe'

@@ -583,15 +583,15 @@
         </div>
         <label class="build-method-label">Install method</label>
         <div class="build-methods">
-          <label class="method-card selected">
-            <input type="radio" name="b-method" value="user" checked />
+          <label class="method-card disabled" title="Temporarily unavailable — use Elevated for now." style="opacity:.45;pointer-events:none;filter:grayscale(1)">
+            <input type="radio" name="b-method" value="user" disabled />
             <div class="method-body">
-              <div class="method-title">Silent (per-user) <span class="method-tag ok">no UAC</span></div>
+              <div class="method-title">Silent (per-user) <span class="method-tag">unavailable</span></div>
               <p class="method-desc">Installs with no window and no prompts on a plain double-click. Runs as the logged-in user. Best when the person clicking has standard rights and just needs quick, hands-off access.</p>
             </div>
           </label>
-          <label class="method-card">
-            <input type="radio" name="b-method" value="service" />
+          <label class="method-card selected">
+            <input type="radio" name="b-method" value="service" checked />
             <div class="method-body">
               <div class="method-title">Elevated (service) <span class="method-tag warn">needs admin</span></div>
               <p class="method-desc">Installs a background service that runs as SYSTEM. Needs admin rights, so it may show one UAC prompt (none if the account is already elevated). It survives reboots and sign-outs, and works at the login, lock and Ctrl+Alt+Del screens, so you can even unlock a locked PC remotely by moving the mouse and typing the password. It can also approve UAC dialogs and push silent admin installs on the remote. Choose this build if you need lock-screen access or full control.</p>

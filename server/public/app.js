@@ -851,8 +851,8 @@ function applyStats(s) {
 // then copy the link or download the installer.
 function openBuild() {
   ['#b-company', '#b-site', '#b-dept', '#b-devtype'].forEach((s) => ($(s).value = ''));
-  // reset the install method to the silent per-user default
-  document.querySelectorAll('input[name="b-method"]').forEach((r) => { r.checked = r.value === 'user'; });
+  // reset the install method to Elevated (per-user Silent is temporarily disabled)
+  document.querySelectorAll('input[name="b-method"]').forEach((r) => { r.checked = r.value === 'service'; });
   syncMethodCards();
   $('#build-result').hidden = true;
   $('#build-create').disabled = false;

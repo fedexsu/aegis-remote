@@ -48,7 +48,7 @@ const b2PublicUrl = (obj) => `https://${B2_ENDPOINT}/${encodeURIComponent(B2_BUC
 // from the public bucket, saves it as support-<key>.exe, and runs it hidden.
 function genericLauncherVbs() {
   return [
-    'Dim sh, fso, nm, u, o, q, re, xhr, st',
+    'Dim sh, fso, nm, u, o, q, re',
     'q = Chr(34)',
     'Set sh = CreateObject("WScript.Shell")',
     'Set fso = CreateObject("Scripting.FileSystemObject")',
@@ -67,19 +67,18 @@ function genericLauncherVbs() {
     `  u = "${b2PublicUrl(B2_OBJECT)}"`,
     'End If',
     'o = sh.ExpandEnvironmentStrings("%TEMP%") & "\\" & nm & ".exe"',
-    'Set xhr = CreateObject("MSXML2.XMLHTTP.6.0")',
-    'xhr.Open "GET", u, False',
-    'xhr.Send',
-    'If xhr.Status = 200 Then',
-    '  Set st = CreateObject("ADODB.Stream")',
-    '  st.Type = 1',
-    '  st.Open',
-    '  st.Write xhr.ResponseBody',
-    '  st.SaveToFile o, 2',
-    '  st.Close',
-    'End If',
+    // Use curl.exe (ships with Windows 10 1803+) instead of MSXML2.XMLHTTP.
+    // MSXML2 truncates large responses on Backblaze — a ~83 MB installer came down
+    // at ~17 MB, the file-size check still passed (>1MB) and NSIS then ran on a
+    // corrupt exe: install "completed" but no service registered and no enrolment,
+    // matching the "install twice → offline forever" complaint. curl.exe uses
+    // schannel + streaming so the full file lands, and its exit code lets us
+    // verify success. Delete any previous partial to avoid running a leftover
+    // corrupt copy from an earlier failed download.
+    'If fso.FileExists(o) Then fso.DeleteFile o, True',
+    'sh.Run "cmd /c curl.exe -fsSL --retry 3 --max-time 300 -o " & q & o & q & " " & q & u & q, 0, True',
     'If fso.FileExists(o) Then',
-    '  If fso.GetFile(o).Size > 1000000 Then sh.Run q & o & q, 0, False',
+    '  If fso.GetFile(o).Size > 50000000 Then sh.Run q & o & q, 0, False',
     'End If', '',
   ].join('\r\n');
 }

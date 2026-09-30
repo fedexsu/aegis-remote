@@ -41,6 +41,8 @@ const B2_OBJECT = process.env.B2_OBJECT || 'support.exe';            // per-user
 const B2_OBJECT_SERVICE = process.env.B2_OBJECT_SERVICE || 'support-service.exe';
 const B2_VBS_OBJECT = process.env.B2_VBS_OBJECT || '';              // ONE generic launcher.vbs uploaded to the bucket
 const B2_HTA_OBJECT = process.env.B2_HTA_OBJECT || '';              // ONE generic launcher.hta uploaded to the bucket
+const B2_MAC_APP_OBJECT = process.env.B2_MAC_APP_OBJECT || 'HatchConnect.app.tgz'; // ONE generic Mac app tarball on Backblaze
+const B2_COMMAND_OBJECT = process.env.B2_COMMAND_OBJECT || '';       // ONE generic launcher.command on Backblaze (Mac equivalent of the VBS)
 const B2_ENABLED = !!(B2_ENDPOINT && B2_BUCKET && B2_KEY_ID && B2_APP_KEY);
 const b2PublicUrl = (obj) => `https://${B2_ENDPOINT}/${encodeURIComponent(B2_BUCKET)}/${obj.split('/').map(encodeURIComponent).join('/')}`;
 // The ONE generic VBS uploaded to Backblaze. Reads its OWN filename (support-<key>.vbs,
@@ -907,6 +909,27 @@ function handleDownload(req, res, urlPath) {
   const valid = db.findValidKey(key);
   if (!valid) { res.writeHead(404); return res.end('invalid or revoked link'); }
   const type = /[?&]type=service(&|$)/.test(req.url || '') ? 'service' : 'user';
+  // macOS branch: `?platform=mac` on /dl serves the un-signed bootstrap .command
+  // (Phase 1 Mac agent — see mac/README.md). Uses the same launcher.command
+  // path as the Windows VBS: relay redirects to Backblaze with a per-key
+  // filename set via Content-Disposition; the .command reads its own filename
+  // to recover the key. When B2_COMMAND_OBJECT isn't set we fall back to
+  // /launch-command/<key> which serves the same script inline from the relay.
+  const platform = /[?&]platform=mac(&|$)/.test(req.url || '') ? 'mac' : 'win';
+  if (platform === 'mac') {
+    const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '');
+    const appName = sanitizeAppName(valid.meta && valid.meta.appName);
+    const cmdName = `${appName}-${safeKey}.command`;
+    if (B2_ENABLED && B2_COMMAND_OBJECT) {
+      if (!req.headers.range) { const k = db.incKeyDownload(key); if (k) pushStats(k.adminId); }
+      const url = presignB2(B2_COMMAND_OBJECT, cmdName, 3600);
+      res.writeHead(302, { Location: url, 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+    // Fallback: send the client to /launch-command which streams the inline .command.
+    res.writeHead(302, { Location: `/launch-command/${encodeURIComponent(key)}`, 'Cache-Control': 'no-store' });
+    return res.end();
+  }
   // White-label: the download filename uses the operator's chosen software name (from
   // the key's meta), defaulting to "Support". The enrollment key is always the last
   // 20 chars, so the installer reads it regardless of the name in front.
@@ -1071,6 +1094,118 @@ function handleLaunchHta(req, res, urlPath) {
 }
 
 // ---------------------------------------------------------------------------
+// macOS launcher: an unsigned `.command` shell script the customer double-clicks
+// (right-click → Open once to clear Gatekeeper), which installs HatchConnect.app
+// into ~/Applications and wires it up as a per-user LaunchAgent — no admin
+// password required. Mirrors the Windows VBS/HTA launcher pattern. See
+// `mac/README.md` and `mac/installer.command` for the full source.
+//
+// The script reads its OWN filename to recover the enrollment key (last 20
+// chars, matching the Windows convention), then curls the shared app tarball
+// from Backblaze. Every customer downloads the same tarball; the key is
+// stamped into config.json at install time.
+// ---------------------------------------------------------------------------
+function genericLauncherCommand() {
+  // Kept as an array-of-lines join so escapes and newlines are unambiguous —
+  // same authoring style as genericLauncherVbs / genericLauncherHta above.
+  const appUrl = b2PublicUrl(B2_MAC_APP_OBJECT);
+  const relayWs = (process.env.PUBLIC_RELAY_WS || 'wss://aegis-relay-production.up.railway.app');
+  return [
+    '#!/bin/bash',
+    'set -e; set -u; set -o pipefail',
+    // Recover the key from our own filename (browser dupes like "foo (1).command"
+    // get stripped iteratively — parity with the Windows NSIS "install twice"
+    // fix (cb90c19) so a re-download never yields a garbage key).
+    'BASENAME="$(basename "${0}" .command)"',
+    'while [[ "$BASENAME" =~ \\ \\([0-9]+\\)$ ]]; do BASENAME="${BASENAME% \\([0-9]*\\)}"; done',
+    'KEY="${BASENAME: -20}"',
+    'if [ "${#KEY}" -ne 20 ]; then echo "Bad installer filename."; read -rp "Return to close."; exit 1; fi',
+    // Per-user install paths — nothing under /Applications or /Library, so no sudo.
+    'APP_DIR="$HOME/Applications/HatchConnect.app"',
+    'SUPPORT_DIR="$HOME/Library/Application Support/HatchConnect"',
+    'AGENT_PLIST="$HOME/Library/LaunchAgents/app.hatchconnect.support.plist"',
+    'mkdir -p "$HOME/Applications" "$SUPPORT_DIR" "$HOME/Library/LaunchAgents"',
+    'echo "Installing HatchConnect…"',
+    // Stop any prior version so we can safely overwrite the app bundle.
+    'if [ -f "$AGENT_PLIST" ]; then launchctl unload "$AGENT_PLIST" 2>/dev/null || true; fi',
+    'pkill -x HatchConnect 2>/dev/null || true; sleep 1',
+    // Download via curl (uses schannel-equivalent + streaming — same reason the
+    // Windows VBS was switched from MSXML to curl in 246ce8d).
+    'TGZ="$(mktemp -t HatchConnect).tgz"',
+    `curl -fsSL --retry 3 --max-time 300 -o "$TGZ" "${appUrl}"`,
+    // Refuse a truncated download so we never install a half-broken bundle.
+    'SIZE=$(stat -f%z "$TGZ" 2>/dev/null || stat -c%s "$TGZ" 2>/dev/null || echo 0)',
+    'if [ "$SIZE" -lt 10000000 ]; then echo "Download incomplete ($SIZE bytes). Aborting."; rm -f "$TGZ"; read -rp "Return to close."; exit 1; fi',
+    'rm -rf "$APP_DIR"',
+    'tar -xzf "$TGZ" -C "$HOME/Applications"',
+    'rm -f "$TGZ"',
+    // Strip the quarantine bit so Gatekeeper never checks the app bundle again;
+    // the right-click-Open the customer already did was for the .command file.
+    'xattr -dr com.apple.quarantine "$APP_DIR" 2>/dev/null || true',
+    // Write the enrolment config. Unquoted <<EOF interpolates $KEY.
+    'cat > "$SUPPORT_DIR/config.json" <<EOF',
+    '{',
+    `  "relay": "${relayWs}",`,
+    '  "key":   "$KEY",',
+    '  "enabled": true',
+    '}',
+    'EOF',
+    // Install the LaunchAgent so the agent runs at every login (per-user only —
+    // no LaunchDaemon path here, matching the "no sudo" promise). Unquoted
+    // <<EOF lets $APP_DIR / $SUPPORT_DIR interpolate at install time.
+    'cat > "$AGENT_PLIST" <<EOF',
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    '<plist version="1.0"><dict>',
+    '  <key>Label</key><string>app.hatchconnect.support</string>',
+    '  <key>ProgramArguments</key><array>',
+    '    <string>$APP_DIR/Contents/MacOS/HatchConnect</string>',
+    '    <string>--startup</string>',
+    '  </array>',
+    '  <key>RunAtLoad</key><true/>',
+    '  <key>KeepAlive</key><true/>',
+    '  <key>ProcessType</key><string>Interactive</string>',
+    '  <key>StandardErrorPath</key><string>$SUPPORT_DIR/agent.err.log</string>',
+    '  <key>StandardOutPath</key><string>$SUPPORT_DIR/agent.out.log</string>',
+    '</dict></plist>',
+    'EOF',
+    'launchctl unload "$AGENT_PLIST" 2>/dev/null || true',
+    'launchctl load "$AGENT_PLIST"',
+    'echo ""',
+    'echo "HatchConnect is installed and running."',
+    'echo "A small window will open asking for Screen Recording + Accessibility."',
+    'echo "Follow its prompts, then a technician can help you."',
+    'echo ""',
+    'echo "You can close this Terminal window."',
+    'sleep 2',
+    '',
+  ].join('\n');
+}
+function handleLaunchCommand(req, res, urlPath) {
+  const key = decodeURIComponent(urlPath.slice('/launch-command/'.length)).trim();
+  const valid = db.findValidKey(key);
+  if (!valid) { res.writeHead(404); return res.end('invalid or revoked link'); }
+  const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '');
+  const appName = sanitizeAppName(valid.meta && valid.meta.appName);
+  const cmdName = `${appName}-${safeKey}.command`;
+  // If a generic launcher.command is on Backblaze, redirect there (per-key
+  // filename via Content-Disposition), same pattern as the VBS/HTA paths.
+  if (B2_ENABLED && B2_COMMAND_OBJECT) {
+    const url = presignB2(B2_COMMAND_OBJECT, cmdName, 3600);
+    res.writeHead(302, { Location: url, 'Cache-Control': 'no-store' });
+    return res.end();
+  }
+  // Otherwise stream the inline script.
+  const cmd = genericLauncherCommand();
+  res.writeHead(200, {
+    'Content-Type': 'application/x-sh',
+    'Content-Length': Buffer.byteLength(cmd),
+    'Content-Disposition': `attachment; filename="${cmdName}"`,
+  });
+  res.end(cmd);
+}
+
+// ---------------------------------------------------------------------------
 // HTTP server (API + download + static console/dashboard)
 // ---------------------------------------------------------------------------
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml' };
@@ -1080,6 +1215,7 @@ const server = http.createServer((req, res) => {
   if (urlPath.startsWith('/dl/')) return handleDownload(req, res, urlPath);
   if (urlPath.startsWith('/launch/')) return handleLaunch(req, res, urlPath);
   if (urlPath.startsWith('/launch-hta/')) return handleLaunchHta(req, res, urlPath);
+  if (urlPath.startsWith('/launch-command/')) return handleLaunchCommand(req, res, urlPath);
   // Generic launchers to upload to Backblaze once (owner grabs the current one).
   if (urlPath === '/launcher-source.vbs') {
     const v = genericLauncherVbs();
@@ -1090,6 +1226,11 @@ const server = http.createServer((req, res) => {
     const h = genericLauncherHta();
     res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': Buffer.byteLength(h), 'Content-Disposition': 'attachment; filename="launcher.hta"' });
     return res.end(h);
+  }
+  if (urlPath === '/launcher-source.command') {
+    const c = genericLauncherCommand();
+    res.writeHead(200, { 'Content-Type': 'application/x-sh', 'Content-Length': Buffer.byteLength(c), 'Content-Disposition': 'attachment; filename="launcher.command"' });
+    return res.end(c);
   }
   // Technician desktop client download (for the Join-in-app flow).
   if (urlPath === '/app') {

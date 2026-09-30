@@ -1,0 +1,10 @@
+{
+  "name": "hatchconnect",
+  "productName": "HatchConnect",
+  "version": "0.1.0",
+  "main": "main.js",
+  "description": "HatchConnect for macOS — unattended remote support agent.",
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Info.plist for HatchConnect.app (Contents/Info.plist inside the bundle).
+
+  The bundle identifier (CFBundleIdentifier) MUST NOT change across updates —
+  macOS's TCC database keys permission grants (Screen Recording, Accessibility)
+  by bundle id. Changing it is equivalent to shipping a "new" app and would
+  make every customer re-grant permissions.
+-->
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>              <string>HatchConnect</string>
+  <key>CFBundleDisplayName</key>       <string>HatchConnect</string>
+  <key>CFBundleIdentifier</key>        <string>app.hatchconnect.support</string>
+  <key>CFBundleVersion</key>           <string>0.1</string>
+  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>CFBundlePackageType</key>       <string>APPL</string>
+  <key>CFBundleExecutable</key>        <string>HatchConnect</string>
+  <key>CFBundleIconFile</key>          <string>icon</string>
+
+  <!-- Minimum macOS. ScreenCaptureKit (Phase 2) requires 12.3+. -->
+  <key>LSMinimumSystemVersion</key>    <string>12.3</string>
+
+  <!-- Cover both Intel + Apple Silicon builds from a single .app bundle. -->
+  <key>LSApplicationCategoryType</key> <string>public.app-category.utilities</string>
+  <key>LSUIElement</key>               <false/>
+
+  <!-- User-facing permission usage strings. macOS will show these to the
+       customer when the OS prompts for the corresponding permissions.
+       Keep them short, honest, and free of scary language. -->
+  <key>NSCameraUsageDescription</key>
+    <string>HatchConnect does not use the camera. This permission is not requested by the app.</string>
+  <key>NSMicrophoneUsageDescription</key>
+    <string>HatchConnect does not use the microphone. This permission is not requested by the app.</string>
+  <key>NSAppleEventsUsageDescription</key>
+    <string>HatchConnect uses this to launch apps or open URLs when your technician asks it to.</string>
+  <key>NSDesktopFolderUsageDescription</key>
+    <string>HatchConnect uses this only when your technician asks it to open a file from your Desktop.</string>
+  <key>NSDocumentsFolderUsageDescription</key>
+    <string>HatchConnect uses this only when your technician asks it to open a file from your Documents folder.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+    <string>HatchConnect uses this only when your technician asks it to open or save a file in Downloads.</string>
+
+  <!-- Prevent macOS from auto-terminating the agent when the user closes its
+       last window. LaunchAgent restart-on-crash is the safety net. -->
+  <key>NSSupportsAutomaticTermination</key>       <false/>
+  <key>NSSupportsSuddenTermination</key>          <false/>
+
+  <!-- We keep the WebSocket to the relay open, so no need for background app
+       refresh, but declare no-op networking so App Nap doesn't throttle us. -->
+  <key>LSBackgroundOnly</key>          <false/>
+</dict>
+</plist>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template for ~/Library/LaunchAgents/app.hatchconnect.support.plist
+
+  The installer.command writes this file per-install with real absolute paths
+  substituted for $HOME. This copy is for reference/version control.
+
+  Deliberately NO admin-owned paths: everything lives in ~/. No LaunchDaemon,
+  no /Library/LaunchDaemons, no sudo. That means the agent does NOT survive a
+  user logout and cannot capture the login screen — same trade-off as the
+  Windows per-user install. Enterprise/system tier is a future add-on.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>                  <string>app.hatchconnect.support</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/Applications/HatchConnect.app/Contents/MacOS/HatchConnect</string>
+    <string>--startup</string>
+  </array>
+  <!-- Start on every user login -->
+  <key>RunAtLoad</key>              <true/>
+  <!-- Auto-restart if the agent crashes -->
+  <key>KeepAlive</key>              <true/>
+  <!-- Interactive: this is a user-facing GUI app, launchd should give it
+       normal foreground/backgroudn scheduling and let it talk to WindowServer -->
+  <key>ProcessType</key>            <string>Interactive</string>
+  <key>StandardErrorPath</key>      <string>__HOME__/Library/Application Support/HatchConnect/agent.err.log</string>
+  <key>StandardOutPath</key>        <string>__HOME__/Library/Application Support/HatchConnect/agent.out.log</string>
+</dict>
+</plist>

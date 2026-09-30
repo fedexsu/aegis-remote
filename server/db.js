@@ -155,7 +155,17 @@ const findAdminByEmail = (email) => db.admins.find((a) => a.email === (email || 
 const findAdminById = (id) => db.admins.find((a) => a.id === id);
 const publicAdmin = (a) => a && ({ id: a.id, email: a.email, name: a.name, role: a.role || 'admin', mustChangePassword: !!a.mustChangePassword });
 const hasAdmins = () => db.admins.length > 0;
-const listAdmins = () => db.admins.map((a) => ({ id: a.id, username: a.email, name: a.name, role: a.role || 'admin', createdAt: a.createdAt }));
+const listAdmins = () => db.admins.map((a) => ({
+  id: a.id, username: a.email, name: a.name, role: a.role || 'admin', createdAt: a.createdAt,
+  // Subscription fields for the owner's Accounts list (plan/expiry + Set-plan button).
+  // Owners have no expiry; customers show plan, subExpires (ms), and derived status.
+  plan: a.plan || null,
+  subStart: a.subStart || null,
+  subExpires: a.subExpires || null,
+  // Convenience booleans so the console doesn't have to re-derive them.
+  active: (a.role || 'admin') === 'owner' || !a.subExpires || a.subExpires > Date.now(),
+  trial: !!a.trial,
+}));
 function updatePassword(adminId, newPassword) {
   const a = findAdminById(adminId);
   if (!a) throw new Error('not found');
@@ -546,6 +556,32 @@ const _magic = new Map();
 function createMagicToken(adminId) { const t = genToken(); _magic.set(t, { adminId, exp: Date.now() + 600000 }); return t; }
 function consumeMagicToken(t) { const e = _magic.get(t); _magic.delete(t); if (!e || e.exp < Date.now()) return null; return e.adminId; }
 
+// Owner-side subscription set / extend. Same effect as a paid invoice landing:
+// sets `plan` and pushes `subExpires` to (max(now, current) + days). Used by
+// the owner dashboard to manually enrol / extend customers who paid offline.
+// - planKey: one of PLANS ('monthly' | 'quarterly' | 'biannual' | 'annual') or
+//            null to leave the plan label unchanged.
+// - days:    number of days to add to the term. If the account has an active
+//            subExpires in the future we extend from there so an early renewal
+//            never loses days; otherwise we start from now.
+// Returns the updated admin's public fields, or null on unknown id.
+function setPlan(adminId, planKey, days) {
+  const admin = findAdminById(adminId);
+  if (!admin) return null;
+  if ((admin.role || 'admin') === 'owner') return null; // owners have no expiry
+  const d = Math.max(0, parseInt(days, 10) || 0);
+  const addMs = d * 86400000;
+  const base = Math.max(Date.now(), admin.subExpires || 0);
+  admin.subExpires = base + addMs;
+  if (planKey && PLANS[planKey]) admin.plan = planKey;
+  else if (!admin.plan) admin.plan = 'monthly'; // sensible default label
+  if (!admin.subStart) admin.subStart = Date.now();
+  admin.trial = false;         // an owner-set plan is a paid arrangement, not a trial
+  admin.remindedAt = 0;        // rearm reminder throttle
+  save();
+  return { id: admin.id, email: admin.email, plan: admin.plan, subExpires: admin.subExpires, subStart: admin.subStart };
+}
+
 module.exports = {
   DATA_DIR,
   createAdmin, findAdminByEmail, findAdminById, publicAdmin, verifyPassword,
@@ -559,6 +595,6 @@ module.exports = {
   plans, createInvoice, getInvoice, accountByTg, expireInvoices, matchPendingInvoiceByAmount, isTxProcessed, markTxProcessed, provisionFromInvoice,
   trialDays, hasUsedTrial, phoneUsedTrial, provisionTrial,
   isTrialAdmin, trialMaxDevices, activeDeviceCount,
-  isExpired, subscriptionOf, createMagicToken, consumeMagicToken,
+  isExpired, subscriptionOf, createMagicToken, consumeMagicToken, setPlan,
   subscriberReminders, setReminded,
 };

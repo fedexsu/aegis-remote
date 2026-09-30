@@ -1008,10 +1008,60 @@ async function loadAccounts() {
     for (const a of accounts) {
       const row = document.createElement('div');
       row.className = 'acctrow';
-      row.innerHTML = `<div class="acct-av"></div><div><div class="acct-name"></div><div class="acct-sub"></div></div>`;
+      row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line2);border-radius:10px;margin-bottom:8px';
+      row.innerHTML = `
+        <div class="acct-av" style="width:36px;height:36px;border-radius:50%;background:#2f6bff;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;flex:0 0 auto"></div>
+        <div style="flex:1;min-width:0">
+          <div class="acct-name" style="font-weight:600"></div>
+          <div class="acct-sub" style="color:#8a90a0;font-size:12px"></div>
+        </div>
+        <div class="acct-plan-badge" style="font-size:11px;padding:3px 8px;border-radius:10px"></div>
+        <button class="btn ghost small acct-setplan">Set plan</button>`;
       row.querySelector('.acct-av').textContent = (a.username || '?').charAt(0).toUpperCase();
       row.querySelector('.acct-name').textContent = a.username;
-      row.querySelector('.acct-sub').textContent = (a.name && a.name !== a.username ? a.name + ' · ' : '') + 'created ' + fmtDate(a.createdAt);
+
+      // Sub status line — shows plan + days left or "Expired · N days ago", so the
+      // owner can see at a glance who lapsed. Trial accounts read as "Trial".
+      const now = Date.now();
+      const parts = [];
+      if (a.name && a.name !== a.username) parts.push(a.name);
+      parts.push('created ' + fmtDate(a.createdAt));
+      if (a.subExpires) {
+        const daysLeft = Math.ceil((a.subExpires - now) / 86400000);
+        if (a.trial) parts.push('Trial · ' + Math.max(0, daysLeft) + 'd left');
+        else if (daysLeft > 0) parts.push((a.plan ? a.plan[0].toUpperCase() + a.plan.slice(1) : 'Paid') + ' · ' + daysLeft + 'd left');
+        else parts.push('Expired · ' + Math.abs(daysLeft) + 'd ago');
+      } else {
+        parts.push('No plan set');
+      }
+      row.querySelector('.acct-sub').textContent = parts.join(' · ');
+
+      // Colored badge on the right so an at-a-glance scan tells you who's OK.
+      const badge = row.querySelector('.acct-plan-badge');
+      if (!a.subExpires) { badge.textContent = 'No plan'; badge.style.cssText += 'background:#3a3f4d;color:#cfd3dc'; }
+      else if (a.active) { badge.textContent = a.trial ? 'Trial' : 'Active'; badge.style.cssText += 'background:#1e8f5c;color:#fff'; }
+      else { badge.textContent = 'Expired'; badge.style.cssText += 'background:#e5484d;color:#fff'; }
+
+      row.querySelector('.acct-setplan').addEventListener('click', async () => {
+        const vals = await modal({
+          title: 'Set / extend plan for ' + a.username,
+          fields: [
+            { label: 'Plan', placeholder: 'monthly', value: a.plan || 'monthly' },
+            { label: 'Days to add', placeholder: '30', value: '30' },
+          ],
+          confirmText: 'Apply',
+        });
+        if (!vals) return;
+        const plan = (vals[0] || 'monthly').trim().toLowerCase();
+        const days = parseInt(vals[1], 10);
+        if (!days || days < 1) { toast('Days must be a positive number', 'err'); return; }
+        try {
+          const r = await api('/api/accounts/set-plan', 'POST', { username: a.username, plan, days });
+          toast('Plan set — expires in ' + r.daysLeft + ' day' + (r.daysLeft === 1 ? '' : 's'), 'ok');
+          loadAccounts();
+        } catch (e) { toast(e.message, 'err'); }
+      });
+
       box.appendChild(row);
     }
   } catch { /* not owner */ }

@@ -727,6 +727,33 @@ async function handleApi(req, res, urlPath) {
       const { admin: created } = db.createAdmin(username, password, b.name || username, 'admin');
       return json(res, 200, { username: created.email, password });
     }
+    // Owner-side manual plan set / extend. Same effect as a Telegram-bot invoice
+    // landing, but for customers who paid offline. Body: { username, plan?, days }.
+    // - `days` is added to max(now, current subExpires). So calling this on an
+    //   already-paid customer extends without losing days.
+    // - `plan` is optional and only sets the label; the customer's access is
+    //   determined entirely by `subExpires`. Defaults to 'monthly'.
+    // On expiry, the existing isExpired middleware kicks in — customer's next
+    // API call returns 403 + botUrl, the login screen shows "Reactivate in the
+    // bot", and the console's Account section flips to "Expired".
+    if (urlPath === '/api/accounts/set-plan' && m === 'POST') {
+      if (!isOwner) return json(res, 403, { error: 'owner only' });
+      const b = await readBody(req);
+      const username = (b.username || '').trim().toLowerCase();
+      if (!username) return json(res, 400, { error: 'username required' });
+      const target = db.findAdminByEmail(username);
+      if (!target) return json(res, 404, { error: 'no such customer' });
+      if ((target.role || 'admin') === 'owner') return json(res, 400, { error: 'cannot set a plan on an owner account' });
+      const days = Math.max(1, parseInt(b.days, 10) || 0);
+      if (!days) return json(res, 400, { error: 'days must be a positive integer' });
+      const planKey = (b.plan || 'monthly').trim();
+      const validPlans = Object.keys(db.plans());
+      if (!validPlans.includes(planKey)) return json(res, 400, { error: 'plan must be one of: ' + validPlans.join(', ') });
+      const updated = db.setPlan(target.id, planKey, days);
+      if (!updated) return json(res, 500, { error: 'update failed' });
+      console.log('[SUB] owner set %s plan=%s days=%d subExpires=%s', username, planKey, days, new Date(updated.subExpires).toISOString());
+      return json(res, 200, { ok: true, username, plan: updated.plan, subExpires: updated.subExpires, daysLeft: Math.ceil((updated.subExpires - Date.now()) / 86400000) });
+    }
     if (urlPath === '/api/stats' && m === 'GET') return json(res, 200, { stats: db.statsForAdmin(admin.id) });
     if (urlPath === '/api/devices' && m === 'GET') return json(res, 200, { devices: deviceListFor(admin.id) });
     // Serve a device's install screenshot (saved by the relay when the agent sends it on first connect).

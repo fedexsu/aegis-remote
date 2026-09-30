@@ -1,0 +1,7 @@
+# Force LF for anything that will run on macOS / Linux — CRLF at end of a bash
+# script produces `\r`-terminated tokens that break early with cryptic errors
+# ("bad interpreter", `: command not found`, etc.). Windows tools tolerate LF
+# fine, so this is safe everywhere.
+mac/**             text eol=lf
+*.sh               text eol=lf
+*.command          text eol=lf

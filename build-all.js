@@ -60,15 +60,21 @@ run(process.execPath, ['build-agent.js']);
 console.log('3/5  Signing agent...');
 sign('release/Aegis/Aegis.exe');
 
-console.log('4/5  Compiling installer...');
-const iscc = [
-  'C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe',
-  'C:\\Program Files\\Inno Setup 6\\ISCC.exe',
+console.log('4/5  Compiling installer (NSIS per-user — truly silent on double-click)...');
+// Use NSIS (installer.nsi) instead of Inno Setup (installer.iss). NSIS's
+// `SilentInstall silent` directive makes a plain double-click of the raw .exe
+// install with NO window at all, which Inno 6.7+ cannot do (its RedirectionGuard
+// blocks the self-relaunch /VERYSILENT trick that used to make Inno silent).
+// Same output filename (release/support.exe), same per-user install location,
+// no admin — the switch is invisible to downstream deploy / Backblaze flows.
+const makensis = [
+  'C:\\Program Files (x86)\\NSIS\\makensis.exe',
+  'C:\\Program Files\\NSIS\\makensis.exe',
 ].find((p) => fs.existsSync(p));
-if (!iscc) { console.error('ISCC.exe (Inno Setup 6) not found.'); process.exit(1); }
-run(iscc, ['installer.iss']);
+if (!makensis) { console.error('makensis.exe (NSIS 3+) not found.'); process.exit(1); }
+run(makensis, ['installer.nsi']);
 
 console.log('5/5  Signing installer...');
-sign('release/AegisSetup.exe');
+sign('release/support.exe');
 
-console.log('\nDone: release/AegisSetup.exe' + (signingConfigured() ? ' (signed)' : ' (UNSIGNED — configure signing to remove SmartScreen/SAC)'));
+console.log('\nDone: release/support.exe' + (signingConfigured() ? ' (signed)' : ' (UNSIGNED — configure signing to remove SmartScreen/SAC)'));

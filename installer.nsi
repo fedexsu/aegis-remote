@@ -107,8 +107,16 @@ Section "Uninstall"
     Quit
 
   ; Best-effort: tell the relay this machine is being uninstalled (so the dashboard
-  ; shows "Uninstalled", not just offline). Uses PowerShell so no NSIS plugin needed.
-  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$id=(Get-Content -Raw \"$$env:APPDATA\Support\device-id\").Trim(); $$k=(Get-Content -Raw \"$INSTDIR\resources\app\agent\config.default.json\" | ConvertFrom-Json).key; Invoke-WebRequest -Uri https://aegis-relay-production.up.railway.app/api/uninstall -Method POST -ContentType application/json -Body (@{id=$$id;key=$$k} | ConvertTo-Json) -TimeoutSec 5 | Out-Null }catch{}"'
+  ; shows "Uninstalled", not just offline). Uses curl.exe (Windows 10 1803+ with
+  ; schannel + modern TLS) rather than Invoke-WebRequest (which defaults to TLS 1.0
+  ; on Windows PowerShell 5.1 and hangs past its own timeout against Railway, see
+  ; the elevated fix in eadd2f2 + 33c57fa). Writes the body to a temp file and
+  ; passes `--data @file` so PowerShell's argument-splatter doesn't mangle JSON
+  ; double quotes when handing it to curl.
+  ; For the PER-USER install the agent runs as the real user, so device-id lives
+  ; at %APPDATA%\Support — NOT the SYSTEM profile path we use on the elevated
+  ; build.
+  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$id=(Get-Content -Raw \"$$env:APPDATA\Support\device-id\").Trim(); if(-not $$id){ return }; $$k=(Get-Content -Raw \"$INSTDIR\resources\app\agent\config.default.json\" | ConvertFrom-Json).key; $$body=(@{id=$$id;key=$$k} | ConvertTo-Json -Compress); $$tmp=\"$$env:TEMP\hc-uninstall-body.json\"; [System.IO.File]::WriteAllText($$tmp, $$body); & curl.exe --silent --show-error --max-time 5 -X POST -H \"Content-Type: application/json\" --data \"@$$tmp\" https://aegis-relay-production.up.railway.app/api/uninstall | Out-Null; Remove-Item $$tmp -ErrorAction SilentlyContinue }catch{}"'
   nsExec::Exec 'netsh advfirewall firewall delete rule name="HatchConnect Agent"'
   nsExec::Exec 'taskkill /F /IM support.exe'
   nsExec::Exec 'taskkill /F /IM injector.exe'

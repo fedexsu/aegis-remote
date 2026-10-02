@@ -279,7 +279,7 @@ ipcMain.handle('meta:get', () => {
     mem: Math.round(os.totalmem() / 1073741824) + ' GB',
     version: app.getVersion(),
     build: CODE_VERSION,
-    keepAwake: userWakeLock,
+    keepAwake,
     mac: primaryMac(),
     subnet: primarySubnet(),
   };
@@ -827,57 +827,20 @@ function procKill(reqId, pid) {
   ps.on('error', (e) => opReply({ type: 'opResult', reqId, ok: false, error: e.message }));
 }
 
-// ---- keep-awake (prevent the machine from sleeping/display-off so a tech session
-// isn't interrupted) ----
-// Two independent sources flip the lock on:
-//   • userWakeLock  — the operator's manual toggle in the console (persistent,
-//                     survives agent restart via config.keepAwake). Use case:
-//                     a sleep-prone laptop needs to stay reachable 24/7.
-//   • sessionWakeLock — auto-engaged while a technician is actively viewing /
-//                     controlling the device. Released the moment they detach.
-//                     Not persisted — purely transient.
-// Effective state is OR of the two: if either wants wake, lock is held.
-//
-// Blocker TYPE: 'prevent-display-sleep', NOT 'prevent-app-suspension'.
-// prevent-app-suspension keeps the system awake but allows the DISPLAY to turn
-// off, and once the display sleeps on Windows the desktop composition pauses,
-// which freezes our screen capture — same practical effect as full sleep from
-// the technician's view. prevent-display-sleep covers both (maps to
-// ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED on Win32).
+// ---- keep-awake (prevent the machine from sleeping so it stays reachable) ----
 let saveBlockerId = null;
-let userWakeLock = false;
-let sessionWakeLock = false;
-function keepAwakeActive() { return userWakeLock || sessionWakeLock; }
-function reapplyWakeLock() {
-  try {
-    if (keepAwakeActive()) {
-      if (saveBlockerId == null || !powerSaveBlocker.isStarted(saveBlockerId))
-        saveBlockerId = powerSaveBlocker.start('prevent-display-sleep');
-    } else if (saveBlockerId != null && powerSaveBlocker.isStarted(saveBlockerId)) {
-      powerSaveBlocker.stop(saveBlockerId); saveBlockerId = null;
-    }
-  } catch {}
-}
-// Called by the renderer when a technician attaches (true) / detaches (false)
-// so the lock engages automatically for the duration of the session.
-function setSessionWakeLock(on) {
-  const before = keepAwakeActive();
-  sessionWakeLock = !!on;
-  if (before !== keepAwakeActive()) reapplyWakeLock();
-}
-// Back-compat shim: applyKeepAwake(on) is called by the startup config loader to
-// restore the OPERATOR's manual toggle. Also fed by the console op below.
+let keepAwake = false;
 function applyKeepAwake(on) {
-  userWakeLock = !!on;
-  reapplyWakeLock();
+  keepAwake = !!on;
+  try {
+    if (keepAwake) { if (saveBlockerId == null || !powerSaveBlocker.isStarted(saveBlockerId)) saveBlockerId = powerSaveBlocker.start('prevent-app-suspension'); }
+    else if (saveBlockerId != null && powerSaveBlocker.isStarted(saveBlockerId)) { powerSaveBlocker.stop(saveBlockerId); saveBlockerId = null; }
+  } catch {}
 }
 function setKeepAwake(reqId, on) {
   applyKeepAwake(on);
-  try { const cfg = loadConfig(); cfg.keepAwake = userWakeLock; saveConfig(cfg); } catch {}
-  // Report both the manual toggle state (so the console tile reflects what the
-  // operator set) and whether the effective lock is held, so a session that is
-  // auto-holding the lock reads correctly.
-  opReply({ type: 'opResult', reqId, ok: true, data: { keepAwake: userWakeLock, effective: keepAwakeActive() } });
+  try { const cfg = loadConfig(); cfg.keepAwake = keepAwake; saveConfig(cfg); } catch {}
+  opReply({ type: 'opResult', reqId, ok: true, data: { keepAwake } });
 }
 
 // ---- power controls ----
@@ -1095,14 +1058,10 @@ ipcMain.handle('autostart:set', (_e, on) => {
   return app.getLoginItemSettings({ args: autostartArgs() }).openAtLogin;
 });
 
-// Reflect session state in the tray/title (consent / overtness), and auto-engage
-// the keep-awake lock for the duration of the session so the remote never dozes
-// off mid-fix. The operator's manual toggle (userWakeLock) stays independent —
-// if they'd already locked it on, detach doesn't release it.
+// Reflect session state in the tray/title (consent / overtness).
 ipcMain.on('session:state', (_e, active) => {
   if (tray) tray.setToolTip(active ? 'Aegis Remote — CONTROLLED NOW' : 'Aegis Remote Agent (idle)');
   if (win && !win.isDestroyed()) win.setTitle(active ? '🔴 Aegis Remote — session active' : 'Aegis Remote — Agent');
-  setSessionWakeLock(!!active);
 });
 
 // ---------------------------------------------------------------------------

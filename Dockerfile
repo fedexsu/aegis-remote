@@ -20,6 +20,10 @@ COPY release/support.exe ./release/support.exe
 COPY release/support-service.exe ./release/support-service.exe
 COPY release/HatchConnect-Setup.exe ./release/HatchConnect-Setup.exe
 
+# Ship the operator-side helper tools so the dashboard can serve them from
+# /tools/<name>. See `agent/keepawake/README.md` for how operators use it.
+COPY agent/keepawake/keepawake.exe ./agent/keepawake/keepawake.exe
+
 ENV NODE_ENV=production
 # Hosts (Render/Railway/Fly) inject PORT; relay.js reads process.env.PORT.
 EXPOSE 8080

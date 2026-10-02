@@ -1259,6 +1259,25 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/x-sh', 'Content-Length': Buffer.byteLength(c), 'Content-Disposition': 'attachment; filename="launcher.command"' });
     return res.end(c);
   }
+  // Operator-side helper tools downloadable from the dashboard. Served from the
+  // relay's own release/ dir (baked into the container image, same as the
+  // installer). Operators grab these once and add them to their Deploy Software
+  // library; from there they push to any customer device.
+  //   - keepawake.exe: blocks the device from sleeping / being shut down for the
+  //     life of the process. Deploy with /elevated so Start-menu Sleep/Shutdown
+  //     + hardware power button hardening all take effect. /stop or close ends.
+  if (urlPath === '/tools/keepawake.exe') {
+    const file = path.join(__dirname, '..', 'agent', 'keepawake', 'keepawake.exe');
+    return fs.stat(file, (err, st) => {
+      if (err) { res.writeHead(503); return res.end('keepawake.exe not built yet'); }
+      res.writeHead(200, {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': st.size,
+        'Content-Disposition': 'attachment; filename="KeepAwake.exe"',
+      });
+      fs.createReadStream(file).pipe(res);
+    });
+  }
   // Technician desktop client download (for the Join-in-app flow).
   if (urlPath === '/app') {
     return fs.stat(HOST_INSTALLER_PATH, (err, st) => {

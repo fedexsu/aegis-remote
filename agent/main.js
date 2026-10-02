@@ -844,6 +844,24 @@ function procKill(reqId, pid) {
 // which freezes our screen capture — same practical effect as full sleep from
 // the technician's view. prevent-display-sleep covers both (maps to
 // ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED on Win32).
+// Scope note (because this isn't obvious): Keep Awake prevents the device from
+// going to sleep ON ITS OWN during a tech session — the idle timer, the display
+// timeout, and anything else Windows triggers automatically. It CANNOT block an
+// explicit user action — pressing the hardware power button, clicking Start →
+// Sleep, or clicking Start → Shut down are all honored by Windows no matter what
+// an unprivileged app does. This is Windows design, not an agent bug; even
+// `SetThreadExecutionState` with every flag can only block idle behavior. Fully
+// disabling manual sleep/shutdown would need an admin-elevated powercfg or GPO
+// change we deliberately don't make.
+//
+// On Windows, Electron's `prevent-display-sleep` maps to a DISPLAY_REQUIRED
+// power request (verified via `powercfg /requests`). While a DISPLAY_REQUIRED
+// is held, Windows keeps the display on, and because the display is on it
+// cannot enter system idle sleep. So the single blocker here is sufficient for
+// the idle-sleep case — our earlier attempt to also hold `prevent-app-suspension`
+// turned out to be redundant: in modern Electron that maps to EXECUTION_REQUIRED
+// (a UWP-style app-suspension gate), NOT SYSTEM_REQUIRED, and doesn't move the
+// idle-sleep needle.
 let saveBlockerId = null;
 let userWakeLock = false;
 let sessionWakeLock = false;

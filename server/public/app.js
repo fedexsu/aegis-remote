@@ -495,6 +495,21 @@ function showDeviceMenu(d, x, y) {
     items.push({ label: 'Deploy software', icon: CM.deploy, act: () => { openSystem(d); setTimeout(() => sysTab('deploy'), 0); } });
     items.push({ sep: true });
     items.push({ label: 'Lock local input', act: () => deviceOp(d.id, 'lockinput', { on: true }, { onResult: (m) => toast(m.ok ? 'Local input locked' : (m.error || 'failed'), m.ok ? 'ok' : 'err') }) });
+    // Keep Awake toggle, mirrored on the right-click menu so an operator can
+    // pin a sleep-prone laptop awake WITHOUT joining a session (useful for
+    // "set and forget" on devices they monitor). The ✓ reads the agent's
+    // reported state from meta.keepAwake (true when the OPERATOR manually
+    // locked it on — session auto-engage is transient and not reflected here).
+    {
+      const on = !!(d.meta && d.meta.keepAwake);
+      items.push({
+        label: on ? 'Keep Awake ✓' : 'Keep Awake',
+        act: () => deviceOp(d.id, 'keepawake', { on: !on }, { onResult: (m) => {
+          if (!m.ok) { toast(m.error || 'failed', 'err'); return; }
+          toast(m.data.keepAwake ? 'Keep awake on — survives sessions' : 'Keep awake off', 'ok');
+        }}),
+      });
+    }
     items.push({ label: 'Sign out user', act: () => powerAction(d, 'logoff') });
     items.push({ label: 'Sleep', act: () => powerAction(d, 'sleep') });
     items.push({ label: 'Restart', act: () => powerAction(d, 'restart') });

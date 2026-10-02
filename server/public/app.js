@@ -2106,7 +2106,15 @@ $('#reboot-normal').addEventListener('click', () => powerAction({ id: attachedId
 $('#reboot-safe').addEventListener('click', () => powerAction({ id: attachedId }, 'safemode'));
 $('#ka-tile').addEventListener('click', () => {
   const on = !$('#ka-tile').classList.contains('on');
-  deviceOp(attachedId, 'keepawake', { on }, { onResult: (m) => { if (m.ok) { $('#ka-tile').classList.toggle('on', !!m.data.keepAwake); toast(m.data.keepAwake ? 'Wake lock on' : 'Wake lock off', 'ok'); } else toast(m.error || 'failed', 'err'); } });
+  deviceOp(attachedId, 'keepawake', { on }, { onResult: (m) => {
+    if (!m.ok) { toast(m.error || 'failed', 'err'); return; }
+    // m.data.keepAwake reflects the operator's MANUAL toggle (persistent across
+    // sessions). m.data.effective tells us whether the lock is actually held
+    // right now (= manual OR auto-session) — the tile stays off when only the
+    // auto-session component is engaged, so the operator can distinguish the two.
+    $('#ka-tile').classList.toggle('on', !!m.data.keepAwake);
+    toast(m.data.keepAwake ? 'Keep awake on — survives this session' : 'Keep awake off (auto-engaged while you\'re connected)', 'ok');
+  } });
 });
 // Send Clipboard Keystrokes - type the technician's clipboard onto the remote.
 $('#clipkeys-btn').addEventListener('click', async () => {

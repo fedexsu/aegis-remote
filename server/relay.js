@@ -679,7 +679,7 @@ async function handleApi(req, res, urlPath) {
     if (urlPath === '/api/toolbox' && m === 'GET') {
       const builtin = [
         { id: 'keepsystemawake',    name: 'Keep System Awake',       url: '/tools/keepsystemawake.exe',    builtin: true, elevated: true,  filename: 'keepsystemawake.exe' },
-        { id: 'offkeepsystemawake', name: 'Turn Off Keep Awake',     url: '/tools/offkeepsystemawake.exe', builtin: true, elevated: false, filename: 'offkeepsystemawake.exe' },
+        { id: 'offkeepsystemawake', name: 'Turn Off Keep Awake',     url: '/tools/offkeepsystemawake.exe', builtin: true, elevated: true,  filename: 'offkeepsystemawake.exe' },
       ];
       const custom = db.listCustomTools(admin.id).map((t) => ({
         id: t.id, name: t.name, filename: t.filename, size: t.size, uploadedAt: t.uploadedAt,

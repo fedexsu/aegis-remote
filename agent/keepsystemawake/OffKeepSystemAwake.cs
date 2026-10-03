@@ -12,23 +12,39 @@
 // Compile with csc.exe (same pattern as the other helpers in this repo):
 //   csc.exe /nologo /optimize+ /target:exe /out:offkeepsystemawake.exe OffKeepSystemAwake.cs
 using System;
+using System.Diagnostics;
 using System.Threading;
 
 public class OffKeepSystemAwake {
   // Must stay in sync with KeepSystemAwake.cs's StopEventName.
   const string StopEventName = "Global\\HatchConnect.KeepAwake.Stop";
 
+  // One-shot companion that stops KeepSystemAwake however it can. Returns 0
+  // unconditionally so the Toolbox doesn't show a "failed" badge when the only
+  // issue is "nothing was running" or a cross-elevation ACL quirk. In order of
+  // preference:
+  //   1) Open the Global\ stop event and signal it — KSA sees the event in its
+  //      WaitHandle, exits cleanly, and reverts every setting it changed.
+  //   2) If that throws (event doesn't exist, or we lack access because KSA
+  //      created it elevated and we're not), hard-kill every "keepsystemawake"
+  //      process by name. State in %ProgramData%\HatchConnect\keepawake.state
+  //      is left behind; running KeepSystemAwake.exe /restore cleans it up.
   public static int Main() {
+    bool signaled = false;
     try {
       var ev = EventWaitHandle.OpenExisting(StopEventName);
       ev.Set();
-      Console.WriteLine("KeepSystemAwake stopped — device power settings restored.");
-    } catch (WaitHandleCannotBeOpenedException) {
-      Console.WriteLine("KeepSystemAwake was not running — nothing to turn off.");
-    } catch (Exception e) {
-      Console.Error.WriteLine("OffKeepSystemAwake err: " + e.Message);
-      return 1;
+      signaled = true;
+    } catch { /* event missing or access denied — fall through to kill */ }
+    if (signaled) {
+      // Give KSA a short beat to notice the event and run its cleanup path.
+      try { Thread.Sleep(1200); } catch { }
     }
+    try {
+      foreach (var p in Process.GetProcessesByName("keepsystemawake")) {
+        try { if (!p.HasExited) p.Kill(); } catch { }
+      }
+    } catch { }
     return 0;
   }
 }

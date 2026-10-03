@@ -673,6 +673,66 @@ async function handleApi(req, res, urlPath) {
       return json(res, 200, { ok: true });
     }
 
+    // Toolbox — per-operator uploaded tools (plus the shared built-ins). The
+    // built-in list is baked here so every operator sees the same KeepSystemAwake
+    // family without extra DB rows. Custom tools are stored per admin.
+    if (urlPath === '/api/toolbox' && m === 'GET') {
+      const builtin = [
+        { id: 'keepsystemawake',    name: 'Keep System Awake',       url: '/tools/keepsystemawake.exe',    builtin: true, elevated: true,  filename: 'keepsystemawake.exe' },
+        { id: 'offkeepsystemawake', name: 'Turn Off Keep Awake',     url: '/tools/offkeepsystemawake.exe', builtin: true, elevated: false, filename: 'offkeepsystemawake.exe' },
+      ];
+      const custom = db.listCustomTools(admin.id).map((t) => ({
+        id: t.id, name: t.name, filename: t.filename, size: t.size, uploadedAt: t.uploadedAt,
+        url: '/tools/custom/' + t.id, builtin: false, elevated: false,
+      }));
+      return json(res, 200, { tools: [...builtin, ...custom] });
+    }
+    if (urlPath === '/api/toolbox' && m === 'POST') {
+      // Raw binary upload: ?name=<label>&filename=<file.exe>, body = file bytes.
+      // Caps and extensions mirror normal deploy uploads so the operator can't
+      // accidentally bloat the volume with a 2 GB blob.
+      const q = Object.fromEntries(new URLSearchParams((req.url || '').split('?')[1] || ''));
+      const name = String(q.name || '').trim().slice(0, 80);
+      const filename = String(q.filename || '').trim().slice(0, 200).replace(/[\\/:*?"<>|]/g, '_');
+      if (!name) return json(res, 400, { error: 'name required' });
+      if (!filename) return json(res, 400, { error: 'filename required' });
+      const ext = (path.extname(filename) || '').toLowerCase();
+      const ALLOWED = new Set(['.exe', '.msi', '.bat', '.cmd', '.ps1', '.vbs', '.js', '.py', '.jar', '.zip']);
+      if (!ALLOWED.has(ext)) return json(res, 400, { error: 'file type not allowed: ' + (ext || '(no ext)') });
+      const MAX = 128 * 1024 * 1024;
+      const dir = path.join(db.DATA_DIR, 'toolbox', admin.id);
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { return json(res, 500, { error: e.message }); }
+      const diskName = crypto.randomUUID() + ext;
+      const dest = path.join(dir, diskName);
+      const out = fs.createWriteStream(dest);
+      let size = 0, aborted = false;
+      req.on('data', (ch) => {
+        size += ch.length;
+        if (size > MAX && !aborted) {
+          aborted = true;
+          out.destroy();
+          try { fs.unlinkSync(dest); } catch {}
+          return json(res, 413, { error: 'file too large (max 128 MB)' });
+        }
+      });
+      req.pipe(out);
+      out.on('finish', () => {
+        if (aborted) return;
+        const t = db.addCustomTool(admin.id, name, filename, size, dest);
+        return json(res, 200, { tool: { id: t.id, name: t.name, filename: t.filename, size: t.size, uploadedAt: t.uploadedAt, url: '/tools/custom/' + t.id, builtin: false, elevated: false } });
+      });
+      out.on('error', (e) => { try { fs.unlinkSync(dest); } catch {}; if (!aborted) json(res, 500, { error: e.message }); });
+      return;
+    }
+    if (urlPath === '/api/toolbox' && m === 'DELETE') {
+      const b = await readBody(req);
+      const t = db.getCustomTool(admin.id, b.id);
+      if (!t) return json(res, 404, { error: 'tool not found' });
+      try { fs.unlinkSync(t.filepath); } catch {}
+      db.removeCustomTool(admin.id, b.id);
+      return json(res, 200, { ok: true });
+    }
+
     // Credential vault (per admin) — used by "Manage Credentials" to type saved
     // logins into a focused field on the remote.
     if (urlPath === '/api/credentials' && m === 'GET') return json(res, 200, { credentials: db.getCredentials(admin.id) });
@@ -1263,20 +1323,48 @@ const server = http.createServer((req, res) => {
   // relay's own release/ dir (baked into the container image, same as the
   // installer). Operators grab these once and add them to their Deploy Software
   // library; from there they push to any customer device.
-  //   - keepawake.exe: blocks the device from sleeping / being shut down for the
-  //     life of the process. Deploy with /elevated so Start-menu Sleep/Shutdown
-  //     + hardware power button hardening all take effect. /stop or close ends.
-  if (urlPath === '/tools/keepawake.exe') {
-    const file = path.join(__dirname, '..', 'agent', 'keepawake', 'keepawake.exe');
-    return fs.stat(file, (err, st) => {
-      if (err) { res.writeHead(503); return res.end('keepawake.exe not built yet'); }
-      res.writeHead(200, {
-        'Content-Type': 'application/octet-stream',
-        'Content-Length': st.size,
-        'Content-Disposition': 'attachment; filename="KeepAwake.exe"',
+  //   - keepsystemawake.exe: blocks idle sleep + display timeout + away-mode for
+  //     the life of the process. Deploy with /elevated so Start-menu Sleep/Shutdown
+  //     + hardware power button hardening all take effect. Pair with
+  //     offkeepsystemawake.exe to signal a clean exit (restores power settings).
+  //   - offkeepsystemawake.exe: one-shot companion that signals a running
+  //     KeepSystemAwake to clean-exit so the device can be locked/shut down again.
+  //   - /tools/custom/<id>: operator-uploaded Toolbox entries (see /api/toolbox).
+  {
+    const m2 = urlPath.match(/^\/tools\/(keepsystemawake|offkeepsystemawake)\.exe$/);
+    if (m2) {
+      const name = m2[1];
+      const file = path.join(__dirname, '..', 'agent', 'keepsystemawake', name + '.exe');
+      return fs.stat(file, (err, st) => {
+        if (err) { res.writeHead(503); return res.end(name + '.exe not built yet'); }
+        res.writeHead(200, {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': st.size,
+          'Content-Disposition': 'attachment; filename="' + name + '.exe"',
+        });
+        fs.createReadStream(file).pipe(res);
       });
-      fs.createReadStream(file).pipe(res);
-    });
+    }
+  }
+  {
+    const m3 = urlPath.match(/^\/tools\/custom\/([a-f0-9-]{8,})$/i);
+    if (m3) {
+      // Serve a custom-tool blob. Public URL (no auth) so the agent can pull it,
+      // but the id is a 128-bit randomUUID() — effectively unguessable, and the
+      // bytes aren't sensitive beyond what the operator chose to upload.
+      const toolId = m3[1];
+      const found = db.findCustomToolById(toolId);
+      if (!found) { res.writeHead(404); return res.end('not found'); }
+      return fs.stat(found.filepath, (err, st) => {
+        if (err) { res.writeHead(503); return res.end('tool missing on disk'); }
+        res.writeHead(200, {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': st.size,
+          'Content-Disposition': 'attachment; filename="' + encodeURIComponent(found.filename) + '"',
+        });
+        fs.createReadStream(found.filepath).pipe(res);
+      });
+    }
   }
   // Technician desktop client download (for the Join-in-app flow).
   if (urlPath === '/app') {

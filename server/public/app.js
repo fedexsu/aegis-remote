@@ -1382,6 +1382,7 @@ function sysTab(name) {
   if (name === 'processes') refreshProcs();
   if (name === 'clipboard') getClip();
   if (name === 'inventory') loadHwInfo();
+  if (name === 'toolbox') loadToolbox();
 }
 $$('.sys-tabs .seg-btn').forEach((b) => b.addEventListener('click', () => sysTab(b.dataset.tab)));
 $('#sys-back').addEventListener('click', closeSystem);
@@ -1503,6 +1504,113 @@ $('#dep-run').addEventListener('click', () => {
       } });
     } });
   } });
+});
+
+// --- toolbox ---
+// Per-operator library of one-click helpers. Built-ins (KeepSystemAwake family)
+// are served to every operator; uploaded tools are private to the account. Each
+// entry is a single-shot deploy — click Run → the console fetches the blob from
+// the relay, pushes it to the remote's temp folder via the existing fs-put flow,
+// then calls deploy-run with the tool's default settings (no args UI).
+let tbFile = null;
+$('#tb-file').addEventListener('change', (e) => {
+  tbFile = (e.target.files && e.target.files[0]) || null;
+  $('#tb-file-text').textContent = tbFile ? ('✓ ' + tbFile.name) : 'Upload tool…';
+  if (tbFile && !$('#tb-name').value) $('#tb-name').value = tbFile.name.replace(/\.[^.]+$/, '');
+});
+async function loadToolbox() {
+  const list = $('#tb-list');
+  list.innerHTML = '<div class="hint" style="padding:8px">Loading…</div>';
+  try {
+    const r = await fetch('/api/toolbox', { credentials: 'include' });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'failed');
+    renderToolbox(j.tools || []);
+  } catch (e) { list.innerHTML = '<div class="hint" style="padding:8px">Could not load tools: ' + (e.message || 'error') + '</div>'; }
+}
+function renderToolbox(tools) {
+  const list = $('#tb-list');
+  list.innerHTML = '';
+  if (!tools.length) { list.innerHTML = '<div class="hint" style="padding:8px">No tools yet.</div>'; return; }
+  for (const t of tools) {
+    const row = document.createElement('div');
+    row.className = 'tb-row';
+    const meta = t.builtin
+      ? '<span class="tb-tag builtin">built-in</span>' + (t.elevated ? '<span class="tb-tag elev">elevated</span>' : '')
+      : '<span class="tb-tag custom">uploaded</span><span class="hint">' + (t.filename || '') + ' · ' + fmtSize(t.size || 0) + '</span>';
+    row.innerHTML = `
+      <div class="tb-main">
+        <div class="tb-name"></div>
+        <div class="tb-meta">${meta}</div>
+      </div>
+      <div class="tb-actions">
+        <button class="btn primary small tb-run">Run</button>
+        ${t.builtin ? '' : '<button class="btn ghost small tb-del" title="Delete">Delete</button>'}
+      </div>`;
+    row.querySelector('.tb-name').textContent = t.name;
+    row.querySelector('.tb-run').addEventListener('click', () => runToolboxItem(t));
+    if (!t.builtin) row.querySelector('.tb-del').addEventListener('click', () => deleteToolboxItem(t));
+    list.appendChild(row);
+  }
+}
+async function runToolboxItem(t) {
+  const out = $('#tb-out');
+  out.textContent = 'Downloading ' + t.name + '…';
+  try {
+    const r = await fetch(t.url, { credentials: 'include' });
+    if (!r.ok) throw new Error('download HTTP ' + r.status);
+    const blob = await r.blob();
+    const file = new File([blob], t.filename || 'tool.exe', { type: 'application/octet-stream' });
+    sysOp('paths', {}, { onResult: (m) => {
+      if (!m.ok || !m.data.temp) { out.textContent = 'Could not resolve the remote temp folder.'; return; }
+      const dest = joinPath(m.data.temp, file.name);
+      filesAgentId = sysAgentId;
+      out.textContent = 'Sending ' + file.name + ' to remote…';
+      uploadFileTo(file, dest, { silent: true, onDone: () => {
+        out.textContent = 'Running ' + t.name + (t.elevated ? ' (elevated - UAC on remote)…' : '…');
+        sysOp('deploy-run', { path: dest, args: '', msi: /\.msi$/i.test(file.name), elevated: !!t.elevated }, { onResult: (res) => {
+          if (!res.ok) { out.textContent = 'Failed: ' + (res.error || 'error'); toast(t.name + ' failed', 'err'); return; }
+          const ok = res.data.exitCode === 0;
+          out.textContent = (ok ? '✓ ' : '') + t.name + ' - exit code ' + res.data.exitCode + (res.data.output ? '\n\n' + res.data.output : '');
+          toast(ok ? t.name + ' done' : t.name + ' finished (exit ' + res.data.exitCode + ')', ok ? 'ok' : 'err');
+        } });
+      } });
+    } });
+  } catch (e) { out.textContent = 'Failed: ' + (e.message || 'error'); toast('Could not run ' + t.name, 'err'); }
+}
+async function deleteToolboxItem(t) {
+  const ok = await modal({ title: 'Delete tool?', message: 'Remove "' + t.name + '" from your toolbox? This only affects your account.', confirmText: 'Delete', danger: true });
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/toolbox', { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: t.id }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'failed');
+    toast('Deleted', 'ok'); loadToolbox();
+  } catch (e) { toast('Delete failed: ' + e.message, 'err'); }
+}
+$('#tb-upload').addEventListener('click', async () => {
+  if (!tbFile) { toast('Choose a file first', 'err'); return; }
+  const name = $('#tb-name').value.trim() || tbFile.name;
+  if (tbFile.size > 128 * 1024 * 1024) { toast('File too large (128 MB max)', 'err'); return; }
+  const out = $('#tb-out');
+  out.textContent = 'Uploading ' + tbFile.name + '…';
+  try {
+    const q = '?name=' + encodeURIComponent(name) + '&filename=' + encodeURIComponent(tbFile.name);
+    const r = await fetch('/api/toolbox' + q, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: tbFile,
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'failed');
+    out.textContent = 'Added "' + j.tool.name + '" to your toolbox.';
+    tbFile = null;
+    $('#tb-file').value = '';
+    $('#tb-file-text').textContent = 'Upload tool…';
+    $('#tb-name').value = '';
+    loadToolbox();
+    toast('Tool added', 'ok');
+  } catch (e) { out.textContent = 'Upload failed: ' + e.message; toast('Upload failed', 'err'); }
 });
 
 // --- monitor ---

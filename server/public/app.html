@@ -487,6 +487,7 @@
               <button class="seg-btn" data-tab="processes">Processes</button>
               <button class="seg-btn" data-tab="inventory">Inventory</button>
               <button class="seg-btn" data-tab="deploy">Deploy</button>
+              <button class="seg-btn" data-tab="toolbox">Toolbox</button>
               <button class="seg-btn" data-tab="clipboard">Clipboard</button>
             </div>
           </div>
@@ -548,6 +549,19 @@
                 </div>
                 <pre id="dep-out" class="dep-out"></pre>
                 <div class="banner info" style="margin-top:10px"><svg viewBox="0 0 24 24" class="ic"><path d="M9 18h6M10 21h4M12 3a6 6 0 00-4 10.5c.6.6 1 1.5 1 2.5h6c0-1 .4-1.9 1-2.5A6 6 0 0012 3z"/></svg>The installer is uploaded to the remote temp folder, run, then deleted. Non-elevated installs run as the signed-in user; check "Run elevated" for ones that need admin.</div>
+              </div>
+            </div>
+            <!-- Toolbox: one-click helpers (built-in + per-operator uploads). -->
+            <div class="sys-tab" data-tabpage="toolbox" hidden>
+              <div class="dep-pane">
+                <div class="dep-row">
+                  <label class="btn ghost small" id="tb-file-label"><span id="tb-file-text">Upload tool…</span><input id="tb-file" type="file" accept=".exe,.msi,.bat,.cmd,.ps1,.vbs,.js,.py,.jar,.zip" hidden /></label>
+                  <input id="tb-name" class="dep-args" style="max-width:260px" placeholder="Display name (e.g. Fix Printer)" maxlength="80" />
+                  <button id="tb-upload" class="btn primary small">Add to toolbox</button>
+                </div>
+                <div id="tb-list" class="tb-list"></div>
+                <pre id="tb-out" class="dep-out"></pre>
+                <div class="banner info" style="margin-top:10px"><svg viewBox="0 0 24 24" class="ic"><path d="M9 18h6M10 21h4M12 3a6 6 0 00-4 10.5c.6.6 1 1.5 1 2.5h6c0-1 .4-1.9 1-2.5A6 6 0 0012 3z"/></svg>Built-in tools (shared across operators) run with default settings - just click Run. Uploaded tools are private to your account.</div>
               </div>
             </div>
             <!-- Clipboard -->

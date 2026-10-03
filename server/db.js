@@ -60,7 +60,7 @@ function load() {
   } catch {
     db = { admins: [], keys: [], devices: [], sessions: [] };
   }
-  for (const k of ['admins', 'keys', 'devices', 'sessions', 'invoices', 'processedTx']) if (!Array.isArray(db[k])) db[k] = [];
+  for (const k of ['admins', 'keys', 'devices', 'sessions', 'invoices', 'processedTx', 'customTools']) if (!Array.isArray(db[k])) db[k] = [];
   // Migration: ensure there is an owner (the earliest-created admin) even for
   // accounts created before the role field existed.
   if (db.admins.length && !db.admins.some((a) => a.role === 'owner')) {
@@ -582,6 +582,42 @@ function setPlan(adminId, planKey, days) {
   return { id: admin.id, email: admin.email, plan: admin.plan, subExpires: admin.subExpires, subStart: admin.subStart };
 }
 
+// ----- Toolbox (per-operator uploaded tools) ---------------------------------
+// Built-in tools (served to EVERY operator automatically) are declared in
+// relay.js — they live in-tree and don't need DB storage. These helpers manage
+// an operator's PRIVATE library of custom .exe/.msi/.ps1/etc. uploads that
+// they want to one-click deploy from the Toolbox tab in the session view.
+// The uploaded file bytes live on the relay volume at
+// DATA_DIR/toolbox/<adminId>/<filename>, read-serving via /tools/custom/<id>.
+function listCustomTools(adminId) {
+  return db.customTools.filter((t) => t.adminId === adminId).map((t) => ({
+    id: t.id, name: t.name, filename: t.filename, size: t.size, uploadedAt: t.uploadedAt,
+  }));
+}
+function addCustomTool(adminId, name, filename, size, filepath) {
+  const t = { id: genId(), adminId, name, filename, size, uploadedAt: Date.now(), filepath };
+  db.customTools.push(t);
+  save();
+  return t;
+}
+function getCustomTool(adminId, toolId) {
+  return db.customTools.find((t) => t.id === toolId && t.adminId === adminId) || null;
+}
+function findCustomToolById(toolId) {
+  // Lookup by id alone (no admin check) — used by the public /tools/custom/<id>
+  // download URL so the agent can pull the blob. IDs are randomUUID() so this is
+  // effectively unguessable; the bytes aren't more sensitive than what the
+  // operator chose to upload anyway.
+  return db.customTools.find((t) => t.id === toolId) || null;
+}
+function removeCustomTool(adminId, toolId) {
+  const before = db.customTools.length;
+  db.customTools = db.customTools.filter((t) => !(t.id === toolId && t.adminId === adminId));
+  const removed = db.customTools.length < before;
+  if (removed) save();
+  return removed;
+}
+
 module.exports = {
   DATA_DIR,
   createAdmin, findAdminByEmail, findAdminById, publicAdmin, verifyPassword,
@@ -597,4 +633,5 @@ module.exports = {
   isTrialAdmin, trialMaxDevices, activeDeviceCount,
   isExpired, subscriptionOf, createMagicToken, consumeMagicToken, setPlan,
   subscriberReminders, setReminded,
+  listCustomTools, addCustomTool, getCustomTool, findCustomToolById, removeCustomTool,
 };

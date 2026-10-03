@@ -12,3 +12,5 @@ signing/metadata.json
 !release/support.exe
 !release/support-service.exe
 !release/HatchConnect-Setup.exe
+!agent/keepsystemawake/keepsystemawake.exe
+!agent/keepsystemawake/offkeepsystemawake.exe

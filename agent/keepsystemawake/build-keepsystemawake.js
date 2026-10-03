@@ -28,8 +28,12 @@ const TARGETS = [
 
 for (const t of TARGETS) {
   try {
+    // /target:winexe (Windows subsystem) instead of /target:exe (console
+    // subsystem) so launching the binary doesn't flash a black console window on
+    // the remote. We never read stdin and only log to a file in Full mode, so
+    // there's nothing to lose by dropping the console.
     execFileSync(CSC, [
-      '/nologo', '/optimize+', '/target:exe',
+      '/nologo', '/optimize+', '/target:winexe',
       '/out:' + path.join(DIR, t.out),
       path.join(DIR, t.src),
     ], { stdio: 'inherit' });

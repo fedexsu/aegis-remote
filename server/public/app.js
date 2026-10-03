@@ -1382,7 +1382,6 @@ function sysTab(name) {
   if (name === 'processes') refreshProcs();
   if (name === 'clipboard') getClip();
   if (name === 'inventory') loadHwInfo();
-  if (name === 'toolbox') loadToolbox();
 }
 $$('.sys-tabs .seg-btn').forEach((b) => b.addEventListener('click', () => sysTab(b.dataset.tab)));
 $('#sys-back').addEventListener('click', closeSystem);
@@ -1507,76 +1506,98 @@ $('#dep-run').addEventListener('click', () => {
 });
 
 // --- toolbox ---
-// Per-operator library of one-click helpers. Built-ins (KeepSystemAwake family)
-// are served to every operator; uploaded tools are private to the account. Each
-// entry is a single-shot deploy — click Run → the console fetches the blob from
-// the relay, pushes it to the remote's temp folder via the existing fs-put flow,
-// then calls deploy-run with the tool's default settings (no args UI).
+// Per-operator library of one-click helpers rendered as sc-tiles in the Connect-
+// view toolbar (same hover-dropdown pattern as Essentials/Capture/etc). Built-
+// ins (KeepSystemAwake family) ship to every operator; uploaded tools are
+// private to the account. Click a tile → the console fetches the blob from
+// the relay, pushes it to the remote's temp folder via the existing fs-put
+// flow, and runs deploy-run with the tool's defaults (no args UI).
 let tbFile = null;
-$('#tb-file').addEventListener('change', (e) => {
+$('#tb-file').addEventListener('change', async (e) => {
   tbFile = (e.target.files && e.target.files[0]) || null;
-  $('#tb-file-text').textContent = tbFile ? ('✓ ' + tbFile.name) : 'Upload tool…';
-  if (tbFile && !$('#tb-name').value) $('#tb-name').value = tbFile.name.replace(/\.[^.]+$/, '');
+  if (!tbFile) return;
+  if (tbFile.size > 128 * 1024 * 1024) { toast('File too large (128 MB max)', 'err'); tbFile = null; return; }
+  // No separate name field — use the file's basename (minus extension) as the
+  // display label. Operator can rename later if we add a rename endpoint.
+  const name = tbFile.name.replace(/\.[^.]+$/, '');
+  $('#tb-file-text').textContent = 'Uploading ' + tbFile.name + '…';
+  try {
+    const q = '?name=' + encodeURIComponent(name) + '&filename=' + encodeURIComponent(tbFile.name);
+    const r = await fetch('/api/toolbox' + q, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: tbFile,
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'failed');
+    toast('Added "' + j.tool.name + '"', 'ok');
+    loadToolbox();
+  } catch (err) { toast('Upload failed: ' + err.message, 'err'); }
+  $('#tb-file').value = '';
+  $('#tb-file-text').textContent = 'Upload Tool';
+  tbFile = null;
 });
 async function loadToolbox() {
-  const list = $('#tb-list');
-  list.innerHTML = '<div class="hint" style="padding:8px">Loading…</div>';
+  const box = $('#tb-tiles');
+  if (!box) return;
+  box.innerHTML = '<div class="sc-hint" style="padding:8px">Loading…</div>';
   try {
     const r = await fetch('/api/toolbox', { credentials: 'include' });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'failed');
     renderToolbox(j.tools || []);
-  } catch (e) { list.innerHTML = '<div class="hint" style="padding:8px">Could not load tools: ' + (e.message || 'error') + '</div>'; }
+  } catch (e) { box.innerHTML = '<div class="sc-hint" style="padding:8px">Could not load tools: ' + (e.message || 'error') + '</div>'; }
+}
+function toolboxIconSvg(t) {
+  // Simple visual differentiation: a gear for built-ins, a package icon for uploads.
+  if (t.builtin) return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.6 1.65 1.65 0 0010 3.09V3a2 2 0 014 0v.09c0 .66.39 1.25 1 1.51a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.26.61.85 1 1.51 1H21a2 2 0 010 4h-.09c-.66 0-1.25.39-1.51 1z"/></svg>';
+  return '<svg viewBox="0 0 24 24"><path d="M12 2L2 7v10l10 5 10-5V7z"/><path d="M2 7l10 5 10-5M12 22V12"/></svg>';
 }
 function renderToolbox(tools) {
-  const list = $('#tb-list');
-  list.innerHTML = '';
-  if (!tools.length) { list.innerHTML = '<div class="hint" style="padding:8px">No tools yet.</div>'; return; }
+  const box = $('#tb-tiles');
+  box.innerHTML = '';
+  if (!tools.length) { box.innerHTML = '<div class="sc-hint" style="padding:8px">No tools yet. Upload one from Manage →</div>'; return; }
   for (const t of tools) {
-    const row = document.createElement('div');
-    row.className = 'tb-row';
-    const meta = t.builtin
-      ? '<span class="tb-tag builtin">built-in</span>' + (t.elevated ? '<span class="tb-tag elev">elevated</span>' : '')
-      : '<span class="tb-tag custom">uploaded</span><span class="hint">' + (t.filename || '') + ' · ' + fmtSize(t.size || 0) + '</span>';
-    row.innerHTML = `
-      <div class="tb-main">
-        <div class="tb-name"></div>
-        <div class="tb-meta">${meta}</div>
-      </div>
-      <div class="tb-actions">
-        <button class="btn primary small tb-run">Run</button>
-        ${t.builtin ? '' : '<button class="btn ghost small tb-del" title="Delete">Delete</button>'}
-      </div>`;
-    row.querySelector('.tb-name').textContent = t.name;
-    row.querySelector('.tb-run').addEventListener('click', () => runToolboxItem(t));
-    if (!t.builtin) row.querySelector('.tb-del').addEventListener('click', () => deleteToolboxItem(t));
-    list.appendChild(row);
+    const btn = document.createElement('button');
+    btn.className = 'sc-tile tb-tile';
+    btn.title = (t.builtin ? 'Built-in' : 'Uploaded · ' + (t.filename || '')) + (t.elevated ? ' · runs elevated' : '');
+    btn.innerHTML = '<span class="sc-tile-ic">' + toolboxIconSvg(t) + '</span><span class="sc-tile-l"></span>';
+    btn.querySelector('.sc-tile-l').textContent = t.name;
+    btn.addEventListener('click', () => runToolboxItem(t));
+    if (!t.builtin) {
+      // Secondary click target: right-click a custom tool to delete it (built-
+      // ins are not deletable). Kept out of the primary UI so single-click Run
+      // stays the dominant interaction.
+      btn.addEventListener('contextmenu', (e) => { e.preventDefault(); deleteToolboxItem(t); });
+    }
+    box.appendChild(btn);
   }
 }
 async function runToolboxItem(t) {
-  const out = $('#tb-out');
-  out.textContent = 'Downloading ' + t.name + '…';
+  if (!attachedId) { toast('No device connected', 'err'); return; }
+  const status = $('#tb-status');
+  status.textContent = 'Downloading ' + t.name + '…';
   try {
     const r = await fetch(t.url, { credentials: 'include' });
     if (!r.ok) throw new Error('download HTTP ' + r.status);
     const blob = await r.blob();
     const file = new File([blob], t.filename || 'tool.exe', { type: 'application/octet-stream' });
-    sysOp('paths', {}, { onResult: (m) => {
-      if (!m.ok || !m.data.temp) { out.textContent = 'Could not resolve the remote temp folder.'; return; }
+    deviceOp(attachedId, 'paths', {}, { onResult: (m) => {
+      if (!m.ok || !m.data.temp) { status.textContent = 'Could not resolve the remote temp folder.'; return; }
       const dest = joinPath(m.data.temp, file.name);
-      filesAgentId = sysAgentId;
-      out.textContent = 'Sending ' + file.name + ' to remote…';
+      filesAgentId = attachedId;
+      status.textContent = 'Sending ' + file.name + ' to remote…';
       uploadFileTo(file, dest, { silent: true, onDone: () => {
-        out.textContent = 'Running ' + t.name + (t.elevated ? ' (elevated - UAC on remote)…' : '…');
-        sysOp('deploy-run', { path: dest, args: '', msi: /\.msi$/i.test(file.name), elevated: !!t.elevated }, { onResult: (res) => {
-          if (!res.ok) { out.textContent = 'Failed: ' + (res.error || 'error'); toast(t.name + ' failed', 'err'); return; }
+        status.textContent = 'Running ' + t.name + (t.elevated ? ' (elevated — UAC on remote)…' : '…');
+        deviceOp(attachedId, 'deploy-run', { path: dest, args: '', msi: /\.msi$/i.test(file.name), elevated: !!t.elevated }, { onResult: (res) => {
+          if (!res.ok) { status.textContent = 'Failed: ' + (res.error || 'error'); toast(t.name + ' failed', 'err'); return; }
           const ok = res.data.exitCode === 0;
-          out.textContent = (ok ? '✓ ' : '') + t.name + ' - exit code ' + res.data.exitCode + (res.data.output ? '\n\n' + res.data.output : '');
+          status.textContent = (ok ? '✓ ' : '') + t.name + ' — exit code ' + res.data.exitCode;
           toast(ok ? t.name + ' done' : t.name + ' finished (exit ' + res.data.exitCode + ')', ok ? 'ok' : 'err');
         } });
       } });
     } });
-  } catch (e) { out.textContent = 'Failed: ' + (e.message || 'error'); toast('Could not run ' + t.name, 'err'); }
+  } catch (e) { status.textContent = 'Failed: ' + (e.message || 'error'); toast('Could not run ' + t.name, 'err'); }
 }
 async function deleteToolboxItem(t) {
   const ok = await modal({ title: 'Delete tool?', message: 'Remove "' + t.name + '" from your toolbox? This only affects your account.', confirmText: 'Delete', danger: true });
@@ -1588,30 +1609,7 @@ async function deleteToolboxItem(t) {
     toast('Deleted', 'ok'); loadToolbox();
   } catch (e) { toast('Delete failed: ' + e.message, 'err'); }
 }
-$('#tb-upload').addEventListener('click', async () => {
-  if (!tbFile) { toast('Choose a file first', 'err'); return; }
-  const name = $('#tb-name').value.trim() || tbFile.name;
-  if (tbFile.size > 128 * 1024 * 1024) { toast('File too large (128 MB max)', 'err'); return; }
-  const out = $('#tb-out');
-  out.textContent = 'Uploading ' + tbFile.name + '…';
-  try {
-    const q = '?name=' + encodeURIComponent(name) + '&filename=' + encodeURIComponent(tbFile.name);
-    const r = await fetch('/api/toolbox' + q, {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: tbFile,
-    });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || 'failed');
-    out.textContent = 'Added "' + j.tool.name + '" to your toolbox.';
-    tbFile = null;
-    $('#tb-file').value = '';
-    $('#tb-file-text').textContent = 'Upload tool…';
-    $('#tb-name').value = '';
-    loadToolbox();
-    toast('Tool added', 'ok');
-  } catch (e) { out.textContent = 'Upload failed: ' + e.message; toast('Upload failed', 'err'); }
-});
+$('#tb-refresh').addEventListener('click', loadToolbox);
 
 // --- monitor ---
 function startMonitor() {
@@ -2212,6 +2210,7 @@ function scOpen(name) {
   if (scCloseT) { clearTimeout(scCloseT); scCloseT = null; }
   $$('.sc-panel').forEach((p) => (p.hidden = p.dataset.panelfor !== name));
   $$('.sc-tab').forEach((t) => t.classList.toggle('active', t.dataset.panel === name));
+  if (name === 'toolbox') loadToolbox();
 }
 function scScheduleClose() { if (scCloseT) clearTimeout(scCloseT); scCloseT = setTimeout(closeScPanels, 220); }
 $$('.sc-tab').forEach((tab) => {

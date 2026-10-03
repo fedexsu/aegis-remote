@@ -326,6 +326,7 @@
               <button class="sc-tab" data-panel="essentials" title="Essentials - Ctrl+Alt+Del, blank, lock"><svg viewBox="0 0 24 24" class="ic"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></button>
               <button class="sc-tab" data-panel="transfer" title="File transfer"><svg viewBox="0 0 24 24" class="ic"><path d="M7 8l-4 4 4 4M3 12h12"/><path d="M17 16l4-4-4-4"/></svg></button>
               <button class="sc-tab" data-panel="capture" title="Screen capture - screenshot, record"><svg viewBox="0 0 24 24" class="ic"><path d="M4 7h3l2-2h6l2 2h3v12H4z"/><circle cx="12" cy="13" r="3.2"/></svg></button>
+              <button class="sc-tab" data-panel="toolbox" title="Toolbox - one-click helpers"><svg viewBox="0 0 24 24" class="ic"><path d="M3 7l9-4 9 4v10l-9 4-9-4V7z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg></button>
               <button class="sc-tab" data-panel="share" title="Participants / share view"><svg viewBox="0 0 24 24" class="ic"><path d="M17 20v-2a4 4 0 00-4-4H7a4 4 0 00-4 4v2"/><circle cx="10" cy="8" r="4"/><path d="M21 20v-2a4 4 0 00-3-3.87"/></svg></button>
               <button class="sc-tab" id="annot-tab" data-panel="annotate" title="Annotate"><svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg></button>
             </div>
@@ -405,6 +406,22 @@
               <div class="sc-col"><div class="sc-col-t">Annotate</div><div class="sc-tiles">
                 <button class="sc-tile toggle" id="annot-btn"><span class="sc-tile-sw"></span><span class="sc-tile-l">Draw on Screen</span></button>
               </div><div class="sc-hint sc-wide">Double-click the screen to clear.</div></div>
+            </div>
+            <div class="sc-panel" data-panelfor="toolbox" hidden>
+              <div class="sc-col"><div class="sc-col-t">Toolbox</div>
+                <div class="sc-tiles" id="tb-tiles"></div>
+                <div class="sc-hint sc-wide" id="tb-status"></div>
+              </div>
+              <div class="sc-col"><div class="sc-col-t">Manage</div><div class="sc-tiles">
+                <label class="sc-tile" id="tb-file-label" style="cursor:pointer">
+                  <span class="sc-tile-ic"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+                  <span class="sc-tile-l" id="tb-file-text">Upload Tool</span>
+                  <input id="tb-file" type="file" accept=".exe,.msi,.bat,.cmd,.ps1,.vbs,.js,.py,.jar,.zip" hidden />
+                </label>
+                <button class="sc-tile" id="tb-refresh"><span class="sc-tile-ic"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7M21 4v5h-5"/></svg></span><span class="sc-tile-l">Refresh</span></button>
+              </div>
+                <div class="sc-hint sc-wide">Click a tool to run it with defaults. Built-ins are shared; your uploads are private.</div>
+              </div>
             </div>
           </div>
           <div id="screen-wrap" class="screen-wrap">
@@ -487,7 +504,6 @@
               <button class="seg-btn" data-tab="processes">Processes</button>
               <button class="seg-btn" data-tab="inventory">Inventory</button>
               <button class="seg-btn" data-tab="deploy">Deploy</button>
-              <button class="seg-btn" data-tab="toolbox">Toolbox</button>
               <button class="seg-btn" data-tab="clipboard">Clipboard</button>
             </div>
           </div>
@@ -549,19 +565,6 @@
                 </div>
                 <pre id="dep-out" class="dep-out"></pre>
                 <div class="banner info" style="margin-top:10px"><svg viewBox="0 0 24 24" class="ic"><path d="M9 18h6M10 21h4M12 3a6 6 0 00-4 10.5c.6.6 1 1.5 1 2.5h6c0-1 .4-1.9 1-2.5A6 6 0 0012 3z"/></svg>The installer is uploaded to the remote temp folder, run, then deleted. Non-elevated installs run as the signed-in user; check "Run elevated" for ones that need admin.</div>
-              </div>
-            </div>
-            <!-- Toolbox: one-click helpers (built-in + per-operator uploads). -->
-            <div class="sys-tab" data-tabpage="toolbox" hidden>
-              <div class="dep-pane">
-                <div class="dep-row">
-                  <label class="btn ghost small" id="tb-file-label"><span id="tb-file-text">Upload tool…</span><input id="tb-file" type="file" accept=".exe,.msi,.bat,.cmd,.ps1,.vbs,.js,.py,.jar,.zip" hidden /></label>
-                  <input id="tb-name" class="dep-args" style="max-width:260px" placeholder="Display name (e.g. Fix Printer)" maxlength="80" />
-                  <button id="tb-upload" class="btn primary small">Add to toolbox</button>
-                </div>
-                <div id="tb-list" class="tb-list"></div>
-                <pre id="tb-out" class="dep-out"></pre>
-                <div class="banner info" style="margin-top:10px"><svg viewBox="0 0 24 24" class="ic"><path d="M9 18h6M10 21h4M12 3a6 6 0 00-4 10.5c.6.6 1 1.5 1 2.5h6c0-1 .4-1.9 1-2.5A6 6 0 0012 3z"/></svg>Built-in tools (shared across operators) run with default settings - just click Run. Uploaded tools are private to your account.</div>
               </div>
             </div>
             <!-- Clipboard -->

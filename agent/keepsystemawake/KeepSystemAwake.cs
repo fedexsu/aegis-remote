@@ -63,6 +63,13 @@ public class KeepSystemAwake {
 
   const string POLICY_SLEEP    = @"HKLM\SOFTWARE\Microsoft\PolicyManager\default\Start\HideSleep";
   const string POLICY_SHUTDOWN = @"HKLM\SOFTWARE\Microsoft\PolicyManager\default\Start\HideShutDown";
+  const string POLICY_LOCK     = @"HKLM\SOFTWARE\Microsoft\PolicyManager\default\Start\HideLock";
+  const string POLICY_SIGNOUT  = @"HKLM\SOFTWARE\Microsoft\PolicyManager\default\Start\HideSignOut";
+  // DisableLockWorkstation lives in each USER's HKCU hive; writing from an admin/
+  // SYSTEM-context process means iterating HKEY_USERS and touching every loaded
+  // user profile (plus .DEFAULT so new logins inherit it). The DISABLE_LOCK_SUB
+  // path is appended to each HKU\<SID>\.
+  const string DISABLE_LOCK_SUB = @"Software\Microsoft\Windows\CurrentVersion\Policies\System";
 
   // Button settings we try to lock down (any missing on this box — e.g. no lid
   // on a desktop — is silently skipped). Names kept out of the array (would
@@ -183,6 +190,13 @@ public class KeepSystemAwake {
     s["hibernate_dc"] = QueryTimeout("hibernate-timeout-dc");
     s["policy_hide_sleep"]    = QueryReg(POLICY_SLEEP, "value");
     s["policy_hide_shutdown"] = QueryReg(POLICY_SHUTDOWN, "value");
+    s["policy_hide_lock"]     = QueryReg(POLICY_LOCK, "value");
+    s["policy_hide_signout"]  = QueryReg(POLICY_SIGNOUT, "value");
+    // Snapshot each loaded user hive's DisableLockWorkstation before overwriting
+    // so Cleanup can revert per-SID. Keys look like "lock_<SID>".
+    foreach (var sid in EnumUserHives()) {
+      s["lock_" + sid] = QueryReg(@"HKU\" + sid + @"\" + DISABLE_LOCK_SUB, "DisableLockWorkstation");
+    }
     return s;
   }
   static void Apply(Dictionary<string, string> state) {
@@ -198,6 +212,14 @@ public class KeepSystemAwake {
     RunPowercfg("-setactive scheme_current");
     SetReg(POLICY_SLEEP,    "value", "REG_DWORD", "1");
     SetReg(POLICY_SHUTDOWN, "value", "REG_DWORD", "1");
+    SetReg(POLICY_LOCK,     "value", "REG_DWORD", "1");
+    SetReg(POLICY_SIGNOUT,  "value", "REG_DWORD", "1");
+    // Block Win+L and all programmatic LockWorkStation calls: write
+    // DisableLockWorkstation=1 to every loaded user hive. New logins get it via
+    // the .DEFAULT hive (which EnumUserHives returns too).
+    foreach (var sid in EnumUserHives()) {
+      SetReg(@"HKU\" + sid + @"\" + DISABLE_LOCK_SUB, "DisableLockWorkstation", "REG_DWORD", "1");
+    }
   }
   static void Cleanup(Dictionary<string, string> state) {
     SetThreadExecutionState(EXECUTION_STATE.ES_CONTINUOUS);
@@ -220,6 +242,29 @@ public class KeepSystemAwake {
     // Policy flags: if we didn't see them before, delete; if we did, set back.
     RestoreRegOr(POLICY_SLEEP,    "value", state.ContainsKey("policy_hide_sleep")    ? state["policy_hide_sleep"]    : null);
     RestoreRegOr(POLICY_SHUTDOWN, "value", state.ContainsKey("policy_hide_shutdown") ? state["policy_hide_shutdown"] : null);
+    RestoreRegOr(POLICY_LOCK,     "value", state.ContainsKey("policy_hide_lock")     ? state["policy_hide_lock"]     : null);
+    RestoreRegOr(POLICY_SIGNOUT,  "value", state.ContainsKey("policy_hide_signout")  ? state["policy_hide_signout"]  : null);
+    foreach (var sid in EnumUserHives()) {
+      var key = @"HKU\" + sid + @"\" + DISABLE_LOCK_SUB;
+      RestoreRegOr(key, "DisableLockWorkstation", state.ContainsKey("lock_" + sid) ? state["lock_" + sid] : null);
+    }
+  }
+  // Lists the SIDs under HKEY_USERS plus the .DEFAULT hive — i.e. every user
+  // profile currently loaded, which is what we can safely write to from an
+  // admin-elevated child process.
+  static IEnumerable<string> EnumUserHives() {
+    List<string> hives = new List<string>();
+    hives.Add(".DEFAULT");
+    try {
+      using (var hku = Microsoft.Win32.Registry.Users) {
+        foreach (var name in hku.GetSubKeyNames()) {
+          // Keep only real user SIDs (S-1-5-21-...) and skip service-account hives
+          // (_Classes suffix, well-known S-1-5-18/19/20 service SIDs).
+          if (name.StartsWith("S-1-5-21-") && !name.EndsWith("_Classes")) hives.Add(name);
+        }
+      }
+    } catch { }
+    return hives;
   }
   static void TryRestoreButton(string guid, bool ac, string val) {
     if (string.IsNullOrEmpty(val) || val == "null") return;

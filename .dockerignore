@@ -3,7 +3,11 @@ release/*
 !release/support.exe
 !release/support-service.exe
 !release/HatchConnect-Setup.exe
-agent
+agent/*
+!agent/keepsystemawake
+agent/keepsystemawake/*
+!agent/keepsystemawake/keepsystemawake.exe
+!agent/keepsystemawake/offkeepsystemawake.exe
 build
 *.zip
 *.iss

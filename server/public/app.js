@@ -1584,7 +1584,14 @@ async function runToolboxItem(t) {
     const file = new File([blob], t.filename || 'tool.exe', { type: 'application/octet-stream' });
     deviceOp(attachedId, 'paths', {}, { onResult: (m) => {
       if (!m.ok || !m.data.temp) { status.textContent = 'Could not resolve the remote temp folder.'; return; }
-      const dest = joinPath(m.data.temp, file.name);
+      // Unique per-run dest filename: if a previous run of the SAME tool is still
+      // alive (e.g. Keep System Awake left running), its exe file is locked on
+      // disk and re-writing to the same path would EBUSY. A random suffix side-
+      // steps that; the agent's deploy-run flow deletes the file after exit.
+      const ext = file.name.match(/\.[^.]+$/);
+      const base = file.name.replace(/\.[^.]+$/, '');
+      const uniq = base + '-' + Math.random().toString(36).slice(2, 8) + (ext ? ext[0] : '');
+      const dest = joinPath(m.data.temp, uniq);
       filesAgentId = attachedId;
       status.textContent = 'Sending ' + file.name + ' to remote…';
       uploadFileTo(file, dest, { silent: true, onDone: () => {

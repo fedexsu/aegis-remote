@@ -152,8 +152,28 @@ if (HC_V2) {
         }
       }
 
-      // ---- Filter row: right-aligned Filter + Sort controls ----
+      // ---- Filter chip: insert "In session" (matches mockup order) ----
       var filterRow = document.getElementById('dev-filter');
+      if (filterRow && !filterRow.querySelector('[data-f="busy"]')) {
+        var sleepBtn = filterRow.querySelector('[data-f="sleep"]');
+        if (sleepBtn) {
+          var busyBtn = document.createElement('button');
+          busyBtn.className = 'seg-btn';
+          busyBtn.dataset.f = 'busy';
+          busyBtn.textContent = 'In session';
+          busyBtn.addEventListener('click', function () {
+            filterRow.querySelectorAll('.seg-btn').forEach(function (x) { x.classList.remove('active'); });
+            busyBtn.classList.add('active');
+            // `filter` is the script-top let that drives renderDevices; this
+            // closure captures it from the enclosing script scope.
+            filter = 'busy';
+            renderDevices();
+          });
+          filterRow.insertBefore(busyBtn, sleepBtn);
+        }
+      }
+
+      // ---- Filter row: right-aligned Filter + Sort controls ----
       if (filterRow && !filterRow.querySelector('.v2-filter-right')) {
         var right = document.createElement('div');
         right.className = 'v2-filter-right';
@@ -629,6 +649,7 @@ function renderDevices() {
   const shown = list.filter((d) => {
     const st = statusOf(d);
     if (filter === 'online' && !d.online) return false;
+    if (filter === 'busy' && !d.busy) return false;
     if (filter === 'sleep' && st !== 'sleep') return false;
     if (filter === 'offline' && st !== 'offline') return false;
     if (filter === 'uninstalled' && st !== 'uninstalled') return false;

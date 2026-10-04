@@ -1390,7 +1390,19 @@ const server = http.createServer((req, res) => {
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end('forbidden'); }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); return res.end('not found'); }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    // Cache-Control: no-store on the app shell (HTML + the few bundles the
+    // console loads directly) so a fresh deploy ALWAYS shows up on next
+    // refresh — the previous "no headers at all" case made browsers apply
+    // heuristic caching for hours, which hid every CSS change from users.
+    // Everything else (icons, worker, images) keeps default behaviour.
+    const headers = { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' };
+    const base = path.basename(file).toLowerCase();
+    if (base === 'app.html' || base === 'app.css' || base === 'app.v2.css' || base === 'app.js') {
+      headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0';
+      headers['Pragma'] = 'no-cache';
+      headers['Expires'] = '0';
+    }
+    res.writeHead(200, headers);
     res.end(data);
   });
 });

@@ -29,6 +29,11 @@
         if (legacy) {
           var v = document.getElementById('hc-v2-css'); if (v) v.remove();
           var f = document.getElementById('hc-v2-font'); if (f) f.remove();
+        } else {
+          // Marker consumed by both the v2 CSS (via [data-v2] selectors) and
+          // the HC_V2 constant in app.js. Set BEFORE body renders so first
+          // paint already uses the grid/table layout.
+          document.documentElement.setAttribute('data-v2', '1');
         }
       })();
     </script>

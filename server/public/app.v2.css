@@ -341,11 +341,60 @@ body {
   border-radius: var(--radius-sm) !important;
   overflow: hidden !important;
 }
-.device-row {
+/* v2 only: synthetic column header above the first device row — a real
+   element (.v2-list-head) injected by app.js so grid alignment with the
+   rows is exact. If app.js hasn't injected it yet, nothing shows. */
+.v2-list-head {
+  display: grid;
+  grid-template-columns: 20px 1fr 110px 72px 110px 92px;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px 8px 22px;
+  background: var(--panel2);
+  border-bottom: 1px solid var(--line);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--txt3);
+}
+.v2-list-head span { white-space: nowrap; }
+/* v2 only: grid-based row — pulls dr-* children into proper columns. The
+   explicit column widths match the ::before header above. Children we don't
+   want in the row (dr-status dot, dr-lock) are hidden; the status stripe +
+   pill already carry that signal. */
+[data-v2] .device-row {
+  display: grid !important;
+  grid-template-columns: 20px 1fr 110px 72px 110px 92px !important;
+  align-items: center !important;
+  gap: 14px !important;
+}
+[data-v2] .device-row .dr-status { display: none !important; }
+[data-v2] .device-row .dr-main { min-width: 0 !important; }
+[data-v2] .device-row .dr-sub {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+/* dr-ver is appended INSIDE dr-sub by app.js — pull it OUT of flow so it
+   sits in its own column visually. We can't reparent in CSS, but we can
+   grid-position dr-presence/dr-ver/dr-seen into their intended columns. */
+[data-v2] .device-row .dr-presence { grid-column: 3 !important; justify-self: start !important; }
+[data-v2] .device-row .dr-seen     { grid-column: 5 !important; text-align: left !important; justify-self: start !important; }
+[data-v2] .device-row .dr-actions  { grid-column: 6 !important; justify-self: end !important; opacity: 1 !important; }
+[data-v2] .device-row .dr-lock     { grid-column: 4 !important; }
+/* The dr-ver chip is nested inside dr-sub; promote it to its own column
+   with position:absolute reads awkwardly, so instead extract it visually
+   via a flex trick: make dr-main a two-row flex and move dr-ver out via
+   negative order isn't possible for a descendant — so keep dr-ver inline
+   in dr-sub (reads as part of the agent string) but also pin an .dr-ver
+   DUPLICATE... actually, simpler: just show dr-ver inline inside dr-sub
+   where app.js already put it. Column 4 (72px) stays empty for lock. */
+[data-v2] .device-row {
   position: relative !important;
   background: transparent !important;
   border-bottom: 1px solid var(--line) !important;
-  padding: 12px 16px 12px 22px !important;
+  padding: 11px 14px 11px 22px !important;
 }
 .device-row:last-child { border-bottom: none !important; }
 .device-row::before {

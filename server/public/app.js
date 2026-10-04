@@ -7,6 +7,28 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 // the mockup-faithful DOM enhancements below. Legacy = false, no risk, same
 // DOM as before.
 const HC_V2 = (function () { try { return !!document.getElementById('hc-v2-css'); } catch (e) { return false; } })();
+// v2 chrome injection — one-shot, runs on DOMContentLoaded. Adds the mockup
+// bits that need HTML (not just CSS): a column-header strip above the device
+// list. Legacy mode skips this entirely.
+if (HC_V2) {
+  document.addEventListener('DOMContentLoaded', function v2Chrome() {
+    try {
+      var box = document.getElementById('devices');
+      if (box && !document.querySelector('.v2-list-head')) {
+        var head = document.createElement('div');
+        head.className = 'v2-list-head';
+        head.innerHTML =
+          '<span></span>' +            // col 1: OS icon
+          '<span>Device</span>' +      // col 2: dr-main
+          '<span>Status</span>' +      // col 3: dr-presence
+          '<span></span>' +            // col 4: dr-lock
+          '<span>Last seen</span>' +   // col 5: dr-seen
+          '<span style="text-align:right">Actions</span>'; // col 6: dr-actions
+        box.parentNode.insertBefore(head, box);
+      }
+    } catch (e) { /* non-fatal — missing header is cosmetic */ }
+  });
+}
 let ws = null, admin = null, attachedId = null;
 let frameW = 0, frameH = 0;
 // Deep-link support: /?device=<id>&solo=1 opens a focused window that auto-joins

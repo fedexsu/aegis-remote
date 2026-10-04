@@ -363,6 +363,34 @@ ipcMain.handle('screen:screenshot', async () => {
   } catch { return null; }
 });
 
+// ---------------------------------------------------------------------------
+// Webcam: kill any app currently holding the camera so Chromium can open it.
+// Windows exposes the camera to one DirectShow/MF client at a time; when the
+// user has Camera.exe open, our getUserMedia({video:true}) returns NotReadable.
+// We taskkill the usual suspects and let the caller retry.
+// ---------------------------------------------------------------------------
+ipcMain.handle('cam:kill', async () => {
+  const { exec } = require('child_process');
+  // Camera.exe (legacy) · WindowsCamera.exe (W10/11) · the UWP host that wraps
+  // the modern app. /T kills child processes too; /F forces termination.
+  const procs = ['WindowsCamera.exe', 'Camera.exe', 'microsoft.windows.camera.exe'];
+  const killed = [];
+  for (const name of procs) {
+    const ok = await new Promise((res) => {
+      // tasklist first so we only report things we actually stopped.
+      exec(`tasklist /FI "IMAGENAME eq ${name}" /NH`, (err, stdout) => {
+        if (err || !/\.exe/i.test(stdout || '')) return res(false);
+        exec(`taskkill /F /IM "${name}" /T`, (killErr) => res(!killErr));
+      });
+    });
+    if (ok) killed.push(name);
+  }
+  // Give Windows a beat to release the device handle before the renderer calls
+  // getUserMedia again. 400ms is enough on every box I've tested.
+  if (killed.length) await new Promise((r) => setTimeout(r, 400));
+  return { ok: true, killed };
+});
+
 // Primary display size in physical pixels — lets the agent report screen dims
 // on register WITHOUT opening a capture stream (so idle costs nothing).
 ipcMain.handle('screen:size', () => {
@@ -1146,6 +1174,19 @@ app.whenReady().then(() => {
       cb({ video: sources[0], audio: 'loopback' });
     });
   }, { useSystemPicker: false });
+
+  // Webcam capture: a technician toggling the camera panel in the console sends
+  // `cam-start`, which routes to capture.js and calls getUserMedia({video:true}).
+  // Chromium prompts for the `media` permission by default and the agent window
+  // is headless (no one to click Allow), so pre-approve it here. Scoped to this
+  // one permission; everything else still goes through the default-deny path.
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => {
+    if (permission === 'media') return cb(true);
+    cb(false);
+  });
+  try {
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media');
+  } catch {}
 
   startInjector();
   restoreCursorsSafety();

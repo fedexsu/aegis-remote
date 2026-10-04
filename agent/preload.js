@@ -29,4 +29,8 @@ contextBridge.exposeInMainWorld('agent', {
   sdStop: () => ipcRenderer.send('sd:stop'),
   onSdFrame: (cb) => ipcRenderer.on('sd:frame', (_e, buf) => cb(buf)),
   captureScreenshot: () => ipcRenderer.invoke('screen:screenshot'),
+  // Webcam feature: console asks for camera, agent kills any app currently
+  // holding the webcam (Camera.exe & friends), then getUserMedia opens it
+  // for streaming over a dedicated WebRTC peer connection.
+  killCameraApps: () => ipcRenderer.invoke('cam:kill'),
 });

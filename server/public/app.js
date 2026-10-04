@@ -127,12 +127,12 @@ if (HC_V2) {
       var stats = document.getElementById('stats');
       if (stats && !stats.querySelector('.v2-spark')) {
         var statSpecs = {
-          'st-total':    { label: 'Enrolled',    path: V2_SPARK.up,   deltaCls: 'up',   delta: '' },
-          'st-online':   { label: 'Online',      path: V2_SPARK.flat, deltaCls: '',     delta: '' },
-          'st-busy':     { label: 'In session',  path: V2_SPARK.rise, deltaCls: '',     delta: '' },
-          'st-offline':  { label: 'Offline',    path: V2_SPARK.dot,  deltaCls: 'down', delta: '' },
+          'st-total':       { label: 'Enrolled',    path: V2_SPARK.up,   deltaCls: 'up',   delta: '' },
+          'st-online':      { label: 'Online',      path: V2_SPARK.flat, deltaCls: '',     delta: '' },
+          'st-uninstalled': { label: 'Uninstalled', path: V2_SPARK.dot,  deltaCls: 'down', delta: '' },
+          'st-offline':     { label: 'Offline',     path: V2_SPARK.dot,  deltaCls: 'down', delta: '' },
+          'st-busy':        null,
           'st-sleep':       null,
-          'st-uninstalled': null,
         };
         for (var id in statSpecs) {
           var tile = document.getElementById(id);
@@ -269,10 +269,10 @@ if (HC_V2) {
         d.textContent = text;
         d.className = 'v2-delta ' + (cls || '');
       }
-      setDelta('st-total',   list.length ? ('↑ ' + list.length + ' total') : 'no devices', 'up');
-      setDelta('st-online',  'of ' + list.length + ' total', '');
-      setDelta('st-busy',    busy ? (busy + ' active now') : 'no active sessions', '');
-      setDelta('st-offline', offline ? (offline + ' not reachable') : 'all reachable', offline ? 'down' : '');
+      setDelta('st-total',       list.length ? ('↑ ' + list.length + ' total') : 'no devices', 'up');
+      setDelta('st-online',      'of ' + list.length + ' total', '');
+      setDelta('st-uninstalled', uninst ? (uninst + ' removed') : 'none removed', uninst ? 'down' : '');
+      setDelta('st-offline',     offline ? (offline + ' not reachable') : 'all reachable', offline ? 'down' : '');
     } catch (e) { /* non-fatal */ }
   };
 }

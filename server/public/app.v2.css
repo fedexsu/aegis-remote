@@ -518,21 +518,29 @@ body {
   border-bottom: 1px solid var(--line) !important;
   padding: 10px 20px !important;
   min-height: 56px;
+  position: relative !important; /* anchor for the absolutely-centered .sc-tabs */
 }
 .sess-name { color: var(--txt); font-weight: 500 !important; letter-spacing: -0.01em; font-family: var(--font-mono); font-size: 13px; }
 /* ScreenConnect-style flat icon strip. The icons sit directly on .sc-bar
    with no boxed container — just evenly-spaced square buttons that light up
    accent on hover/active. */
+/* Lock the icon strip to the TRUE center of the session bar — regardless of
+   how long the hostname / rtc pill on the left runs. Absolute positioning
+   on the strip (with .sc-bar as the containing block) keeps it fixed in
+   the middle; the device name stays left, Control/Disconnect stay right. */
 .sc-tabs {
-  position: static !important;
-  transform: none !important;
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
   display: flex !important;
   background: transparent !important;
   border: none !important;
   border-radius: 0 !important;
   padding: 0 !important;
   gap: 2px !important;
-  margin: 0 auto !important;
+  margin: 0 !important;
+  z-index: 2;
 }
 .sc-tab {
   width: 44px !important; height: 40px !important;

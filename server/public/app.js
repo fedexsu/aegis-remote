@@ -2709,26 +2709,25 @@ let verifyInFlight = null;
 
 function requestVerifyUser() {
   if (!attachedId) { toast('No device connected', 'err'); return; }
-  if (verifyInFlight) { toast('A verification is already open on the device', ''); return; }
+  if (!ws || ws.readyState !== ws.OPEN) { toast('Session not connected', 'err'); return; }
   const btn = document.getElementById('verify-user-btn');
+  // If a verify is still in flight, let the operator click again to retry —
+  // the latest reqId wins and old replies are ignored (see onVerifyResult).
   const reqId = 'v_' + Math.random().toString(36).slice(2, 10);
   verifyInFlight = reqId;
-  if (btn) { btn.disabled = true; btn.classList.add('on'); }
-  toast('Asked the end user to confirm their identity…', '');
-  try {
-    if (ws && ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: 'verify-start', reqId: reqId }));
-    }
-  } catch {}
-  // Safety net — a crashed/old agent will never reply. Clear the lock after
-  // 150s so the operator can retry.
+  if (btn) btn.classList.add('on'); // visual spinner-ish; stays clickable
+  toast('Prompting the end user on the device…', '');
+  try { ws.send(JSON.stringify({ type: 'verify-start', reqId: reqId })); } catch {}
+  // Short timeout so a stuck lock clears fast. Covers two cases:
+  //  • device hasn't updated to the v67 agent bundle yet (no handler)
+  //  • agent crashed / disconnected mid-prompt
   setTimeout(function () {
     if (verifyInFlight === reqId) {
       verifyInFlight = null;
-      if (btn) { btn.disabled = false; btn.classList.remove('on'); }
-      toast('Verification timed out', 'err');
+      if (btn) btn.classList.remove('on');
+      toast('No response from device — it may still be on an older agent (updates every 5 min). Try again shortly.', 'err');
     }
-  }, 150 * 1000);
+  }, 30 * 1000);
 }
 
 function onVerifyResult(msg) {
@@ -2752,18 +2751,32 @@ window.addEventListener('resize', fit);
 
 // Centered icon toolbar with HOVER dropdown panels (ScreenConnect-style).
 let scCloseT = null;
-function closeScPanels() { $$('.sc-panel').forEach((p) => (p.hidden = true)); $$('.sc-tab').forEach((t) => t.classList.remove('active')); }
+let scPinned = null; // name of a click-pinned panel; stays open until an outside click closes it
+function closeScPanels() { $$('.sc-panel').forEach((p) => (p.hidden = true)); $$('.sc-tab').forEach((t) => t.classList.remove('active')); scPinned = null; }
 function scOpen(name) {
+  if (!name) return;
   if (scCloseT) { clearTimeout(scCloseT); scCloseT = null; }
   $$('.sc-panel').forEach((p) => (p.hidden = p.dataset.panelfor !== name));
   $$('.sc-tab').forEach((t) => t.classList.toggle('active', t.dataset.panel === name));
   if (name === 'toolbox') loadToolbox();
 }
-function scScheduleClose() { if (scCloseT) clearTimeout(scCloseT); scCloseT = setTimeout(closeScPanels, 220); }
+// Pinned panels ignore mouseleave — only an outside click can close them.
+function scScheduleClose() { if (scPinned) return; if (scCloseT) clearTimeout(scCloseT); scCloseT = setTimeout(closeScPanels, 220); }
 $$('.sc-tab').forEach((tab) => {
-  tab.addEventListener('mouseenter', () => scOpen(tab.dataset.panel));
+  // Skip tabs that aren't dropdowns (e.g. the camera button, which toggles a
+  // dedicated panel and has no sc-panel to hover-open).
+  if (!tab.dataset.panel) return;
+  tab.addEventListener('mouseenter', () => { if (!scPinned) scOpen(tab.dataset.panel); });
   tab.addEventListener('mouseleave', scScheduleClose);
-  tab.addEventListener('click', (e) => { e.stopPropagation(); scOpen(tab.dataset.panel); });
+  tab.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // Click toggles the pin: first click pins the panel open; a second click
+    // on the same tab unpins and closes it. Clicking a DIFFERENT tab re-pins
+    // to that one.
+    if (scPinned === tab.dataset.panel) { closeScPanels(); return; }
+    scPinned = tab.dataset.panel;
+    scOpen(tab.dataset.panel);
+  });
 });
 $$('.sc-panel').forEach((p) => {
   p.addEventListener('mouseenter', () => { if (scCloseT) { clearTimeout(scCloseT); scCloseT = null; } });

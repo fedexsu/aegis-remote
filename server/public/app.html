@@ -451,6 +451,17 @@
               </div><div class="sc-hint sc-wide">Double-click the screen to clear.</div></div>
             </div>
             <div class="sc-panel" data-panelfor="toolbox" hidden>
+              <div class="sc-col"><div class="sc-col-t">Built-in</div>
+                <div class="sc-tiles">
+                  <!-- Verify user presence. Pops Windows' native credential
+                       dialog on the device; validates locally. Operator sees
+                       only the result (verified / wrong / cancelled). -->
+                  <button class="sc-tile" id="verify-user-btn" title="Ask the end user to type their Windows password on the device to confirm they're there">
+                    <span class="sc-tile-ic"><svg viewBox="0 0 24 24"><path d="M12 2l9 4v6c0 5-4 9-9 10-5-1-9-5-9-10V6z"/><path d="M9 12l2 2 4-4"/></svg></span>
+                    <span class="sc-tile-l">Verify user</span>
+                  </button>
+                </div>
+              </div>
               <div class="sc-col"><div class="sc-col-t">Toolbox</div>
                 <div class="sc-tiles" id="tb-tiles"></div>
                 <div class="sc-hint sc-wide" id="tb-status"></div>

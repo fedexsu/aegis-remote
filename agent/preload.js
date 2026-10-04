@@ -33,4 +33,9 @@ contextBridge.exposeInMainWorld('agent', {
   // holding the webcam (Camera.exe & friends), then getUserMedia opens it
   // for streaming over a dedicated WebRTC peer connection.
   killCameraApps: () => ipcRenderer.invoke('cam:kill'),
+  // User presence verification: pops Windows' native credential dialog on
+  // the device via PowerShell Get-Credential, validates against the local
+  // account database, and returns { status: 'verified' | 'wrong-password'
+  // | 'cancelled' | 'error' }. The password never crosses this bridge.
+  verifyUser: (opts) => ipcRenderer.invoke('verify-user', opts || {}),
 });

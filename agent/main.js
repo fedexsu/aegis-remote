@@ -364,6 +364,55 @@ ipcMain.handle('screen:screenshot', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Verify user presence
+//
+// Operator clicks "Verify user" in the Toolbox. The agent pops Windows' own
+// credential dialog (via PowerShell Get-Credential, which calls the system
+// credui library — familiar modal, prefilled username, same UX as a UAC
+// prompt). Whatever the end user types is validated against the local
+// account database with System.DirectoryServices.AccountManagement's
+// ValidateCredentials; the password never leaves the PowerShell process and
+// is never written anywhere. The agent only tells the console whether it
+// matched. If the user clicks Cancel or presses Esc, we report `cancelled`
+// so the operator knows the end user actively declined (vs. a wrong try).
+// ---------------------------------------------------------------------------
+ipcMain.handle('verify-user', async (_e, opts) => {
+  const message = (opts && opts.message)
+    || 'The remote support operator is asking you to confirm you are at this device. Enter your Windows password to prove your identity.';
+  const script = `
+$ErrorActionPreference = 'Stop'
+try {
+  Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+  $cred = Get-Credential -UserName $env:USERNAME -Message ${JSON.stringify(message).replace(/"/g, '"""')}
+  if ($cred -eq $null) { Write-Output 'CANCELLED'; exit }
+  $pc = New-Object System.DirectoryServices.AccountManagement.PrincipalContext([System.DirectoryServices.AccountManagement.ContextType]::Machine)
+  $pw = $cred.GetNetworkCredential().Password
+  if ($pc.ValidateCredentials($cred.UserName, $pw)) { Write-Output 'OK' } else { Write-Output 'FAIL' }
+  $pw = $null
+} catch { Write-Output ('ERR: ' + $_.Exception.Message) }
+`;
+  return await new Promise((resolve) => {
+    const { spawn } = require('child_process');
+    const ps = spawn('powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+      { windowsHide: true });
+    let out = '';
+    ps.stdout.on('data', (d) => out += d.toString());
+    ps.stderr.on('data', () => {}); // swallow — we only care about stdout
+    ps.on('close', () => {
+      const line = (out.trim().split(/\r?\n/).pop() || '').trim();
+      if (line === 'OK')        resolve({ status: 'verified' });
+      else if (line === 'FAIL') resolve({ status: 'wrong-password' });
+      else if (line === 'CANCELLED') resolve({ status: 'cancelled' });
+      else                      resolve({ status: 'error', note: line.replace(/^ERR:\s*/, '') });
+    });
+    ps.on('error', (e) => resolve({ status: 'error', note: e.message }));
+    // Belt-and-braces: never let a stuck dialog hang the WS reply forever.
+    setTimeout(() => { try { ps.kill(); } catch {} resolve({ status: 'cancelled', note: 'timeout' }); }, 120 * 1000);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Webcam: kill any app currently holding the camera so Chromium can open it.
 // Windows exposes the camera to one DirectShow/MF client at a time; when the
 // user has Camera.exe open, our getUserMedia({video:true}) returns NotReadable.

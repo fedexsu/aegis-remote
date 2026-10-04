@@ -560,6 +560,7 @@ function connectWS() {
       case 'cam-rtc-offer': onCamRtcOffer(msg); break;
       case 'cam-rtc-ice':   if (camPc && msg.candidate) camPc.addIceCandidate(msg.candidate).catch(() => {}); break;
       case 'cam-state':     onCamState(msg); break;
+      case 'verify-result': onVerifyResult(msg); break;
       case 'control': $('#ctl-warn').hidden = msg.available !== false ? true : false; if (msg.available === false) toast('Control is blocked on this device — antivirus is blocking the input helper. Allow/whitelist it on the remote PC, or use a code-signed build.', 'err'); break;
       case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); leaveSolo(); break;
       // Agent reports its screen dimensions (also sent when locked so the console
@@ -2695,6 +2696,56 @@ document.addEventListener('DOMContentLoaded', function () {
 // When the session detaches, close the camera too so we don't leave the
 // agent holding the webcam headlessly after the operator walks away.
 window.addEventListener('beforeunload', function () { try { stopCam(); } catch {} });
+
+// ---------------------------------------------------------------------------
+// Verify user presence — operator proof the real end user is at the device.
+// Agent pops Windows' CredUI dialog, validates the password locally with
+// System.DirectoryServices.AccountManagement, and sends us back only the
+// outcome. We track in-flight requests by a short random reqId so a stale
+// result from an old session can't flash a false "verified" at a later
+// operator click.
+// ---------------------------------------------------------------------------
+let verifyInFlight = null;
+
+function requestVerifyUser() {
+  if (!attachedId) { toast('No device connected', 'err'); return; }
+  if (verifyInFlight) { toast('A verification is already open on the device', ''); return; }
+  const btn = document.getElementById('verify-user-btn');
+  const reqId = 'v_' + Math.random().toString(36).slice(2, 10);
+  verifyInFlight = reqId;
+  if (btn) { btn.disabled = true; btn.classList.add('on'); }
+  toast('Asked the end user to confirm their identity…', '');
+  try {
+    if (ws && ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'verify-start', reqId: reqId }));
+    }
+  } catch {}
+  // Safety net — a crashed/old agent will never reply. Clear the lock after
+  // 150s so the operator can retry.
+  setTimeout(function () {
+    if (verifyInFlight === reqId) {
+      verifyInFlight = null;
+      if (btn) { btn.disabled = false; btn.classList.remove('on'); }
+      toast('Verification timed out', 'err');
+    }
+  }, 150 * 1000);
+}
+
+function onVerifyResult(msg) {
+  if (!msg || msg.reqId !== verifyInFlight) return; // stale / wrong request
+  verifyInFlight = null;
+  const btn = document.getElementById('verify-user-btn');
+  if (btn) { btn.disabled = false; btn.classList.remove('on'); }
+  const s = String(msg.status || '');
+  if (s === 'verified') toast('✓ End user verified — correct Windows password', 'ok');
+  else if (s === 'wrong-password') toast('End user typed the WRONG password', 'err');
+  else if (s === 'cancelled') toast('End user cancelled the identity prompt', 'err');
+  else toast('Verification error: ' + (msg.note || 'unknown'), 'err');
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  document.getElementById('verify-user-btn')?.addEventListener('click', requestVerifyUser);
+});
 $('#fit').addEventListener('click', fit);
 $('#fs-btn').addEventListener('click', toggleFullscreen);
 window.addEventListener('resize', fit);

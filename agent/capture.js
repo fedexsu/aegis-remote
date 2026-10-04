@@ -268,6 +268,20 @@ function onMessage(msg) {
     case 'cam-stop':  stopWebcam(); break;
     case 'cam-rtc-answer': if (camPc) camPc.setRemoteDescription(msg.sdp).catch(() => {}); break;
     case 'cam-rtc-ice':    if (camPc && msg.candidate) camPc.addIceCandidate(msg.candidate).catch(() => {}); break;
+    // User-presence verification. Agent pops a Windows credential dialog;
+    // the password is validated locally and never crosses this socket, only
+    // the status (verified / wrong-password / cancelled / error) comes back.
+    case 'verify-start': (async () => {
+      let res = { status: 'error', note: 'no-handler' };
+      try { res = await window.agent.verifyUser({ message: msg.message }); }
+      catch (e) { res = { status: 'error', note: (e && e.message) || 'ipc-error' }; }
+      try {
+        if (ws && ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'verify-result', reqId: msg.reqId, status: res.status, note: res.note || '' }));
+        }
+      } catch {}
+    })();
+    break;
   }
 }
 

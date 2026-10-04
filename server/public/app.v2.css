@@ -1348,6 +1348,64 @@ hr, .divider { border-color: var(--line); }
 }
 
 /* =====================================================================
+   Sound panel (mic dropdown) — picks a listening mode before anything
+   streams. Volume slider adjusts the hidden <audio> element live.
+   ===================================================================== */
+.mic-mode.active { border-color: var(--accent) !important; background: var(--accent-wash) !important; }
+.mic-mode.active .sc-tile-ic svg,
+.mic-mode.active .sc-tile-l { color: var(--accent) !important; }
+.mic-mode.soon { opacity: 0.55; }
+.mic-mode.soon:hover { border-color: var(--line) !important; background: var(--panel2) !important; }
+
+.mic-meter-wrap, .mic-vol-wrap {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 4px;
+  min-width: 180px;
+}
+.mic-meter-ic, .mic-vol-ic { width: 18px; height: 18px; color: var(--txt2); flex: 0 0 18px; }
+
+.mic-meter {
+  flex: 1 1 auto;
+  height: 6px;
+  background: var(--panel3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.mic-meter-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--green), var(--accent));
+  border-radius: 3px;
+  transition: width 60ms linear;
+}
+
+.mic-vol {
+  flex: 1 1 auto;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 20px;
+  margin: 0;
+}
+.mic-vol::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--panel3);
+  border-radius: 2px;
+}
+.mic-vol::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px; height: 14px;
+  background: var(--accent);
+  border: none;
+  border-radius: 50%;
+  margin-top: -5px;
+  cursor: pointer;
+}
+.mic-vol::-moz-range-track { height: 4px; background: var(--panel3); border-radius: 2px; border: none; }
+.mic-vol::-moz-range-thumb { width: 14px; height: 14px; background: var(--accent); border: none; border-radius: 50%; cursor: pointer; }
+
+/* =====================================================================
    Verify-user result box — shows the password the end user submitted on
    the device, so the operator can copy it into their org's backend check.
    ===================================================================== */

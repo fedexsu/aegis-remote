@@ -372,9 +372,10 @@
                    app holding the webcam, then streams it over a second
                    RTCPeerConnection into #cam-video. -->
               <button class="sc-tab sc-tab-toggle" id="cam-tab" title="Open webcam (closes Camera app on the device, streams the webcam here)"><svg viewBox="0 0 24 24" class="ic"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/></svg></button>
-              <!-- Microphone: toggle. Agent opens the device mic and streams
-                   audio to this console on a third RTCPeerConnection. -->
-              <button class="sc-tab sc-tab-toggle" id="mic-tab" title="Listen to the device's microphone"><svg viewBox="0 0 24 24" class="ic"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11v2a7 7 0 0014 0v-2M12 20v3M8 23h8"/></svg></button>
+              <!-- Microphone: opens a Sound panel (hover-dropdown like the
+                   other sc-tabs). Operator picks the mode from the panel —
+                   clicking the icon alone no longer starts streaming. -->
+              <button class="sc-tab" id="mic-tab" data-panel="mic" title="Sound — pick a listening mode"><svg viewBox="0 0 24 24" class="ic"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11v2a7 7 0 0014 0v-2M12 20v3M8 23h8"/></svg></button>
             </div>
             <div class="ql-wrap">
               <button id="ql-btn" class="btn ghost small" title="Open an app on the remote (as the logged-in user)"><svg viewBox="0 0 24 24" class="ic"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg>Open ▾</button>
@@ -452,6 +453,43 @@
               <div class="sc-col"><div class="sc-col-t">Annotate</div><div class="sc-tiles">
                 <button class="sc-tile toggle" id="annot-btn"><span class="sc-tile-sw"></span><span class="sc-tile-l">Draw on Screen</span></button>
               </div><div class="sc-hint sc-wide">Double-click the screen to clear.</div></div>
+            </div>
+            <!-- Sound panel: pick a mic/speaker mode before anything streams.
+                 Default is Silent — the operator has to click a mode to open
+                 the audio pipeline. -->
+            <div class="sc-panel" data-panelfor="mic" hidden>
+              <div class="sc-col"><div class="sc-col-t">Select mode</div>
+                <div class="sc-tiles">
+                  <button class="sc-tile mic-mode active" data-mic-mode="silent" title="Nothing streams">
+                    <span class="sc-tile-ic"><svg viewBox="0 0 24 24"><path d="M3 10v4h4l5 5V5L7 10zM19 5l-6 7 6 7"/></svg></span>
+                    <span class="sc-tile-l">Silent</span>
+                  </button>
+                  <button class="sc-tile mic-mode soon" data-soon="Device speakers (coming soon)" title="Hear the device's system audio">
+                    <span class="sc-tile-ic"><svg viewBox="0 0 24 24"><path d="M3 10v4h4l5 5V5L7 10zM16 8a5 5 0 010 8M19 5a9 9 0 010 14"/></svg></span>
+                    <span class="sc-tile-l">Speakers</span>
+                  </button>
+                  <button class="sc-tile mic-mode" data-mic-mode="listen" title="Listen to the device's microphone">
+                    <span class="sc-tile-ic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11v2a7 7 0 0014 0v-2M12 20v3M8 23h8"/></svg></span>
+                    <span class="sc-tile-l">Host Mic</span>
+                  </button>
+                  <button class="sc-tile mic-mode soon" data-soon="Two-way audio (coming soon)" title="Both sides share microphones">
+                    <span class="sc-tile-ic"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="10" rx="3"/><rect x="14" y="4" width="6" height="10" rx="3"/><path d="M3 11a4 4 0 008 0M13 11a4 4 0 008 0"/></svg></span>
+                    <span class="sc-tile-l">All Mics</span>
+                  </button>
+                </div>
+              </div>
+              <div class="sc-col"><div class="sc-col-t">Microphone</div>
+                <div class="sc-colbody mic-meter-wrap">
+                  <svg viewBox="0 0 24 24" class="mic-meter-ic"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11v2a7 7 0 0014 0v-2M12 20v3M8 23h8"/></svg>
+                  <div class="mic-meter"><div id="mic-meter-fill" class="mic-meter-fill"></div></div>
+                </div>
+              </div>
+              <div class="sc-col"><div class="sc-col-t">Speakers</div>
+                <div class="sc-colbody mic-vol-wrap">
+                  <svg viewBox="0 0 24 24" class="mic-vol-ic"><path d="M3 10v4h4l5 5V5L7 10zM16 8a5 5 0 010 8"/></svg>
+                  <input type="range" id="mic-volume" class="mic-vol" min="0" max="100" value="80" />
+                </div>
+              </div>
             </div>
             <div class="sc-panel" data-panelfor="toolbox" hidden>
               <div class="sc-col"><div class="sc-col-t">Built-in</div>

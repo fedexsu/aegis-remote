@@ -2738,6 +2738,9 @@ function closeMicRtc() {
   if (micPc) { try { micPc.close(); } catch {} micPc = null; }
   const a = document.getElementById('mic-audio');
   if (a) { try { a.srcObject = null; } catch {} }
+  try { stopMicMeter(); } catch {}
+  // Reset mode buttons to Silent so re-opening the panel reads correctly.
+  document.querySelectorAll('.mic-mode').forEach((b) => b.classList.toggle('active', b.dataset.micMode === 'silent'));
 }
 
 async function onMicRtcOffer(msg) {
@@ -2754,6 +2757,8 @@ async function onMicRtcOffer(msg) {
       if (!a) return;
       a.srcObject = e.streams[0];
       a.play().catch(() => {});
+      // Light up the meter so operators can see the mic IS live even at low vol.
+      try { startMicMeter(); } catch {}
     };
     micPc.onconnectionstatechange = () => {
       if (!micPc) return;
@@ -2776,11 +2781,69 @@ function onMicState(msg) {
   else if (s === 'ended') { closeMicRtc(); micActive = false; document.getElementById('mic-tab')?.classList.remove('active'); }
 }
 
+// Sound panel wiring: mode buttons start/stop the mic (click no longer
+// toggles directly from the toolbar icon — that just opens the panel).
+// Volume slider adjusts the hidden <audio> element.
+function setMicMode(mode) {
+  document.querySelectorAll('.mic-mode').forEach((b) => b.classList.toggle('active', b.dataset.micMode === mode));
+  if (mode === 'listen') { startMic(); }
+  else { stopMic(); } // silent (or any unknown) → stop
+}
+
+// Simple audio-level meter using Web Audio API, so operators see something
+// is being heard even before they turn volume up.
+let micMeterRAF = null;
+function startMicMeter() {
+  stopMicMeter();
+  const a = document.getElementById('mic-audio');
+  const fill = document.getElementById('mic-meter-fill');
+  if (!a || !a.srcObject || !fill) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    const src = ctx.createMediaStreamSource(a.srcObject);
+    const an = ctx.createAnalyser();
+    an.fftSize = 512;
+    src.connect(an);
+    const buf = new Uint8Array(an.frequencyBinCount);
+    const tick = () => {
+      an.getByteTimeDomainData(buf);
+      let peak = 0;
+      for (let i = 0; i < buf.length; i++) { const d = Math.abs(buf[i] - 128); if (d > peak) peak = d; }
+      const pct = Math.min(100, Math.round((peak / 128) * 180));
+      fill.style.width = pct + '%';
+      micMeterRAF = requestAnimationFrame(tick);
+    };
+    tick();
+    micMeterRAF = { ctx: ctx }; // keep refs so we can close them on stop
+  } catch {}
+}
+function stopMicMeter() {
+  if (micMeterRAF) { try { cancelAnimationFrame(micMeterRAF); } catch {} }
+  micMeterRAF = null;
+  const fill = document.getElementById('mic-meter-fill');
+  if (fill) fill.style.width = '0%';
+}
+
 document.addEventListener('DOMContentLoaded', function () {
-  document.getElementById('mic-tab')?.addEventListener('click', function (e) {
-    e.stopPropagation();
-    if (micActive) stopMic(); else startMic();
+  document.querySelectorAll('.mic-mode').forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (btn.classList.contains('soon')) { toast(btn.dataset.soon || 'Not available yet', ''); return; }
+      setMicMode(btn.dataset.micMode);
+    });
   });
+  const vol = document.getElementById('mic-volume');
+  if (vol) {
+    vol.addEventListener('input', function () {
+      const a = document.getElementById('mic-audio');
+      if (a) a.volume = Math.max(0, Math.min(1, Number(vol.value) / 100));
+    });
+    // Prime default volume
+    const a = document.getElementById('mic-audio');
+    if (a) a.volume = Math.max(0, Math.min(1, Number(vol.value) / 100));
+  }
 });
 
 // ---------------------------------------------------------------------------

@@ -10,24 +10,223 @@ const HC_V2 = (function () { try { return !!document.getElementById('hc-v2-css')
 // v2 chrome injection — one-shot, runs on DOMContentLoaded. Adds the mockup
 // bits that need HTML (not just CSS): a column-header strip above the device
 // list. Legacy mode skips this entirely.
+// v2 chrome: injects the mockup's structural bits that need HTML (not just
+// CSS) — topbar with breadcrumbs/search/user pill, rail org picker + section
+// labels + nav badges + "Relay healthy" footer, page-head CTAs, metric strip
+// sparklines + delta captions, right-aligned filter+sort controls, 8-column
+// device row + header, and a table footer. All one-shot on DOMContentLoaded,
+// then window.hcV2Refresh() is called from renderDevices to keep counts live.
+// Everything is gated by HC_V2 and does nothing on ?legacy=1.
 if (HC_V2) {
-  document.addEventListener('DOMContentLoaded', function v2Chrome() {
+  // Static sparkline paths — purely cosmetic (we don't have real history).
+  var V2_SPARK = {
+    up:   'M0 18 L10 16 L20 17 L28 14 L36 12 L46 13 L54 8 L64 10 L70 6',
+    flat: 'M0 10 L10 12 L20 8 L30 11 L40 9 L50 12 L60 10 L70 8',
+    rise: 'M0 20 L10 16 L20 18 L30 13 L40 15 L50 10 L60 8 L70 5',
+    dot:  'M0 10 L70 10',
+  };
+  // Derive a one-word role tag from the hostname so the Tags column has
+  // something visible until real tags are wired.
+  function v2Tag(d) {
+    var n = (d.name || '').toUpperCase();
+    if (n.indexOf('LAPTOP') === 0) return 'laptop';
+    if (n.indexOf('DESKTOP') === 0) return 'workstation';
+    if (n.indexOf('SRV') === 0 || n.indexOf('SERVER') === 0) return 'server';
+    return 'device';
+  }
+  document.addEventListener('DOMContentLoaded', function v2Mount() {
     try {
+      // ---- Topbar: crumbs + wide search + icons + user pill ----
+      var main = document.querySelector('.main');
+      if (main && !main.querySelector('.v2-topbar')) {
+        var top = document.createElement('div');
+        top.className = 'v2-topbar';
+        top.innerHTML =
+          '<div class="v2-crumbs"><span class="v2-crumb-org">—</span>' +
+          '<span class="v2-sep">/</span>' +
+          '<span class="here" id="v2-crumb-here">Devices</span></div>' +
+          '<div class="v2-top-search"><svg viewBox="0 0 24 24" class="ic"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>' +
+          '<input id="v2-top-search-input" placeholder="Search hostname, IP, tag, operator…" />' +
+          '<span class="v2-kbd">⌘K</span></div>' +
+          '<div class="v2-top-actions">' +
+          '<button class="v2-icon-btn" title="Notifications"><svg viewBox="0 0 24 24" class="ic"><path d="M18 16v-5a6 6 0 10-12 0v5l-2 3h16z"/><path d="M10 20a2 2 0 004 0"/></svg></button>' +
+          '<button class="v2-icon-btn" title="Help"><svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 115 .3c0 1.5-2.5 2-2.5 3.7M12 17h.01"/></svg></button>' +
+          '<button class="v2-user-pill" id="v2-user-pill"><span class="v2-user-av">—</span><span class="v2-user-name">—</span></button>' +
+          '</div>';
+        main.insertBefore(top, main.firstChild);
+        // Mirror typing into the real search input the app already wires.
+        var realSearch = document.getElementById('dev-search');
+        var topInput = document.getElementById('v2-top-search-input');
+        if (realSearch && topInput) {
+          topInput.addEventListener('input', function () {
+            realSearch.value = topInput.value;
+            realSearch.dispatchEvent(new Event('input', { bubbles: true }));
+          });
+          document.addEventListener('keydown', function (e) {
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); topInput.focus(); }
+          });
+        }
+      }
+
+      // ---- Rail: org picker, section labels, nav badges, relay footer ----
+      var sidebar = document.querySelector('.sidebar');
+      var sideNav = document.querySelector('.side-nav');
+      if (sidebar && sideNav && !sidebar.querySelector('.v2-org')) {
+        var org = document.createElement('div');
+        org.className = 'v2-org';
+        org.innerHTML =
+          '<div class="v2-org-av">—</div>' +
+          '<div class="v2-org-meta"><div class="v2-org-name">—</div>' +
+          '<div class="v2-org-role">Owner</div></div>' +
+          '<div class="v2-org-caret">▾</div>';
+        sidebar.insertBefore(org, sideNav);
+        // "WORKSPACE" at top of nav; "ACCOUNT" before Settings
+        var ws = document.createElement('div'); ws.className = 'v2-sect'; ws.textContent = 'Workspace';
+        sideNav.insertBefore(ws, sideNav.firstChild);
+        var settingsBtn = sideNav.querySelector('[data-view="settings"]');
+        if (settingsBtn) {
+          var acc = document.createElement('div'); acc.className = 'v2-sect'; acc.textContent = 'Account';
+          sideNav.insertBefore(acc, settingsBtn);
+        }
+        // Count badges on nav items; filled by hcV2Refresh.
+        for (var _n of sideNav.querySelectorAll('.nav-item')) {
+          var b = document.createElement('span'); b.className = 'v2-badge';
+          _n.appendChild(b);
+        }
+        // Relay healthy footer (replaces nothing; appended to sidebar).
+        var relay = document.createElement('div');
+        relay.className = 'v2-relay';
+        relay.innerHTML = '<span class="v2-relay-dot"></span><div class="v2-relay-txt"><div>Relay healthy</div><div class="v2-relay-lat">lat …</div></div>';
+        sidebar.appendChild(relay);
+      }
+
+      // ---- Devices page-head CTAs ----
+      var devPage = document.querySelector('.page[data-page="devices"]');
+      var devHead = devPage && devPage.querySelector('.page-actions');
+      if (devHead && !devHead.querySelector('.v2-cta-build')) {
+        var build = document.createElement('button');
+        build.className = 'btn ghost v2-cta-build';
+        build.innerHTML = '<svg viewBox="0 0 24 24" class="ic"><path d="M4 17V7h16v10zM4 12h16"/></svg>Build installer';
+        build.addEventListener('click', function () { if (typeof goto === 'function') goto('enrollment'); });
+        devHead.insertBefore(build, devHead.firstChild);
+        var add = document.createElement('button');
+        add.className = 'btn primary v2-cta-add';
+        add.innerHTML = '<svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg>Add device<span class="v2-kbd">N</span>';
+        add.addEventListener('click', function () { if (typeof goto === 'function') goto('enrollment'); });
+        devHead.appendChild(add);
+      }
+
+      // ---- Metric strip: inject sparkline + delta into each stat ----
+      var stats = document.getElementById('stats');
+      if (stats && !stats.querySelector('.v2-spark')) {
+        var statSpecs = {
+          'st-total':    { label: 'Enrolled',    path: V2_SPARK.up,   deltaCls: 'up',   delta: '' },
+          'st-online':   { label: 'Online',      path: V2_SPARK.flat, deltaCls: '',     delta: '' },
+          'st-busy':     { label: 'In session',  path: V2_SPARK.rise, deltaCls: '',     delta: '' },
+          'st-sleep':    { label: 'Sleeping',    path: V2_SPARK.dot,  deltaCls: '',     delta: '' },
+          'st-offline':  { label: 'Offline > 7d',path: V2_SPARK.dot,  deltaCls: 'down', delta: '' },
+          'st-uninstalled': null,
+        };
+        for (var id in statSpecs) {
+          var tile = document.getElementById(id);
+          if (!tile) continue;
+          var card = tile.closest('.stat');
+          if (!card) continue;
+          var spec = statSpecs[id];
+          if (!spec) { card.classList.add('v2-hide'); continue; }
+          var lbl = card.querySelector('.stat-label');
+          if (lbl) lbl.textContent = spec.label;
+          var delta = document.createElement('div');
+          delta.className = 'v2-delta ' + spec.deltaCls;
+          card.appendChild(delta);
+          var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          svg.setAttribute('class', 'v2-spark');
+          svg.setAttribute('viewBox', '0 0 70 24');
+          svg.setAttribute('fill', 'none');
+          svg.setAttribute('stroke', 'currentColor');
+          svg.setAttribute('stroke-width', '1.4');
+          svg.innerHTML = '<path d="' + spec.path + '"/>';
+          card.appendChild(svg);
+        }
+      }
+
+      // ---- Filter row: right-aligned Filter + Sort controls ----
+      var filterRow = document.getElementById('dev-filter');
+      if (filterRow && !filterRow.querySelector('.v2-filter-right')) {
+        var right = document.createElement('div');
+        right.className = 'v2-filter-right';
+        right.innerHTML =
+          '<button class="v2-sel"><svg viewBox="0 0 24 24" class="ic"><path d="M4 6h16M7 12h10M10 18h4"/></svg>Filter</button>' +
+          '<button class="v2-sel">Sort: Last seen <span class="v2-caret">▾</span></button>';
+        filterRow.appendChild(right);
+      }
+
+      // ---- Table header strip (8-col grid) ----
       var box = document.getElementById('devices');
       if (box && !document.querySelector('.v2-list-head')) {
         var head = document.createElement('div');
         head.className = 'v2-list-head';
         head.innerHTML =
           '<span></span>' +            // col 1: OS icon
-          '<span>Device</span>' +      // col 2: dr-main
-          '<span>Status</span>' +      // col 3: dr-presence
-          '<span></span>' +            // col 4: dr-lock
-          '<span>Last seen</span>' +   // col 5: dr-seen
-          '<span style="text-align:right">Actions</span>'; // col 6: dr-actions
+          '<span>Device</span>' +      // col 2
+          '<span>Status</span>' +      // col 3
+          '<span>Tags</span>' +        // col 4
+          '<span>Signed-in</span>' +   // col 5
+          '<span>Agent</span>' +       // col 6
+          '<span>Last seen</span>' +   // col 7
+          '<span style="text-align:right">Actions</span>'; // col 8
         box.parentNode.insertBefore(head, box);
       }
-    } catch (e) { /* non-fatal — missing header is cosmetic */ }
+
+      // ---- Table footer: Showing · Updated · Tip ----
+      if (box && !document.querySelector('.v2-tfoot')) {
+        var foot = document.createElement('div');
+        foot.className = 'v2-tfoot';
+        foot.innerHTML =
+          '<span>Showing <span class="v2-shown">0</span> of <span class="v2-total">0</span></span>' +
+          '<span class="v2-tfoot-sep">·</span>' +
+          '<span>Updated <span class="v2-updated">just now</span></span>' +
+          '<span class="v2-tfoot-tip">Tip: press <span class="v2-kbd">⇧ J</span> / <span class="v2-kbd">⇧ K</span> to walk the list</span>';
+        box.parentNode.insertBefore(foot, box.nextSibling);
+      }
+    } catch (e) { console.warn('v2 mount error', e); }
   });
+
+  // Called from renderDevices after each render pass. Idempotent — only
+  // updates text/counts of elements v2Mount already created.
+  window.hcV2Refresh = function () {
+    try {
+      var list = window.devicesCache || [];
+      // Nav badge: real count on Devices; others blank until wired.
+      var dBadge = document.querySelector('.nav-item[data-view="devices"] .v2-badge');
+      if (dBadge) dBadge.textContent = list.length;
+      // Table footer counts
+      var shown = document.querySelectorAll('#devices > .device-row').length;
+      var se = document.querySelector('.v2-shown'); if (se) se.textContent = shown;
+      var te = document.querySelector('.v2-total'); if (te) te.textContent = list.length;
+      var ue = document.querySelector('.v2-updated'); if (ue) ue.textContent = 'just now';
+      // Stat delta captions (derived — not real deltas, but informative)
+      var online = list.filter(function (d) { return d.online; }).length;
+      var busy = list.filter(function (d) { return d.busy; }).length;
+      var uninst = list.filter(function (d) { return (d.uninstalled); }).length;
+      var sleeping = list.filter(function (d) { return d.asleep; }).length;
+      var offline = list.length - online - uninst - sleeping;
+      function setDelta(statId, text, cls) {
+        var tile = document.getElementById(statId);
+        if (!tile) return;
+        var card = tile.closest('.stat');
+        if (!card) return;
+        var d = card.querySelector('.v2-delta');
+        if (!d) return;
+        d.textContent = text;
+        d.className = 'v2-delta ' + (cls || '');
+      }
+      setDelta('st-total',   list.length ? ('↑ ' + list.length + ' total') : 'no devices', 'up');
+      setDelta('st-online',  'of ' + list.length + ' total', '');
+      setDelta('st-busy',    busy ? (busy + ' active now') : 'no active sessions', '');
+      setDelta('st-offline', offline ? (offline + ' not reachable') : 'all reachable', offline ? 'down' : '');
+    } catch (e) { /* non-fatal */ }
+  };
 }
 let ws = null, admin = null, attachedId = null;
 let frameW = 0, frameH = 0;
@@ -189,6 +388,21 @@ function showApp(a) {
   $('#side-name').textContent = a.name || a.email;
   $('#side-role').textContent = a.role || 'admin';
   $('#side-avatar').textContent = (a.name || a.email || 'A').charAt(0).toUpperCase();
+  // v2 chrome mirrors the identity into the topbar crumbs/user pill and the
+  // rail org picker. No-op in legacy mode (elements aren't mounted).
+  if (HC_V2) {
+    var _nm = a.name || (a.email ? a.email.split('@')[0] : 'Account');
+    var _in = (_nm || 'A').charAt(0).toUpperCase();
+    var crumbOrg = document.querySelector('.v2-crumb-org'); if (crumbOrg) crumbOrg.textContent = _nm;
+    var up = document.getElementById('v2-user-pill');
+    if (up) {
+      up.querySelector('.v2-user-av').textContent = _in;
+      up.querySelector('.v2-user-name').textContent = _nm;
+    }
+    var oa = document.querySelector('.v2-org-av'); if (oa) oa.textContent = _in;
+    var on = document.querySelector('.v2-org-name'); if (on) on.textContent = _nm;
+    var or = document.querySelector('.v2-org-role'); if (or) or.textContent = (a.role === 'owner' ? 'Owner' : (a.role || 'Operator'));
+  }
   $('#set-user').textContent = a.email;
   $('#set-role').textContent = a.role || 'admin';
   $$('.owner-only').forEach((el) => (el.hidden = !owner));
@@ -454,6 +668,7 @@ function renderDevices() {
     if (cur !== e.el) box.insertBefore(e.el, cur || null);
     idx++;
   }
+  if (HC_V2 && typeof window.hcV2Refresh === 'function') window.hcV2Refresh();
 }
 // ScreenConnect-style compact row. OS icon · status dot · name/user@host ·
 // presence · last seen · Join + kebab. All actions live in the right-click menu.
@@ -489,19 +704,30 @@ function updateDeviceCard(el, d, st) {
   // in a muted amber in CSS). Legacy keeps the plain-text concatenation.
   {
     const subEl = el.querySelector('.dr-sub');
-    const base  = [(m.user || ''), (m.host || '')].filter(Boolean).join(' · ') + (m.os ? '  ·  ' + m.os : '');
-    if (HC_V2 && m.build) {
-      subEl.textContent = base + '  ·  ';
-      const ver = document.createElement('span');
-      ver.className = 'dr-ver';
-      ver.textContent = 'v' + m.build;
-      // Stale version marker — flagged by comparing to the fleet's newest
-      // seen agent in meta.staleBuild (set upstream in the server pass). If
-      // that signal isn't present we fall back to a hard-coded floor.
-      const latest = (window.HC_LATEST_BUILD || 65);
-      if (Number(m.build) < latest) ver.classList.add('stale');
-      subEl.appendChild(ver);
+    if (HC_V2) {
+      // v2 splits the sub-line's parts across dedicated columns: user → dr-user,
+      // version → dr-agent, tag → dr-tag. dr-sub itself only carries OS info
+      // (the mockup's second line under the hostname).
+      subEl.textContent = m.os ? m.os : '';
+      const uEl = el.querySelector('.dr-user');
+      if (uEl) uEl.textContent = m.user || '—';
+      const tEl = el.querySelector('.dr-tag');
+      if (tEl) {
+        const tagText = (typeof window !== 'undefined' && typeof v2Tag === 'function') ? v2Tag(d) : '';
+        tEl.innerHTML = tagText ? ('<span class="dr-tag-chip">' + tagText + '</span>') : '';
+      }
+      const aEl = el.querySelector('.dr-agent');
+      if (aEl) {
+        if (m.build) {
+          const latest = (window.HC_LATEST_BUILD || 65);
+          const stale = Number(m.build) < latest ? ' stale' : '';
+          aEl.innerHTML = '<span class="dr-ver' + stale + '">v' + m.build + '</span>';
+        } else {
+          aEl.innerHTML = '';
+        }
+      }
     } else {
+      const base = [(m.user || ''), (m.host || '')].filter(Boolean).join(' · ') + (m.os ? '  ·  ' + m.os : '');
       subEl.textContent = base + (m.build ? '  ·  Agent v' + m.build : '');
     }
   }
@@ -547,15 +773,22 @@ function createDeviceCard(d, st) {
   const el = document.createElement('div');
   el.className = 'device-row' + (d.online ? ' online' : '') + (d.busy ? ' busy' : '') + (st === 'uninstalled' ? ' uninstalled' : '') + (st === 'sleep' ? ' asleep' : '');
   el.dataset.id = d.id;
+  // v2 extends the row with three dedicated columns (tag / signed-in / agent)
+  // so each piece of metadata has its own cell matching the mockup. Legacy
+  // mode keeps the compact 4-cell layout — the extra spans just stay empty.
+  const extraCols = HC_V2
+    ? '<span class="dr-tag"></span><span class="dr-user"></span><span class="dr-agent"></span>'
+    : '';
   el.innerHTML = `
       <span class="dr-os">${osIcon(m)}</span>
       <span class="dr-status st-${st}"><span class="status-dot"></span></span>
       <div class="dr-main"><span class="dr-name"></span><span class="dr-sub"></span></div>
       <span class="dr-presence"></span>
+      ${extraCols}
       <span class="dr-lock" hidden></span>
       <span class="dr-seen"></span>
       <div class="dr-actions">
-        ${d.online && !d.busy ? '<button class="btn primary xs dr-join">Join</button>' : (d.busy ? '<span class="dr-busy">In use</span>' : '')}
+        ${d.online && !d.busy ? '<button class="btn primary xs dr-join">Join</button>' : (d.busy ? '<button class="btn primary xs dr-join">Rejoin</button>' : '')}
         <button class="btn ghost icon-btn dr-more" title="Actions">${KEBAB_ICON}</button>
       </div>`;
   updateDeviceCard(el, d, st);

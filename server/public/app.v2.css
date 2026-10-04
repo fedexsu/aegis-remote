@@ -341,15 +341,16 @@ body {
   border-radius: var(--radius-sm) !important;
   overflow: hidden !important;
 }
-/* v2 only: synthetic column header above the first device row — a real
-   element (.v2-list-head) injected by app.js so grid alignment with the
-   rows is exact. If app.js hasn't injected it yet, nothing shows. */
+/* v2 only: 8-column grid shared by the synthetic header and every row.
+   OS stripe · Device · Status · Tags · Signed-in · Agent · Last seen · Actions.
+   Keep column widths identical in the two selectors so the header lines up
+   with the row cells exactly. */
 .v2-list-head {
   display: grid;
-  grid-template-columns: 20px 1fr 110px 72px 110px 92px;
+  grid-template-columns: 20px minmax(220px, 2fr) 110px 90px 110px 70px 110px 100px;
   align-items: center;
   gap: 14px;
-  padding: 8px 14px 8px 22px;
+  padding: 10px 14px 10px 22px;
   background: var(--panel2);
   border-bottom: 1px solid var(--line);
   font-size: 10px;
@@ -359,42 +360,47 @@ body {
   color: var(--txt3);
 }
 .v2-list-head span { white-space: nowrap; }
-/* v2 only: grid-based row — pulls dr-* children into proper columns. The
-   explicit column widths match the ::before header above. Children we don't
-   want in the row (dr-status dot, dr-lock) are hidden; the status stripe +
-   pill already carry that signal. */
+.v2-list-head span:last-child { text-align: right; }
+
 [data-v2] .device-row {
   display: grid !important;
-  grid-template-columns: 20px 1fr 110px 72px 110px 92px !important;
+  grid-template-columns: 20px minmax(220px, 2fr) 110px 90px 110px 70px 110px 100px !important;
   align-items: center !important;
   gap: 14px !important;
+  position: relative !important;
+  background: transparent !important;
+  border-bottom: 1px solid var(--line) !important;
+  padding: 11px 14px 11px 22px !important;
 }
-[data-v2] .device-row .dr-status { display: none !important; }
-[data-v2] .device-row .dr-main { min-width: 0 !important; }
+[data-v2] .device-row .dr-os       { grid-column: 1 !important; color: var(--txt3) !important; }
+[data-v2] .device-row .dr-os svg   { width: 14px; height: 14px; }
+[data-v2] .device-row .dr-status   { display: none !important; }
+[data-v2] .device-row .dr-main     { grid-column: 2 !important; min-width: 0 !important; }
+[data-v2] .device-row .dr-presence { grid-column: 3 !important; justify-self: start !important; }
+[data-v2] .device-row .dr-tag      { grid-column: 4 !important; justify-self: start !important; min-width: 0; }
+[data-v2] .device-row .dr-user     { grid-column: 5 !important; justify-self: start !important;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--txt2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+[data-v2] .device-row .dr-agent    { grid-column: 6 !important; justify-self: start !important; }
+[data-v2] .device-row .dr-seen     { grid-column: 7 !important; text-align: left !important; justify-self: start !important; }
+[data-v2] .device-row .dr-actions  { grid-column: 8 !important; justify-self: end !important; opacity: 1 !important; }
+[data-v2] .device-row .dr-lock     { position: absolute; right: 110px; top: 50%; transform: translateY(-50%); }
 [data-v2] .device-row .dr-sub {
   white-space: nowrap !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
 }
-/* dr-ver is appended INSIDE dr-sub by app.js — pull it OUT of flow so it
-   sits in its own column visually. We can't reparent in CSS, but we can
-   grid-position dr-presence/dr-ver/dr-seen into their intended columns. */
-[data-v2] .device-row .dr-presence { grid-column: 3 !important; justify-self: start !important; }
-[data-v2] .device-row .dr-seen     { grid-column: 5 !important; text-align: left !important; justify-self: start !important; }
-[data-v2] .device-row .dr-actions  { grid-column: 6 !important; justify-self: end !important; opacity: 1 !important; }
-[data-v2] .device-row .dr-lock     { grid-column: 4 !important; }
-/* The dr-ver chip is nested inside dr-sub; promote it to its own column
-   with position:absolute reads awkwardly, so instead extract it visually
-   via a flex trick: make dr-main a two-row flex and move dr-ver out via
-   negative order isn't possible for a descendant — so keep dr-ver inline
-   in dr-sub (reads as part of the agent string) but also pin an .dr-ver
-   DUPLICATE... actually, simpler: just show dr-ver inline inside dr-sub
-   where app.js already put it. Column 4 (72px) stays empty for lock. */
-[data-v2] .device-row {
-  position: relative !important;
-  background: transparent !important;
-  border-bottom: 1px solid var(--line) !important;
-  padding: 11px 14px 11px 22px !important;
+.dr-tag-chip {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 6px;
+  background: var(--panel3);
+  color: var(--txt2);
+  border-radius: 3px;
+  text-transform: lowercase;
+  letter-spacing: 0;
 }
 .device-row:last-child { border-bottom: none !important; }
 .device-row::before {
@@ -701,3 +707,217 @@ hr, .divider { border-color: var(--line); }
 .stat:hover { transform: none !important; border-color: var(--line) !important; }
 .btn:hover { transform: none !important; }
 .device-row.enter { animation: none !important; }
+
+/* =====================================================================
+   v2 chrome — DOM injected by app.js on DOMContentLoaded (gated by HC_V2)
+   The rules below style classes that only exist in v2 mode, so they add
+   no risk to the legacy path.
+   ===================================================================== */
+
+/* ---------- shared bits ---------- */
+.v2-kbd {
+  display: inline-flex; align-items: center;
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 500;
+  padding: 1px 5px; margin-left: 4px;
+  border: 1px solid var(--line); border-radius: 3px;
+  color: var(--txt2); background: var(--panel2);
+  letter-spacing: 0;
+}
+.btn.primary .v2-kbd { color: rgba(255,255,255,0.75); border-color: rgba(255,255,255,0.25); background: transparent; }
+
+/* ---------- topbar ---------- */
+.v2-topbar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 10px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  min-height: 52px;
+  position: sticky; top: 0; z-index: 5;
+}
+.v2-crumbs {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 13px; color: var(--txt3);
+  min-width: 0;
+}
+.v2-crumbs .v2-sep { color: var(--txt3); opacity: 0.5; font-weight: 300; }
+.v2-crumbs .here { color: var(--txt); font-weight: 500; }
+.v2-top-search {
+  flex: 1 1 320px; max-width: 440px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.v2-top-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-wash); }
+.v2-top-search .ic { width: 14px; height: 14px; color: var(--txt3); flex: 0 0 14px; }
+.v2-top-search input {
+  background: none; border: none; outline: none;
+  color: var(--txt); font-family: inherit; font-size: 13px;
+  width: 100%; min-width: 0;
+}
+.v2-top-search input::placeholder { color: var(--txt3); }
+.v2-top-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.v2-icon-btn {
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  border-radius: 5px;
+  color: var(--txt2);
+  background: transparent;
+  border: none; cursor: pointer;
+}
+.v2-icon-btn:hover { background: var(--panel2); color: var(--txt); }
+.v2-icon-btn .ic { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+.v2-user-pill {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 10px 4px 4px;
+  background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 20px;
+  font-size: 12.5px; color: var(--txt);
+  cursor: pointer;
+}
+.v2-user-pill .v2-user-av {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff; display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
+}
+
+/* ---------- rail polish: org picker, section labels, badges, foot ---------- */
+.v2-org {
+  display: flex; align-items: center; gap: 8px;
+  margin: 2px 2px 10px;
+  padding: 7px 9px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--txt); font-size: 12.5px;
+  cursor: pointer;
+}
+.v2-org:hover { border-color: var(--line2); }
+.v2-org-av {
+  width: 22px; height: 22px; border-radius: 3px;
+  background: linear-gradient(135deg, #3b4a6b, #5d7aa5);
+  color: #d9e2f3;
+  display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
+  flex: 0 0 22px;
+}
+.v2-org-meta { flex: 1 1 auto; min-width: 0; line-height: 1.25; }
+.v2-org-name { font-weight: 500; color: var(--txt); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v2-org-role { color: var(--txt3); font-size: 11px; }
+.v2-org-caret { color: var(--txt3); font-size: 10px; }
+
+.v2-sect {
+  padding: 14px 10px 6px 11px;
+  color: var(--txt3);
+  text-transform: uppercase;
+  font-size: 10px; letter-spacing: 0.1em; font-weight: 500;
+}
+
+.v2-badge {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--txt3);
+  padding: 1px 5px;
+  background: var(--panel2);
+  border-radius: 3px;
+  min-width: 15px; text-align: center;
+}
+.v2-badge:empty { visibility: hidden; }
+.nav-item.active .v2-badge { color: var(--txt); background: var(--panel3); }
+
+.v2-relay {
+  margin: 10px 2px 0;
+  padding: 10px 11px;
+  border-top: 1px solid var(--line);
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12px; color: var(--txt3);
+}
+.v2-relay-dot {
+  width: 7px; height: 7px; background: var(--green); border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(76,189,122,0.15);
+  flex: 0 0 7px;
+}
+.v2-relay-txt > div:first-child { color: var(--txt2); }
+.v2-relay-lat { font-family: var(--font-mono); font-size: 11px; color: var(--txt3); }
+
+/* ---------- page-head CTAs ---------- */
+.v2-cta-build .ic, .v2-cta-add .ic { width: 14px; height: 14px; stroke-width: 2; }
+/* Hide the plain refresh icon when the proper CTAs are present. */
+[data-v2] .page[data-page="devices"] #refresh-dev { display: none !important; }
+/* And lift search out of the page-head (it now lives in the topbar). */
+[data-v2] .page[data-page="devices"] .page-actions > .search { display: none !important; }
+
+/* ---------- metric strip ---------- */
+.stats { grid-template-columns: repeat(4, 1fr) !important; }
+.stat.v2-hide { display: none !important; }
+.stat { padding-right: 90px !important; } /* reserve room for the spark */
+.v2-spark {
+  position: absolute;
+  right: 14px; bottom: 14px;
+  width: 70px; height: 24px;
+  color: var(--txt3);
+  pointer-events: none;
+}
+.stat[id-stat-online] .v2-spark,
+#st-online + * .v2-spark { color: var(--green); }
+#st-busy ~ .v2-spark, #st-busy + * .v2-spark { color: var(--accent); }
+.v2-delta {
+  font-size: 11px;
+  color: var(--txt3);
+  margin-top: 3px;
+}
+.v2-delta.up { color: var(--green); }
+.v2-delta.down { color: var(--red); }
+
+/* ---------- filter-row right side ---------- */
+.v2-filter-right { margin-left: auto; display: flex; gap: 8px; }
+.v2-sel {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px;
+  background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 12px; color: var(--txt2);
+  cursor: pointer;
+}
+.v2-sel:hover { background: var(--panel3); color: var(--txt); }
+.v2-sel .ic { width: 12px; height: 12px; stroke-width: 2; }
+.v2-caret { color: var(--txt3); font-size: 10px; }
+
+/* ---------- table footer ---------- */
+.v2-tfoot {
+  display: flex; align-items: center; gap: 14px;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--txt3);
+}
+.v2-tfoot-sep { color: var(--txt3); opacity: 0.5; }
+.v2-tfoot .v2-shown, .v2-tfoot .v2-total, .v2-tfoot .v2-updated {
+  font-family: var(--font-mono); color: var(--txt2);
+}
+.v2-tfoot-tip { margin-left: auto; }
+.v2-tfoot-tip .v2-kbd { margin: 0 2px; }
+
+/* ---------- narrow-pane fallback ---------- */
+@media (max-width: 1100px) {
+  .v2-list-head, [data-v2] .device-row {
+    grid-template-columns: 20px minmax(180px, 2fr) 100px 70px 100px 90px !important;
+  }
+  [data-v2] .device-row .dr-agent { display: none !important; }
+  [data-v2] .device-row .dr-user { grid-column: 5 !important; }
+  [data-v2] .device-row .dr-seen { grid-column: 6 !important; }
+  [data-v2] .device-row .dr-actions { grid-column: 6 !important; justify-self: end !important; }
+  .v2-list-head span:nth-child(5) { display: none; }
+  .v2-list-head span:nth-child(6) { display: none; }
+  .v2-list-head span:nth-child(7) { grid-column: 5; }
+  .v2-list-head span:nth-child(8) { grid-column: 6; }
+}
+@media (max-width: 760px) {
+  .v2-topbar .v2-top-search { display: none; }
+  .v2-tfoot-tip { display: none; }
+  .stats { grid-template-columns: repeat(2, 1fr) !important; }
+  .v2-list-head span:nth-child(4) { display: none; }
+  .v2-list-head span:nth-child(3) { display: none; }
+  [data-v2] .device-row .dr-tag { display: none !important; }
+  [data-v2] .device-row .dr-presence { display: none !important; }
+}

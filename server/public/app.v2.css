@@ -870,6 +870,12 @@ hr, .divider { border-color: var(--line); }
 .v2-delta.up { color: var(--green); }
 .v2-delta.down { color: var(--red); }
 
+/* Hide filter chips not present in the mockup (Uninstalled / Newly installed
+   / Older). Operators can still reach those lists via search. */
+#dev-filter .seg-btn[data-f="uninstalled"],
+#dev-filter .seg-btn[data-f="new"],
+#dev-filter .seg-btn[data-f="old"] { display: none !important; }
+
 /* ---------- filter-row right side ---------- */
 .v2-filter-right { margin-left: auto; display: flex; gap: 8px; }
 .v2-sel {

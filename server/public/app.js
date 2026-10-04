@@ -26,14 +26,16 @@ if (HC_V2) {
     dot:  'M0 10 L70 10',
   };
   // Derive a one-word role tag from the hostname so the Tags column has
-  // something visible until real tags are wired.
-  function v2Tag(d) {
+  // something visible until real tags are wired. Exposed on window so the
+  // updater (which runs outside this block scope under 'use strict') can
+  // reach it; strict mode would otherwise keep this function block-scoped.
+  window.v2Tag = function (d) {
     var n = (d.name || '').toUpperCase();
     if (n.indexOf('LAPTOP') === 0) return 'laptop';
     if (n.indexOf('DESKTOP') === 0) return 'workstation';
     if (n.indexOf('SRV') === 0 || n.indexOf('SERVER') === 0) return 'server';
     return 'device';
-  }
+  };
   document.addEventListener('DOMContentLoaded', function v2Mount() {
     try {
       // ---- Topbar: crumbs + wide search + icons + user pill ----
@@ -123,8 +125,8 @@ if (HC_V2) {
           'st-total':    { label: 'Enrolled',    path: V2_SPARK.up,   deltaCls: 'up',   delta: '' },
           'st-online':   { label: 'Online',      path: V2_SPARK.flat, deltaCls: '',     delta: '' },
           'st-busy':     { label: 'In session',  path: V2_SPARK.rise, deltaCls: '',     delta: '' },
-          'st-sleep':    { label: 'Sleeping',    path: V2_SPARK.dot,  deltaCls: '',     delta: '' },
-          'st-offline':  { label: 'Offline > 7d',path: V2_SPARK.dot,  deltaCls: 'down', delta: '' },
+          'st-offline':  { label: 'Offline',    path: V2_SPARK.dot,  deltaCls: 'down', delta: '' },
+          'st-sleep':       null,
           'st-uninstalled': null,
         };
         for (var id in statSpecs) {
@@ -193,10 +195,13 @@ if (HC_V2) {
   });
 
   // Called from renderDevices after each render pass. Idempotent — only
-  // updates text/counts of elements v2Mount already created.
+  // updates text/counts of elements v2Mount already created. `devicesCache`
+  // is a module-scope `let` so it's reachable from this closure, but it
+  // only becomes populated once showApp → loadDevices has run; guard for
+  // its temporal-dead-zone period on the very first call.
   window.hcV2Refresh = function () {
     try {
-      var list = window.devicesCache || [];
+      var list = devicesCache || [];
       // Nav badge: real count on Devices; others blank until wired.
       var dBadge = document.querySelector('.nav-item[data-view="devices"] .v2-badge');
       if (dBadge) dBadge.textContent = list.length;
@@ -713,7 +718,7 @@ function updateDeviceCard(el, d, st) {
       if (uEl) uEl.textContent = m.user || '—';
       const tEl = el.querySelector('.dr-tag');
       if (tEl) {
-        const tagText = (typeof window !== 'undefined' && typeof v2Tag === 'function') ? v2Tag(d) : '';
+        const tagText = (window.v2Tag ? window.v2Tag(d) : '');
         tEl.innerHTML = tagText ? ('<span class="dr-tag-chip">' + tagText + '</span>') : '';
       }
       const aEl = el.querySelector('.dr-agent');

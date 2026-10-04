@@ -37,7 +37,18 @@
         }
       })();
     </script>
-    <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
+    <script>
+      // Service worker: one-time flush of any stale cache from older builds,
+      // then re-register the current sw.js. Older variants cached the app
+      // shell and kept serving the pre-redesign CSS on refresh — this
+      // forcibly clears every CacheStorage bucket before re-registering.
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', async function () {
+          try { if (window.caches) { const keys = await caches.keys(); await Promise.all(keys.map(function (k) { return caches.delete(k); })); } } catch (e) {}
+          try { navigator.serviceWorker.register('/sw.js').catch(function(){}); } catch (e) {}
+        });
+      }
+    </script>
   </head>
   <body>
     <!-- ============================= AUTH ============================= -->

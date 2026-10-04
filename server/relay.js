@@ -215,6 +215,9 @@ function logEnroll(o) { enrollLog.push({ t: Date.now(), ...o }); if (enrollLog.l
 // Agent self-update bundle (built by scripts/build-agent-bundle.js). Agents poll
 // /api/agent-update and hot-swap their JS to this version — no reinstall.
 let AGENT_BUNDLE = { version: 0, files: {} };
+// Cache-bust token appended to app-shell asset URLs so a new deploy forces
+// every browser to refetch. Rolls each time the relay process starts.
+const SHELL_BUST = Date.now().toString(36);
 try { AGENT_BUNDLE = JSON.parse(fs.readFileSync(path.join(__dirname, 'agent-bundle.json'), 'utf8')); }
 catch { /* no bundle shipped */ }
 
@@ -1390,17 +1393,27 @@ const server = http.createServer((req, res) => {
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end('forbidden'); }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); return res.end('not found'); }
-    // Cache-Control: no-store on the app shell (HTML + the few bundles the
-    // console loads directly) so a fresh deploy ALWAYS shows up on next
-    // refresh — the previous "no headers at all" case made browsers apply
-    // heuristic caching for hours, which hid every CSS change from users.
-    // Everything else (icons, worker, images) keeps default behaviour.
     const headers = { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' };
     const base = path.basename(file).toLowerCase();
+    // App-shell files always no-store + rewritten with ?v=<deploy> so cached
+    // browsers CANNOT reuse the old copy even if a middle-box ignored the
+    // header. SHELL_BUST = this process's start time, rolls on every deploy.
     if (base === 'app.html' || base === 'app.css' || base === 'app.v2.css' || base === 'app.js') {
       headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0';
       headers['Pragma'] = 'no-cache';
       headers['Expires'] = '0';
+    }
+    if (base === 'app.html') {
+      // Append ?v=SHELL_BUST to the three stylesheets + the main script so a
+      // stale cached HTML can't pair with a stale cached CSS — any mismatch
+      // forces the browser to fetch the fresh file.
+      const bust = SHELL_BUST;
+      const html = data.toString()
+        .replace(/href="app\.css"/g,   'href="app.css?v=' + bust + '"')
+        .replace(/href="app\.v2\.css"/g, 'href="app.v2.css?v=' + bust + '"')
+        .replace(/src="app\.js"/g,     'src="app.js?v=' + bust + '"');
+      res.writeHead(200, headers);
+      return res.end(html);
     }
     res.writeHead(200, headers);
     res.end(data);

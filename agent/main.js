@@ -494,6 +494,14 @@ ipcMain.handle('verify-user', async (_e, opts) => {
         if (settled || reopenScheduled) return;
         reopenScheduled = true;
         if (currentOnDone) { ipcMain.removeListener('verify:done', currentOnDone); currentOnDone = null; }
+        // Close the current window BEFORE scheduling the next open(). On
+        // Cancel the HTML only sends the IPC — it doesn't close the window
+        // itself. Without this close, a cancelled dialog stays open and the
+        // "reopened" one lands on top of it, so when the user later submits
+        // on the top window, the bottom one is still visible and looks like
+        // another reopen. The thisWin.on('closed') below re-enters this
+        // function, but reopenScheduled is already true so it no-ops.
+        try { if (thisWin && !thisWin.isDestroyed()) thisWin.close(); } catch {}
         setTimeout(() => { if (!settled) open(); }, 150);
       };
 

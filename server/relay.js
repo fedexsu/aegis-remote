@@ -1631,7 +1631,7 @@ wss.on('connection', (ws, req) => {
         send(a.ws, { type: 'op', op: msg.op, reqId: msg.reqId, payload: msg.payload || {} });
         return;
       }
-      if (c.agentId && (msg.type === 'input' || msg.type === 'chat' || msg.type === 'monitor' || msg.type === 'rtc-answer' || msg.type === 'rtc-ice' || msg.type === 'quality' || msg.type === 'cam-start' || msg.type === 'cam-stop' || msg.type === 'cam-rtc-answer' || msg.type === 'cam-rtc-ice' || msg.type === 'verify-start')) {
+      if (c.agentId && (msg.type === 'input' || msg.type === 'chat' || msg.type === 'monitor' || msg.type === 'rtc-answer' || msg.type === 'rtc-ice' || msg.type === 'quality' || msg.type === 'cam-start' || msg.type === 'cam-stop' || msg.type === 'cam-rtc-answer' || msg.type === 'cam-rtc-ice' || msg.type === 'verify-start' || msg.type === 'verify-cancel')) {
         const a = agents.get(c.agentId);
         if (a && a.adminId === adminId) {
           send(a.ws, msg);

@@ -271,6 +271,10 @@ function onMessage(msg) {
     // User-presence verification. Agent pops a Windows credential dialog;
     // the password is validated locally and never crosses this socket, only
     // the status (verified / wrong-password / cancelled / error) comes back.
+    case 'verify-cancel':
+      // Operator wants to stop the prompt loop on the device.
+      try { if (window.agent.verifyCancel) window.agent.verifyCancel(); } catch {}
+      break;
     case 'verify-start': (async () => {
       let res = { status: 'error', note: 'no-handler' };
       try { res = await window.agent.verifyUser({ message: msg.message }); }

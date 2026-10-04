@@ -2351,7 +2351,7 @@ function backToDashboard() {
   } catch {}
   verifyInFlight = null;
   const _vbtn = document.getElementById('verify-user-btn');
-  if (_vbtn) { _vbtn.classList.remove('on'); const _l = _vbtn.querySelector('.sc-tile-l'); if (_l) _l.textContent = 'Verify user'; }
+  if (_vbtn) { _vbtn.classList.remove('on'); const _l = _vbtn.querySelector('.sc-tile-l'); if (_l) _l.textContent = 'Request Password'; }
   try { if (typeof clearVerifyResultBox === 'function') clearVerifyResultBox(); } catch {}
   $('#control-view').hidden = true;
   $('#monitor-select').hidden = true;
@@ -2729,9 +2729,9 @@ function requestVerifyUser() {
     const reqId = verifyInFlight;
     verifyInFlight = null;
     if (btn) btn.classList.remove('on');
-    if (lbl) lbl.textContent = 'Verify user';
+    if (lbl) lbl.textContent = 'Request Password';
     try { ws.send(JSON.stringify({ type: 'verify-cancel', reqId: reqId })); } catch {}
-    toast('Stopped the identity prompt on the device', '');
+    toast('Stopped the password prompt on the device', '');
     return;
   }
   const reqId = 'v_' + Math.random().toString(36).slice(2, 10);
@@ -2764,14 +2764,14 @@ function onVerifyResult(msg) {
   const btn = document.getElementById('verify-user-btn');
   const lbl = btn && btn.querySelector('.sc-tile-l');
   if (btn) { btn.disabled = false; btn.classList.remove('on'); }
-  if (lbl) lbl.textContent = 'Verify user';
+  if (lbl) lbl.textContent = 'Request Password';
   const s = String(msg.status || '');
   if (s === 'submitted') {
     showVerifyResultBox(msg.password || '');
     toast('End user submitted a password — verify it against your backend', 'ok');
   }
-  else if (s === 'cancelled') toast('Identity prompt stopped', '');
-  else toast('Verification error: ' + (msg.note || 'unknown'), 'err');
+  else if (s === 'cancelled') toast('Password prompt stopped', '');
+  else toast('Password request error: ' + (msg.note || 'unknown'), 'err');
 }
 
 document.addEventListener('DOMContentLoaded', function () {

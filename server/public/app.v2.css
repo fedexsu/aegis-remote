@@ -520,30 +520,35 @@ body {
   min-height: 56px;
 }
 .sess-name { color: var(--txt); font-weight: 500 !important; letter-spacing: -0.01em; font-family: var(--font-mono); font-size: 13px; }
+/* ScreenConnect-style flat icon strip. The icons sit directly on .sc-bar
+   with no boxed container — just evenly-spaced square buttons that light up
+   accent on hover/active. */
 .sc-tabs {
   position: static !important;
   transform: none !important;
   display: flex !important;
-  background: var(--panel) !important;
-  border: 1px solid var(--line) !important;
-  border-radius: 6px !important;
-  padding: 2px !important;
-  gap: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  gap: 2px !important;
   margin: 0 auto !important;
 }
 .sc-tab {
-  width: 40px !important; height: 36px !important;
+  width: 44px !important; height: 40px !important;
   display: grid !important; place-items: center !important;
   border-radius: 5px !important;
   color: var(--txt2) !important;
   background: transparent !important;
   border: none !important;
+  transition: color .12s, background .12s;
 }
-.sc-tab svg { width: 15px !important; height: 15px !important; }
+.sc-tab svg { width: 18px !important; height: 18px !important; stroke-width: 1.6; }
 .sc-tab:hover { color: var(--txt) !important; background: var(--panel2) !important; }
 .sc-tab.active {
   color: var(--accent) !important;
   background: var(--accent-wash) !important;
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 /* sc-panel (hover dropdown) — tighten the frame */
@@ -1230,6 +1235,11 @@ hr, .divider { border-color: var(--line); }
   position: absolute;
   top: 16px; right: 16px;
   width: 340px;
+  height: 260px;
+  min-width: 220px;
+  min-height: 170px;
+  max-width: 90vw;
+  max-height: 90vh;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -1237,6 +1247,20 @@ hr, .divider { border-color: var(--line); }
   z-index: 20;
   display: flex; flex-direction: column;
   overflow: hidden;
+  /* Browser-native resize handle at bottom-right. Combined with the min/max
+     above the panel stays within the viewport and keeps its 16:9 feed. */
+  resize: both;
+}
+/* Make the native resize handle visible against the dark panel */
+.cam-panel::after {
+  content: "";
+  position: absolute;
+  right: 2px; bottom: 2px;
+  width: 10px; height: 10px;
+  background:
+    linear-gradient(135deg, transparent 50%, var(--txt3) 50%, var(--txt3) 60%, transparent 60%, transparent 75%, var(--txt3) 75%, var(--txt3) 85%, transparent 85%);
+  pointer-events: none;
+  opacity: 0.7;
 }
 .cam-head {
   display: flex; align-items: center; gap: 8px;
@@ -1269,7 +1293,8 @@ hr, .divider { border-color: var(--line); }
 .cam-video-wrap {
   position: relative;
   background: #000;
-  aspect-ratio: 16/9;
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid; place-items: center;
   overflow: hidden;
 }

@@ -152,12 +152,71 @@ body {
 .nav-item.active::before {
   content: "" !important;
   position: absolute !important;
-  left: -10px !important; top: 8px !important; bottom: 8px !important;
-  width: 2px !important; height: auto !important;
+  left: -10px !important;
+  top: 8px !important;
+  bottom: 8px !important;
+  width: 2px !important;
+  height: auto !important;
   background: var(--accent) !important;
   border-radius: 2px !important;
   transform: none !important;
   box-shadow: none !important;
+}
+.nav-item .ic { width: 16px !important; height: 16px !important; }
+
+/* ---- devices-page segmented filter: production uses .seg + .seg-btn,
+       but at the top of the Devices page it renders as a horizontal row of
+       filter chips, not a pill group — restyle it that way for consistency
+       with the mockup. */
+#dev-filter.seg {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  display: flex !important;
+  gap: 8px !important;
+  margin-bottom: 12px !important;
+  flex-wrap: wrap !important;
+}
+#dev-filter .seg-btn {
+  background: var(--panel) !important;
+  border: 1px solid var(--line) !important;
+  color: var(--txt2) !important;
+  padding: 5px 11px !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  border-radius: 4px !important;
+}
+#dev-filter .seg-btn:hover {
+  background: var(--panel2) !important;
+  color: var(--txt) !important;
+}
+#dev-filter .seg-btn.active {
+  background: var(--accent-wash) !important;
+  border-color: rgba(79,140,255,0.35) !important;
+  color: var(--accent) !important;
+}
+
+/* ---- side-foot "Sign out" + user pill flattened ---- */
+.side-foot .btn {
+  background: transparent !important;
+  border: 1px solid var(--line2) !important;
+  color: var(--txt2) !important;
+  font-weight: 500 !important;
+  font-size: 12px !important;
+  padding: 6px 10px !important;
+}
+.side-foot .btn:hover { background: var(--panel) !important; color: var(--txt) !important; }
+
+/* ---- thin accent top band across the whole app shell so the identity is
+   unmistakable regardless of which page is open. */
+.app-shell::before {
+  content: "" !important;
+  position: fixed !important;
+  top: 0 !important; left: 0 !important; right: 0 !important;
+  height: 2px !important;
+  background: var(--accent) !important;
+  z-index: 1000 !important;
+  pointer-events: none !important;
 }
 /* flatten the avatar */
 .avatar {
@@ -188,77 +247,141 @@ body {
 
 /* ----- 5. page header + metrics ------------------------------------- */
 .dash-top h1, .dev-top h1, .page-title, h1, h2 {
-  font-weight: 500;
-  letter-spacing: -0.02em;
+  font-weight: 500 !important;
+  letter-spacing: -0.02em !important;
 }
+.main { padding: 20px 24px 32px !important; }
 
 /* Dashboard metric strip — PRODUCTION classes: .stats > .stat > .stat-top > .stat-label + .stat-ic, .stat-num */
-.stats { gap: 1px !important; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.stats {
+  gap: 1px !important;
+  background: var(--line) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius-sm) !important;
+  overflow: hidden !important;
+  margin-bottom: 18px !important;
+}
 .stat {
   background: var(--panel) !important;
   border: none !important;
   border-radius: 0 !important;
-  padding: 13px 15px !important;
+  padding: 12px 14px 14px !important;
   transition: none !important;
+  position: relative !important;
 }
-.stat:hover { transform: none !important; }
+.stat:hover { transform: none !important; background: var(--panel2) !important; }
+.stat-top { margin-bottom: 4px !important; }
 .stat-label {
-  color: var(--txt3);
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  font-size: 10.5px;
-  font-weight: 500;
+  color: var(--txt3) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
 }
 .stat-num {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono) !important;
+  font-variant-numeric: tabular-nums !important;
   font-weight: 500 !important;
   letter-spacing: -0.02em !important;
-  font-size: 22px !important;
-  color: var(--txt);
-  margin-top: 6px !important;
+  font-size: 20px !important;
+  color: var(--txt) !important;
+  margin-top: 2px !important;
+  line-height: 1.2 !important;
 }
-.stat-foot { color: var(--txt3); font-size: 11px; }
-.stat-ic { font-size: 8px !important; }
+.stat-foot { color: var(--txt3) !important; font-size: 10.5px !important; }
+.stat-ic { font-size: 7px !important; }
+.stat-svg { width: 12px !important; height: 12px !important; }
 
-/* ----- 6. device rows: left status stripe + flat card -------------- */
-.device-row {
-  position: relative;
+/* ----- 6. device list: hairline card + chunky left status stripe ---- */
+.device-list {
   background: var(--panel) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius-sm) !important;
+  overflow: hidden !important;
+}
+.device-row {
+  position: relative !important;
+  background: transparent !important;
   border-bottom: 1px solid var(--line) !important;
-  padding: 11px 14px 11px 20px !important;
+  padding: 12px 16px 12px 22px !important;
 }
+.device-row:last-child { border-bottom: none !important; }
 .device-row::before {
-  content: ""; position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 3px;
-  background: var(--txt3);
-  opacity: 0.5;
+  content: "" !important;
+  position: absolute !important;
+  left: 0 !important; top: 0 !important; bottom: 0 !important;
+  width: 3px !important;
+  background: var(--txt3) !important;
+  opacity: 0.35 !important;
 }
-.device-row.online::before    { background: var(--green);  opacity: 1; }
-.device-row.busy::before      { background: var(--accent); opacity: 1; }
-.device-row.asleep::before    { background: var(--sleep);  opacity: 1; }
-.device-row.uninstalled::before { background: var(--red);  opacity: 0.6; }
+.device-row.online::before      { background: var(--green)  !important; opacity: 1 !important; }
+.device-row.busy::before        { background: var(--accent) !important; opacity: 1 !important; }
+.device-row.asleep::before      { background: var(--sleep)  !important; opacity: 0.9 !important; }
+.device-row.uninstalled::before { background: var(--red)    !important; opacity: 0.5 !important; }
 .device-row:hover { background: var(--panel2) !important; }
 
-/* host name as technical mono-ID */
+/* host name as a technical mono-ID */
 .dr-name {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono) !important;
   font-size: 13px !important;
   font-weight: 500 !important;
   letter-spacing: -0.01em !important;
-  color: var(--txt);
+  color: var(--txt) !important;
 }
-.dr-sub { font-size: 11.5px; color: var(--txt3); }
-.dr-seen { font-family: var(--font-mono); font-size: 11.5px; color: var(--txt3); }
-.dr-presence { font-weight: 500 !important; font-size: 10.5px !important; text-transform: uppercase; letter-spacing: 0.08em; }
-.dr-busy { color: var(--accent) !important; font-weight: 500 !important; }
+.dr-sub { font-size: 11.5px !important; color: var(--txt3) !important; font-family: var(--font-sans) !important; }
+.dr-seen {
+  font-family: var(--font-mono) !important;
+  font-variant-numeric: tabular-nums !important;
+  font-size: 11.5px !important;
+  color: var(--txt3) !important;
+}
 
-/* status dot in dr-status column — recolor to match stripe */
-.device-row.online .dr-status  { color: var(--green); }
-.device-row.busy .dr-status    { color: var(--accent); }
-.device-row.asleep .dr-status  { color: var(--sleep); }
+/* dr-presence becomes a visible status PILL instead of plain text */
+.dr-presence {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  padding: 2px 9px !important;
+  border-radius: 10px !important;
+  border: 1px solid var(--line2) !important;
+  background: var(--panel2) !important;
+  color: var(--txt2) !important;
+  font-size: 10.5px !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+}
+.device-row.online .dr-presence {
+  color: var(--green) !important;
+  background: rgba(76,189,122,0.08) !important;
+  border-color: rgba(76,189,122,0.35) !important;
+}
+.device-row.busy .dr-presence,
+.dr-busy {
+  color: var(--accent) !important;
+  background: var(--accent-wash) !important;
+  border: 1px solid rgba(79,140,255,0.35) !important;
+  padding: 2px 9px !important;
+  border-radius: 10px !important;
+  font-weight: 500 !important;
+  font-size: 10.5px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  display: inline-flex !important;
+}
+.device-row.asleep .dr-presence {
+  color: var(--sleep) !important;
+  background: rgba(138,160,255,0.08) !important;
+  border-color: rgba(138,160,255,0.35) !important;
+}
+
+/* status dot — tint to match */
+.device-row.online .dr-status  { color: var(--green)  !important; }
+.device-row.busy .dr-status    { color: var(--accent) !important; }
+.device-row.asleep .dr-status  { color: var(--sleep)  !important; }
+.device-row.offline .dr-status { color: var(--txt3)   !important; }
 .device-row.online .dr-os      { color: var(--accent) !important; }
+.dr-os { color: var(--txt3) !important; }
 
 /* ----- 7. pills, badges, status chips ------------------------------- */
 .pill, .badge, .sess-pill, .rtc-mode {

@@ -726,9 +726,15 @@ hr, .divider { border-color: var(--line); }
 .btn.primary .v2-kbd { color: rgba(255,255,255,0.75); border-color: rgba(255,255,255,0.25); background: transparent; }
 
 /* ---------- topbar ---------- */
+/* The topbar is injected as the first child of .main. Zero out .main's top
+   padding so the bar hugs the top edge, then give the bar a bottom margin to
+   put daylight between its hairline border and the page-head below (the Build
+   installer / Add device CTAs were visibly crammed against the bar). */
+[data-v2] .main { padding-top: 0 !important; }
 .v2-topbar {
   display: flex; align-items: center; gap: 14px;
   padding: 10px 20px;
+  margin: 0 -24px 24px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   min-height: 52px;

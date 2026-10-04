@@ -85,10 +85,15 @@ if (HC_V2) {
         // "WORKSPACE" at top of nav; "ACCOUNT" before Settings
         var ws = document.createElement('div'); ws.className = 'v2-sect'; ws.textContent = 'Workspace';
         sideNav.insertBefore(ws, sideNav.firstChild);
+        // Account section opens at Accounts (customer management, owner-only)
+        // and falls back to Settings so the heading appears even when the
+        // operator isn't an owner and the Accounts item is hidden.
+        var accountsBtn = sideNav.querySelector('[data-view="accounts"]');
         var settingsBtn = sideNav.querySelector('[data-view="settings"]');
-        if (settingsBtn) {
+        var accountAnchor = accountsBtn || settingsBtn;
+        if (accountAnchor) {
           var acc = document.createElement('div'); acc.className = 'v2-sect'; acc.textContent = 'Account';
-          sideNav.insertBefore(acc, settingsBtn);
+          sideNav.insertBefore(acc, accountAnchor);
         }
         // Count badges on nav items; filled by hcV2Refresh.
         for (var _n of sideNav.querySelectorAll('.nav-item')) {
@@ -211,6 +216,17 @@ if (HC_V2) {
           '<span class="v2-tfoot-tip">Tip: press <span class="v2-kbd">⇧ J</span> / <span class="v2-kbd">⇧ K</span> to walk the list</span>';
         box.parentNode.insertBefore(foot, box.nextSibling);
       }
+      // Keep nav badges fresh when the Enrollment / Accounts lists reload,
+      // not only when devices change. MutationObserver is cheap for childList.
+      try {
+        var mo = new MutationObserver(function () {
+          if (typeof window.hcV2Refresh === 'function') window.hcV2Refresh();
+        });
+        var keysList = document.getElementById('keys');
+        if (keysList) mo.observe(keysList, { childList: true });
+        var acctList = document.getElementById('accounts');
+        if (acctList) mo.observe(acctList, { childList: true });
+      } catch (e) {}
     } catch (e) { console.warn('v2 mount error', e); }
   });
 
@@ -222,9 +238,16 @@ if (HC_V2) {
   window.hcV2Refresh = function () {
     try {
       var list = devicesCache || [];
-      // Nav badge: real count on Devices; others blank until wired.
-      var dBadge = document.querySelector('.nav-item[data-view="devices"] .v2-badge');
-      if (dBadge) dBadge.textContent = list.length;
+      // Nav badges — populate from live DOM for the pages that have lists
+      // (Devices from devicesCache, Enrollment from #keys children, Accounts
+      // from #accounts children). Alerts/Settings/Support stay unbadged.
+      function setBadge(view, n) {
+        var b = document.querySelector('.nav-item[data-view="' + view + '"] .v2-badge');
+        if (b) b.textContent = (typeof n === 'number' && n > 0) ? n : '';
+      }
+      setBadge('devices', list.length);
+      setBadge('enrollment', document.querySelectorAll('#keys > .linkrow').length);
+      setBadge('accounts', document.querySelectorAll('#accounts > *').length);
       // Table footer counts
       var shown = document.querySelectorAll('#devices > .device-row').length;
       var se = document.querySelector('.v2-shown'); if (se) se.textContent = shown;

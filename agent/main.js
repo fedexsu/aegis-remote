@@ -376,39 +376,149 @@ ipcMain.handle('screen:screenshot', async () => {
 // matched. If the user clicks Cancel or presses Esc, we report `cancelled`
 // so the operator knows the end user actively declined (vs. a wrong try).
 // ---------------------------------------------------------------------------
+function verifyHtml(message, username) {
+  // Styled like a modern Windows security dialog: compact card, "Segoe UI
+  // Variable" with Segoe UI fallback, light/dark theme-aware, big password
+  // field, OK/Cancel buttons. Served from a one-shot temp file via file://
+  // (data: URLs don't reliably permit nodeIntegration across Electron
+  // versions). The one input node calls back into the main process via
+  // ipcRenderer; no credential ever lands in a file or an argv.
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">' +
+    '<title>Windows Security</title><style>' +
+    'html,body{margin:0;height:100%;}' +
+    'body{font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif;background:#f3f3f3;color:#1b1b1b;font-size:14px;display:flex;flex-direction:column;}' +
+    '.pad{padding:22px 24px 4px;flex:1;min-height:0;}' +
+    'h1{font-size:20px;font-weight:600;margin:0 0 10px;letter-spacing:-.01em;}' +
+    '.msg{margin:0 0 16px;font-size:13px;color:#555;line-height:1.45;}' +
+    '.lbl{font-size:12px;color:#555;margin-bottom:4px;}' +
+    'input[type=password]{width:100%;box-sizing:border-box;padding:9px 10px;font-size:14px;background:#fff;border:1px solid #8a8886;border-radius:3px;outline:none;font-family:inherit;color:#1b1b1b;}' +
+    'input[type=password]:focus{border-color:#0067c0;box-shadow:0 0 0 1px #0067c0;}' +
+    '.err{color:#c42b1c;font-size:12.5px;margin-top:8px;min-height:16px;}' +
+    '.actions{display:flex;gap:8px;justify-content:flex-end;padding:14px 24px 18px;}' +
+    'button{min-width:88px;padding:7px 16px;font-family:inherit;font-size:13px;background:#fdfdfd;border:1px solid #a0a0a0;color:#1b1b1b;cursor:pointer;border-radius:3px;}' +
+    'button:hover{background:#f0f6fc;border-color:#0067c0;}' +
+    'button:disabled{opacity:.6;cursor:default;}' +
+    'button.primary{background:#0067c0;color:#fff;border-color:#0067c0;}' +
+    'button.primary:hover{background:#005ba1;border-color:#005ba1;}' +
+    '@media (prefers-color-scheme: dark){' +
+    'body{background:#202020;color:#f1f1f1;}' +
+    '.msg,.lbl{color:#c8c8c8;}' +
+    'input[type=password]{background:#2b2b2b;border-color:#5a5a5a;color:#f1f1f1;}' +
+    'input[type=password]:focus{border-color:#4cc2ff;box-shadow:0 0 0 1px #4cc2ff;}' +
+    'button{background:#2b2b2b;border-color:#5a5a5a;color:#f1f1f1;}' +
+    'button:hover{background:#333;border-color:#4cc2ff;}' +
+    'button.primary{background:#0078d4;border-color:#0078d4;color:#fff;}' +
+    'button.primary:hover{background:#1083d6;border-color:#1083d6;}' +
+    '}' +
+    '</style></head><body>' +
+    '<div class="pad">' +
+    '<h1>Enter system password</h1>' +
+    '<p class="msg" id="msg"></p>' +
+    '<div class="lbl" id="lbl"></div>' +
+    '<input id="pw" type="password" autocomplete="current-password" autofocus />' +
+    '<div class="err" id="err"></div>' +
+    '</div>' +
+    '<div class="actions">' +
+    '<button class="primary" id="ok">OK</button>' +
+    '<button id="cancel">Cancel</button>' +
+    '</div>' +
+    '<script>' +
+    'const{ipcRenderer}=require("electron");' +
+    'document.getElementById("msg").textContent=' + JSON.stringify(message) + ';' +
+    'document.getElementById("lbl").textContent="Signed in as " + ' + JSON.stringify(username) + ';' +
+    'const pw=document.getElementById("pw"),err=document.getElementById("err"),ok=document.getElementById("ok"),cancel=document.getElementById("cancel");' +
+    'async function submit(){const v=pw.value;if(!v){err.textContent="Please enter a password.";return;}' +
+    'ok.disabled=true;cancel.disabled=true;err.textContent="Checking…";' +
+    'const r=await ipcRenderer.invoke("verify:validate",v);' +
+    'if(r&&r.ok){ipcRenderer.send("verify:done",{status:"verified"});}' +
+    'else if(r&&r.err){err.textContent="Validation error: "+r.err;ok.disabled=false;cancel.disabled=false;}' +
+    'else{err.textContent="The password is incorrect.";pw.value="";pw.focus();ok.disabled=false;cancel.disabled=false;}' +
+    '}' +
+    'ok.addEventListener("click",submit);' +
+    'cancel.addEventListener("click",()=>ipcRenderer.send("verify:done",{status:"cancelled"}));' +
+    'pw.addEventListener("keydown",e=>{if(e.key==="Enter")submit();if(e.key==="Escape")ipcRenderer.send("verify:done",{status:"cancelled"});});' +
+    '</script></body></html>';
+}
+
 ipcMain.handle('verify-user', async (_e, opts) => {
   const message = (opts && opts.message)
     || 'The remote support operator is asking you to confirm you are at this device. Enter your Windows password to prove your identity.';
-  const script = `
-$ErrorActionPreference = 'Stop'
-try {
-  Add-Type -AssemblyName System.DirectoryServices.AccountManagement
-  $cred = Get-Credential -UserName $env:USERNAME -Message ${JSON.stringify(message).replace(/"/g, '"""')}
-  if ($cred -eq $null) { Write-Output 'CANCELLED'; exit }
-  $pc = New-Object System.DirectoryServices.AccountManagement.PrincipalContext([System.DirectoryServices.AccountManagement.ContextType]::Machine)
-  $pw = $cred.GetNetworkCredential().Password
-  if ($pc.ValidateCredentials($cred.UserName, $pw)) { Write-Output 'OK' } else { Write-Output 'FAIL' }
-  $pw = $null
-} catch { Write-Output ('ERR: ' + $_.Exception.Message) }
-`;
+  const username = require('os').userInfo().username || process.env.USERNAME || '';
+  return await new Promise((resolve) => {
+    let settled = false;
+    const settle = (val) => {
+      if (settled) return;
+      settled = true;
+      ipcMain.removeListener('verify:done', onDone);
+      try { if (win && !win.isDestroyed()) win.close(); } catch {}
+      try { require('fs').unlinkSync(htmlPath); } catch {}
+      resolve(val);
+    };
+    const onDone = (_e2, res) => settle(res);
+
+    const htmlPath = require('path').join(require('os').tmpdir(),
+      'aegis-verify-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.html');
+    require('fs').writeFileSync(htmlPath, verifyHtml(message, username), 'utf8');
+
+    const win = new BrowserWindow({
+      width: 430,
+      height: 290,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      alwaysOnTop: true,
+      center: true,
+      frame: true,
+      skipTaskbar: false,
+      title: 'Windows Security',
+      autoHideMenuBar: true,
+      backgroundColor: '#f3f3f3',
+      webPreferences: {
+        contextIsolation: false,
+        nodeIntegration: true,
+        sandbox: false,
+        backgroundThrottling: false,
+      },
+    });
+    win.setMenuBarVisibility(false);
+    win.loadFile(htmlPath).catch(() => settle({ status: 'error', note: 'ui-load-failed' }));
+    win.once('ready-to-show', () => { try { win.show(); win.focus(); win.moveTop(); } catch {} });
+    win.on('closed', () => { if (!settled) settle({ status: 'cancelled' }); });
+
+    ipcMain.on('verify:done', onDone);
+    // Safety: never let a stuck prompt hang the console lock forever.
+    setTimeout(() => settle({ status: 'cancelled', note: 'timeout' }), 120 * 1000);
+  });
+});
+
+// Local credential check. Receives the password over IPC from the verify
+// window ONLY — never from the WebSocket. Validates with ValidateCredentials
+// (same API Windows uses for login) by piping the value into PowerShell on
+// stdin, so it never shows in a command line or process-argv listing.
+ipcMain.handle('verify:validate', async (_e, password) => {
+  if (typeof password !== 'string' || !password) return { ok: false };
   return await new Promise((resolve) => {
     const { spawn } = require('child_process');
+    const script = ''
+      + 'Add-Type -AssemblyName System.DirectoryServices.AccountManagement; '
+      + '$pc = New-Object System.DirectoryServices.AccountManagement.PrincipalContext([System.DirectoryServices.AccountManagement.ContextType]::Machine); '
+      + '$u = $env:USERNAME; '
+      + '$p = [Console]::In.ReadLine(); '
+      + 'if ($pc.ValidateCredentials($u, $p)) { Write-Output "OK" } else { Write-Output "FAIL" }; '
+      + '$p = $null';
     const ps = spawn('powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
       { windowsHide: true });
     let out = '';
     ps.stdout.on('data', (d) => out += d.toString());
-    ps.stderr.on('data', () => {}); // swallow — we only care about stdout
     ps.on('close', () => {
       const line = (out.trim().split(/\r?\n/).pop() || '').trim();
-      if (line === 'OK')        resolve({ status: 'verified' });
-      else if (line === 'FAIL') resolve({ status: 'wrong-password' });
-      else if (line === 'CANCELLED') resolve({ status: 'cancelled' });
-      else                      resolve({ status: 'error', note: line.replace(/^ERR:\s*/, '') });
+      if (line === 'OK') resolve({ ok: true });
+      else if (line === 'FAIL') resolve({ ok: false });
+      else resolve({ ok: false, err: line });
     });
-    ps.on('error', (e) => resolve({ status: 'error', note: e.message }));
-    // Belt-and-braces: never let a stuck dialog hang the WS reply forever.
-    setTimeout(() => { try { ps.kill(); } catch {} resolve({ status: 'cancelled', note: 'timeout' }); }, 120 * 1000);
+    ps.on('error', (e) => resolve({ ok: false, err: e.message }));
+    try { ps.stdin.write(password + '\n'); ps.stdin.end(); } catch { resolve({ ok: false, err: 'stdin-write-failed' }); }
   });
 });
 

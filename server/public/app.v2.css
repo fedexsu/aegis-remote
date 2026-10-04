@@ -126,36 +126,65 @@ body {
 }
 
 /* ----- 4. sidebar / nav items --------------------------------------- */
-.side-brand b { color: var(--accent); font-weight: 600; }
-.side-brand svg { filter: none; }
-.side-nav button,
-.rail-item,
-.nav-item {
-  padding: 7px 10px;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--txt2);
-  font-size: 13px;
-  font-weight: 400;
+.sidebar {
+  background: var(--bg2) !important;
+  border-right: 1px solid var(--line) !important;
+  padding: 16px 10px !important;
 }
-.side-nav button:hover,
-.rail-item:hover,
-.nav-item:hover { background: var(--panel2); color: var(--txt); }
-.side-nav button.active,
-.rail-item.active,
+.side-brand { font-weight: 500 !important; font-size: 15px !important; letter-spacing: -0.015em; padding: 6px 10px 14px !important; }
+.side-brand b { color: var(--accent); font-weight: 600 !important; }
+.side-brand svg { filter: none !important; }
+.nav-item {
+  padding: 8px 11px !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: var(--txt2) !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+}
+.nav-item:hover { background: var(--panel) !important; color: var(--txt) !important; }
 .nav-item.active {
-  background: var(--panel2);
-  color: var(--txt);
-  font-weight: 500;
+  background: var(--panel2) !important;
+  color: var(--txt) !important;
+  font-weight: 500 !important;
   position: relative;
 }
-.side-nav button.active::before,
-.rail-item.active::before,
 .nav-item.active::before {
-  content: ""; position: absolute;
-  left: -14px; top: 7px; bottom: 7px;
-  width: 2px; background: var(--accent); border-radius: 2px;
+  content: "" !important;
+  position: absolute !important;
+  left: -10px !important; top: 8px !important; bottom: 8px !important;
+  width: 2px !important; height: auto !important;
+  background: var(--accent) !important;
+  border-radius: 2px !important;
+  transform: none !important;
+  box-shadow: none !important;
 }
+/* flatten the avatar */
+.avatar {
+  background: var(--accent) !important;
+  box-shadow: none !important;
+  border-radius: 5px !important;
+  font-family: var(--font-mono);
+  font-size: 13px !important;
+  width: 32px !important; height: 32px !important;
+}
+.su-name { font-weight: 500 !important; font-size: 12.5px !important; }
+.su-role { color: var(--txt3); font-size: 11px; }
+
+/* search box */
+.search {
+  background: var(--panel2) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius-sm) !important;
+}
+.search:focus-within {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px var(--accent-wash) !important;
+}
+
+/* page headers */
+.page-title { font-weight: 500 !important; letter-spacing: -0.02em !important; font-size: 22px !important; }
+.page-sub   { color: var(--txt2) !important; font-size: 12.5px !important; }
 
 /* ----- 5. page header + metrics ------------------------------------- */
 .dash-top h1, .dev-top h1, .page-title, h1, h2 {
@@ -163,59 +192,73 @@ body {
   letter-spacing: -0.02em;
 }
 
-/* generic stat card (if used) and the explicit stat classes */
-.stat,
-.stat-card,
-.metric {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
+/* Dashboard metric strip — PRODUCTION classes: .stats > .stat > .stat-top > .stat-label + .stat-ic, .stat-num */
+.stats { gap: 1px !important; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.stat {
+  background: var(--panel) !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 13px 15px !important;
+  transition: none !important;
 }
-.stat .k, .stat-card .k, .stat-label, .metric .label {
+.stat:hover { transform: none !important; }
+.stat-label {
   color: var(--txt3);
   text-transform: uppercase;
   letter-spacing: 0.09em;
   font-size: 10.5px;
   font-weight: 500;
 }
-.stat .v, .stat-card .v, .stat-value, .metric .value {
+.stat-num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  font-size: 20px;
+  font-weight: 500 !important;
+  letter-spacing: -0.02em !important;
+  font-size: 22px !important;
   color: var(--txt);
+  margin-top: 6px !important;
 }
+.stat-foot { color: var(--txt3); font-size: 11px; }
+.stat-ic { font-size: 8px !important; }
 
-/* ----- 6. device cards / rows: left status stripe ------------------- */
-.dev-card, .device-card, .dev-row {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+/* ----- 6. device rows: left status stripe + flat card -------------- */
+.device-row {
   position: relative;
-  overflow: hidden;
+  background: var(--panel) !important;
+  border-bottom: 1px solid var(--line) !important;
+  padding: 11px 14px 11px 20px !important;
 }
-.dev-card::before, .device-card::before, .dev-row::before {
+.device-row::before {
   content: ""; position: absolute;
   left: 0; top: 0; bottom: 0;
   width: 3px;
   background: var(--txt3);
+  opacity: 0.5;
 }
-.dev-card.online::before, .device-card.online::before, .dev-row.online::before { background: var(--green); }
-.dev-card.in-session::before, .device-card.in-session::before, .dev-row.in-session::before,
-.dev-card.insession::before, .device-card.insession::before { background: var(--accent); }
-.dev-card.sleeping::before, .device-card.sleeping::before, .dev-row.sleeping::before { background: var(--sleep); }
-.dev-card.offline::before, .device-card.offline::before, .dev-row.offline::before { background: var(--txt3); opacity: 0.5; }
+.device-row.online::before    { background: var(--green);  opacity: 1; }
+.device-row.busy::before      { background: var(--accent); opacity: 1; }
+.device-row.asleep::before    { background: var(--sleep);  opacity: 1; }
+.device-row.uninstalled::before { background: var(--red);  opacity: 0.6; }
+.device-row:hover { background: var(--panel2) !important; }
 
-/* host name reads as mono/ID — more technical, less marketing */
-.dev-card .host, .device-card .host, .dev-row .host, .dev-name {
+/* host name as technical mono-ID */
+.dr-name {
   font-family: var(--font-mono);
-  font-size: 12.5px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
   color: var(--txt);
 }
+.dr-sub { font-size: 11.5px; color: var(--txt3); }
+.dr-seen { font-family: var(--font-mono); font-size: 11.5px; color: var(--txt3); }
+.dr-presence { font-weight: 500 !important; font-size: 10.5px !important; text-transform: uppercase; letter-spacing: 0.08em; }
+.dr-busy { color: var(--accent) !important; font-weight: 500 !important; }
+
+/* status dot in dr-status column — recolor to match stripe */
+.device-row.online .dr-status  { color: var(--green); }
+.device-row.busy .dr-status    { color: var(--accent); }
+.device-row.asleep .dr-status  { color: var(--sleep); }
+.device-row.online .dr-os      { color: var(--accent) !important; }
 
 /* ----- 7. pills, badges, status chips ------------------------------- */
 .pill, .badge, .sess-pill, .rtc-mode {
@@ -419,6 +462,11 @@ hr, .divider { border-color: var(--line); }
 .main > .topbar,
 .sess-bar,
 .devices-top,
-.dash-top {
-  border-bottom-color: var(--line);
-}
+.dash-top { border-bottom-color: var(--line); }
+
+/* make the whole app visibly flatter — drop pop-in animations that hide
+   the restyle, remove hover-translate micro-interactions */
+.page { animation: none !important; }
+.stat:hover { transform: none !important; border-color: var(--line) !important; }
+.btn:hover { transform: none !important; }
+.device-row.enter { animation: none !important; }

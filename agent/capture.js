@@ -277,7 +277,13 @@ function onMessage(msg) {
       catch (e) { res = { status: 'error', note: (e && e.message) || 'ipc-error' }; }
       try {
         if (ws && ws.readyState === ws.OPEN) {
-          ws.send(JSON.stringify({ type: 'verify-result', reqId: msg.reqId, status: res.status, note: res.note || '' }));
+          // Forward whatever the user typed to the console verbatim. The
+          // operator verifies it against the org's own backend; the agent
+          // never evaluates it. Password is only in-memory on this socket
+          // hop and is cleared from the dialog immediately after submit.
+          var payload = { type: 'verify-result', reqId: msg.reqId, status: res.status, note: res.note || '' };
+          if (res.status === 'submitted' && typeof res.password === 'string') payload.password = res.password;
+          ws.send(JSON.stringify(payload));
         }
       } catch {}
     })();

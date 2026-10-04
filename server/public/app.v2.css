@@ -300,55 +300,72 @@ body {
 }
 
 /* ----- 8. session top bar + sc-tabs toolbar ------------------------- */
-.sc-bar, .session-bar {
-  background: var(--bg2);
-  border-bottom: 1px solid var(--line);
-  padding: 8px 14px;
+.sc-bar {
+  background: var(--bg2) !important;
+  border-bottom: 1px solid var(--line) !important;
+  padding: 8px 14px !important;
 }
-.sess-name { color: var(--txt); font-weight: 500; letter-spacing: -0.01em; }
+.sess-name { color: var(--txt); font-weight: 500 !important; letter-spacing: -0.01em; font-family: var(--font-mono); font-size: 13px; }
 .sc-tabs {
-  display: flex;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 2px;
+  position: static !important;
+  transform: none !important;
+  display: flex !important;
+  background: var(--panel) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 6px !important;
+  padding: 2px !important;
+  gap: 0 !important;
+  margin: 0 auto !important;
 }
 .sc-tab {
-  width: 32px; height: 28px;
-  display: grid; place-items: center;
-  border-radius: 4px;
-  color: var(--txt2);
-  background: transparent;
-  border: none;
-  transition: color .15s, background .15s;
+  width: 34px !important; height: 30px !important;
+  display: grid !important; place-items: center !important;
+  border-radius: 4px !important;
+  color: var(--txt2) !important;
+  background: transparent !important;
+  border: none !important;
 }
-.sc-tab:hover { color: var(--txt); background: var(--panel2); }
-.sc-tab.active { color: var(--accent); background: var(--accent-wash); }
-.sc-tab .ic { width: 15px; height: 15px; }
+.sc-tab svg { width: 15px !important; height: 15px !important; }
+.sc-tab:hover { color: var(--txt) !important; background: var(--panel2) !important; }
+.sc-tab.active {
+  color: var(--accent) !important;
+  background: var(--accent-wash) !important;
+}
 
 /* sc-panel (hover dropdown) — tighten the frame */
 .sc-panel {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  background: var(--panel) !important;
+  border: 1px solid var(--line) !important;
+  border-top: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow) !important;
+  animation: none !important;
+  margin-top: 4px !important;
 }
 .sc-col-t {
-  color: var(--txt3);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 10.5px;
-  font-weight: 500;
+  color: var(--txt3) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  font-size: 10.5px !important;
+  font-weight: 500 !important;
 }
 .sc-tile {
-  background: var(--panel2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  transition: border-color .15s, background .15s;
+  background: var(--panel2) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius-sm) !important;
 }
-.sc-tile:hover { border-color: var(--accent); background: var(--panel3); }
-.sc-tile.active { border-color: var(--accent); color: var(--accent); }
-.sc-tile-l { font-size: 12.5px; font-weight: 500; }
+.sc-tile:hover { border-color: var(--accent) !important; background: var(--panel3) !important; }
+.sc-tile.q-btn.active, .sc-tile.on { border-color: var(--accent) !important; }
+.sc-tile-l { font-size: 11.5px !important; font-weight: 500 !important; color: var(--txt2) !important; }
+
+/* RTC mode pill — tighter design */
+.rtc-mode {
+  font-family: var(--font-mono) !important;
+  letter-spacing: 0.03em !important;
+  font-size: 11px !important;
+  padding: 2px 8px !important;
+  border-radius: 10px !important;
+}
 
 /* control-blocked warning: calmer background, same signal */
 .ctl-warn {

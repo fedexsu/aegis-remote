@@ -507,9 +507,31 @@ function updateDeviceCard(el, d, st) {
   }
   const pres = presenceInfo(d);
   const pe = el.querySelector('.dr-presence');
-  pe.className = 'dr-presence' + (pres ? ' presence ' + pres.cls : '');
-  pe.textContent = pres ? pres.text : '';
-  el.querySelector('.dr-seen').textContent = d.online ? statusLabel(st) : (st === 'uninstalled' ? relTime(d.uninstalledAt) : relTime(d.lastSeen));
+  // v2: fall back to the top-level status (Online / In session / Sleeping /
+  // Offline) when there's no fine-grained presence (locked/idle/active). The
+  // CSS already colors .dr-presence by the row's status class, so one line
+  // here fills in every row the mockup shows a pill on. Legacy stays empty.
+  if (pres) {
+    pe.className = 'dr-presence presence ' + pres.cls;
+    pe.textContent = pres.text;
+  } else if (HC_V2) {
+    pe.className = 'dr-presence presence ' + st;
+    pe.textContent = statusLabel(st);
+  } else {
+    pe.className = 'dr-presence';
+    pe.textContent = '';
+  }
+  // v2: LAST SEEN column shows relative TIME, not the redundant status word
+  // (the pill in the previous column already says "Online"/"Offline"). Legacy
+  // keeps the old concatenation so nothing shifts for operators on ?legacy=1.
+  const seenEl = el.querySelector('.dr-seen');
+  if (HC_V2) {
+    seenEl.textContent = (st === 'uninstalled')
+      ? relTime(d.uninstalledAt)
+      : (d.online ? (d.lastSeen ? relTime(d.lastSeen) : 'just now') : relTime(d.lastSeen));
+  } else {
+    seenEl.textContent = d.online ? statusLabel(st) : (st === 'uninstalled' ? relTime(d.uninstalledAt) : relTime(d.lastSeen));
+  }
   const lk = el.querySelector('.dr-lock');
   if (lk) {
     if (d.protected) {

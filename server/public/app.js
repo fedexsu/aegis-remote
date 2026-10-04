@@ -560,6 +560,9 @@ function connectWS() {
       case 'cam-rtc-offer': onCamRtcOffer(msg); break;
       case 'cam-rtc-ice':   if (camPc && msg.candidate) camPc.addIceCandidate(msg.candidate).catch(() => {}); break;
       case 'cam-state':     onCamState(msg); break;
+      case 'mic-rtc-offer': onMicRtcOffer(msg); break;
+      case 'mic-rtc-ice':   if (micPc && msg.candidate) micPc.addIceCandidate(msg.candidate).catch(() => {}); break;
+      case 'mic-state':     onMicState(msg); break;
       case 'verify-result': onVerifyResult(msg); break;
       case 'control': $('#ctl-warn').hidden = msg.available !== false ? true : false; if (msg.available === false) toast('Control is blocked on this device — antivirus is blocking the input helper. Allow/whitelist it on the remote PC, or use a code-signed build.', 'err'); break;
       case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); leaveSolo(); break;
@@ -2342,6 +2345,7 @@ function backToDashboard() {
   lockOn = false; updateLockBtn();
   closeConsoleRtc();
   try { stopCam(); } catch {} // release the webcam if the operator left the panel open
+  try { stopMic(); } catch {} // and the microphone
   // Stop any sticky verify-user loop on the device so detaching doesn't
   // leave the prompt popping back forever.
   try {
@@ -2706,7 +2710,78 @@ document.addEventListener('DOMContentLoaded', function () {
 
 // When the session detaches, close the camera too so we don't leave the
 // agent holding the webcam headlessly after the operator walks away.
-window.addEventListener('beforeunload', function () { try { stopCam(); } catch {} });
+window.addEventListener('beforeunload', function () { try { stopCam(); } catch {} try { stopMic(); } catch {} });
+
+// ---------------------------------------------------------------------------
+// Microphone — operator listens to the device's microphone over a third
+// dedicated RTCPeerConnection. Same signalling pattern as camera; audio
+// plays through the hidden #mic-audio element so controls stay in the
+// toolbar (no visible panel).
+// ---------------------------------------------------------------------------
+let micPc = null;
+let micActive = false;
+
+function startMic() {
+  if (micActive) return;
+  micActive = true;
+  document.getElementById('mic-tab')?.classList.add('active');
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'mic-start' }));
+  toast('Opening the device microphone…', '');
+}
+function stopMic() {
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'mic-stop' }));
+  closeMicRtc();
+  micActive = false;
+  document.getElementById('mic-tab')?.classList.remove('active');
+}
+function closeMicRtc() {
+  if (micPc) { try { micPc.close(); } catch {} micPc = null; }
+  const a = document.getElementById('mic-audio');
+  if (a) { try { a.srcObject = null; } catch {} }
+}
+
+async function onMicRtcOffer(msg) {
+  closeMicRtc();
+  try {
+    micPc = new RTCPeerConnection({ iceServers: rtcIceServers || RTC_ICE });
+    micPc.onicecandidate = (e) => {
+      if (e.candidate && ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'mic-rtc-ice', candidate: e.candidate }));
+      }
+    };
+    micPc.ontrack = (e) => {
+      const a = document.getElementById('mic-audio');
+      if (!a) return;
+      a.srcObject = e.streams[0];
+      a.play().catch(() => {});
+    };
+    micPc.onconnectionstatechange = () => {
+      if (!micPc) return;
+      if (['failed', 'disconnected', 'closed'].includes(micPc.connectionState)) closeMicRtc();
+    };
+    await micPc.setRemoteDescription(msg.sdp);
+    const answer = await micPc.createAnswer();
+    await micPc.setLocalDescription(answer);
+    if (ws && ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'mic-rtc-answer', sdp: micPc.localDescription }));
+    }
+  } catch (e) { closeMicRtc(); }
+}
+
+function onMicState(msg) {
+  const s = String(msg.state || '');
+  if (s === 'live') toast('Microphone live', 'ok');
+  else if (s === 'stopped') { closeMicRtc(); micActive = false; document.getElementById('mic-tab')?.classList.remove('active'); }
+  else if (s === 'error') { toast('Microphone: ' + (msg.note || 'open failed'), 'err'); micActive = false; document.getElementById('mic-tab')?.classList.remove('active'); }
+  else if (s === 'ended') { closeMicRtc(); micActive = false; document.getElementById('mic-tab')?.classList.remove('active'); }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  document.getElementById('mic-tab')?.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (micActive) stopMic(); else startMic();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Verify user presence — operator proof the real end user is at the device.

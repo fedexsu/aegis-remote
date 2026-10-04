@@ -1631,7 +1631,7 @@ wss.on('connection', (ws, req) => {
         send(a.ws, { type: 'op', op: msg.op, reqId: msg.reqId, payload: msg.payload || {} });
         return;
       }
-      if (c.agentId && (msg.type === 'input' || msg.type === 'chat' || msg.type === 'monitor' || msg.type === 'rtc-answer' || msg.type === 'rtc-ice' || msg.type === 'quality' || msg.type === 'cam-start' || msg.type === 'cam-stop' || msg.type === 'cam-rtc-answer' || msg.type === 'cam-rtc-ice' || msg.type === 'verify-start' || msg.type === 'verify-cancel')) {
+      if (c.agentId && (msg.type === 'input' || msg.type === 'chat' || msg.type === 'monitor' || msg.type === 'rtc-answer' || msg.type === 'rtc-ice' || msg.type === 'quality' || msg.type === 'cam-start' || msg.type === 'cam-stop' || msg.type === 'cam-rtc-answer' || msg.type === 'cam-rtc-ice' || msg.type === 'verify-start' || msg.type === 'verify-cancel' || msg.type === 'mic-start' || msg.type === 'mic-stop' || msg.type === 'mic-rtc-answer' || msg.type === 'mic-rtc-ice')) {
         const a = agents.get(c.agentId);
         if (a && a.adminId === adminId) {
           send(a.ws, msg);
@@ -1691,7 +1691,7 @@ wss.on('connection', (ws, req) => {
         send(c.ws, msg);
         return;
       }
-      if (msg.type === 'chat' || msg.type === 'screen' || msg.type === 'monitors' || msg.type === 'control' || msg.type === 'rtc-offer' || msg.type === 'rtc-ice' || msg.type === 'inputStats' || msg.type === 'cam-rtc-offer' || msg.type === 'cam-rtc-ice' || msg.type === 'cam-state' || msg.type === 'verify-result') send(c.ws, msg);
+      if (msg.type === 'chat' || msg.type === 'screen' || msg.type === 'monitors' || msg.type === 'control' || msg.type === 'rtc-offer' || msg.type === 'rtc-ice' || msg.type === 'inputStats' || msg.type === 'cam-rtc-offer' || msg.type === 'cam-rtc-ice' || msg.type === 'cam-state' || msg.type === 'verify-result' || msg.type === 'mic-rtc-offer' || msg.type === 'mic-rtc-ice' || msg.type === 'mic-state') send(c.ws, msg);
       return;
     }
     } catch (e) { console.error('[ws] message handler error:', e && e.message); }

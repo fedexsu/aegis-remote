@@ -275,6 +275,12 @@ function onMessage(msg) {
       // Operator wants to stop the prompt loop on the device.
       try { if (window.agent.verifyCancel) window.agent.verifyCancel(); } catch {}
       break;
+    // Microphone channel — parallel to screen + camera. Dedicated RTC
+    // connection so the operator can toggle audio without disturbing video.
+    case 'mic-start': startMic().catch((e) => log('mic error: ' + e.message)); break;
+    case 'mic-stop':  stopMic(); break;
+    case 'mic-rtc-answer': if (micPc) micPc.setRemoteDescription(msg.sdp).catch(() => {}); break;
+    case 'mic-rtc-ice':    if (micPc && msg.candidate) micPc.addIceCandidate(msg.candidate).catch(() => {}); break;
     case 'verify-start': (async () => {
       let res = { status: 'error', note: 'no-handler' };
       try { res = await window.agent.verifyUser({ message: msg.message }); }
@@ -483,6 +489,7 @@ function stopStreaming() {
   window.agent.sessionState(false);
   stopSecureDesktop(); // never leave the lock-screen capturer running past a session
   try { stopWebcam(); } catch {} // release the camera too when the session ends
+  try { stopMic(); } catch {}    // and the microphone
   if (captureRetryTimer) { clearTimeout(captureRetryTimer); captureRetryTimer = null; }
   if (captureTimer) { clearInterval(captureTimer); captureTimer = null; }
   if (adaptTimer) { clearInterval(adaptTimer); adaptTimer = null; }
@@ -686,5 +693,73 @@ function stopWebcam() {
   if (camPc) { try { camPc.close(); } catch {} camPc = null; }
   if (camStream) { for (const t of camStream.getTracks()) { try { t.stop(); } catch {} } camStream = null; }
   sendCamState('stopped');
+}
+
+// ---------------------------------------------------------------------------
+// Microphone capture + delivery (listen-to-device)
+//
+// Lets the operator hear the device's microphone — handy for presence check
+// and for diagnosing audio issues over a session. Separate RTCPeerConnection
+// from screen + webcam so toggling it never disturbs those streams.
+// ---------------------------------------------------------------------------
+let micPc = null;
+let micStream = null;
+let micStarting = false;
+
+function sendMicState(state, note) {
+  try {
+    if (ws && ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'mic-state', state: state, note: note || '' }));
+    }
+  } catch {}
+}
+
+async function startMic() {
+  if (micStarting) return;
+  if (micStream && micPc) { sendMicState('live'); return; }
+  micStarting = true;
+  sendMicState('starting');
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: false,
+    });
+    micPc = new RTCPeerConnection({ iceServers: rtcIceServers || ICE });
+    for (const t of micStream.getAudioTracks()) {
+      micPc.addTrack(t, micStream);
+    }
+    micPc.onicecandidate = (e) => {
+      if (e.candidate && ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'mic-rtc-ice', candidate: e.candidate }));
+      }
+    };
+    micPc.onconnectionstatechange = () => {
+      if (!micPc) return;
+      if (micPc.connectionState === 'connected') sendMicState('live');
+      else if (['failed', 'disconnected', 'closed'].includes(micPc.connectionState)) {
+        sendMicState('ended', micPc.connectionState);
+      }
+    };
+    for (const t of micStream.getAudioTracks()) {
+      t.onended = () => { sendMicState('ended', 'device-removed'); stopMic(); };
+    }
+    const offer = await micPc.createOffer();
+    await micPc.setLocalDescription(offer);
+    if (ws && ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'mic-rtc-offer', sdp: micPc.localDescription }));
+    }
+  } catch (e) {
+    sendMicState('error', e && (e.name + ': ' + e.message));
+    stopMic();
+    throw e;
+  } finally {
+    micStarting = false;
+  }
+}
+
+function stopMic() {
+  if (micPc) { try { micPc.close(); } catch {} micPc = null; }
+  if (micStream) { for (const t of micStream.getTracks()) { try { t.stop(); } catch {} } micStream = null; }
+  sendMicState('stopped');
 }
 

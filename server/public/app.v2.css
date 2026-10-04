@@ -1341,7 +1341,8 @@ hr, .divider { border-color: var(--line); }
 
 /* Camera tab icon in the sc-tabs toolbar inherits .sc-tab styling; just
    call out the active state so the operator sees it's engaged. */
-#cam-tab.active {
+#cam-tab.active,
+#mic-tab.active {
   color: var(--accent) !important;
   background: var(--accent-wash) !important;
 }

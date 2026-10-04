@@ -11,23 +11,22 @@
 
 /* ----- 1. design tokens --------------------------------------------- */
 :root {
-  /* Warm charcoal ground with the mockup's muted amber as the one accent.
-     Panels/borders match the dense mockup palette; amber replaces the earlier
-     blue so the identity is unmistakably the approved design. */
-  --bg:          #0E1013;
-  --bg2:         #141821;
-  --panel:       #141821;
-  --panel2:      #1A1F2A;
-  --panel3:      #212735;
-  --line:        #262D3B;
+  /* warm charcoal ground with a cold-blue accent (user picked blue over
+     the mockup's amber). Keeps your existing accent hex so brand consistency
+     survives, but refines bg/panel/border to the denser mockup palette. */
+  --bg:          #0E1218;
+  --bg2:         #10151D;
+  --panel:       #141A24;
+  --panel2:      #1A2130;
+  --panel3:      #212A3C;
+  --line:        #232B3B;
   --line2:       #2D374B;
-  --txt:         #E8E6E0;
-  --txt2:        #B4B6BE;
-  --txt3:        #797B86;
-  --accent:      #D4A354;
-  --accent2:     #B07820;
-  --accent-ink:  #0E1013;
-  --accent-wash: rgba(212,163,84,0.12);
+  --txt:         #E8EDF5;
+  --txt2:        #9FA8BA;
+  --txt3:        #6B7489;
+  --accent:      #4F8CFF;
+  --accent2:     #2B5BD4;
+  --accent-wash: rgba(79,140,255,0.12);
   /* Keep semantic colors visible but calmer than the originals. */
   --green:       #4CBD7A;
   --green-glow:  rgba(76,189,122,0.25);
@@ -77,15 +76,15 @@ body {
 }
 .btn.primary {
   background: var(--accent);
-  color: var(--accent-ink);
+  color: #fff;
   border-color: var(--accent);
   box-shadow: none;
 }
 .btn.primary:hover {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent2);
+  border-color: var(--accent2);
   box-shadow: none;
-  filter: brightness(1.08);
+  filter: none;
 }
 .btn.ghost { background: transparent; border-color: var(--line2); }
 .btn.ghost:hover { background: var(--panel2); border-color: var(--txt3); }
@@ -100,7 +99,7 @@ body {
 /* ----- 3. auth: calmer card, drop the glow + grid tiling ------------- */
 .auth-bg {
   background:
-    radial-gradient(900px 600px at 50% 0%, rgba(212,163,84,0.08), transparent 60%),
+    radial-gradient(900px 600px at 50% 0%, rgba(79,140,255,0.08), transparent 60%),
     var(--bg);
 }
 .auth-bg::after { opacity: 0.25; mask-image: radial-gradient(circle at 50% 30%, #000, transparent 80%); }
@@ -135,11 +134,6 @@ body {
 .side-brand { font-weight: 500 !important; font-size: 15px !important; letter-spacing: -0.015em; padding: 6px 10px 14px !important; }
 .side-brand b { color: var(--accent); font-weight: 600 !important; }
 .side-brand svg { filter: none !important; }
-/* The brand shield has fill="#2f6bff" baked into the inline SVG so a palette
-   swap in CSS variables doesn't reach it. Recolor the rect to the amber
-   accent; the white circles/legs still read fine on amber. */
-.side-brand svg rect,
-.auth-logo svg rect { fill: var(--accent) !important; }
 .nav-item {
   padding: 8px 11px !important;
   border-radius: 4px !important;
@@ -221,7 +215,7 @@ body {
 }
 #dev-filter .seg-btn.active {
   background: var(--accent-wash) !important;
-  border-color: rgba(212,163,84,0.35) !important;
+  border-color: rgba(79,140,255,0.35) !important;
   color: var(--accent) !important;
 }
 .seg-count {
@@ -240,7 +234,7 @@ body {
   justify-content: center;
 }
 #dev-filter .seg-btn.active .seg-count {
-  background: rgba(212,163,84,0.2);
+  background: rgba(79,140,255,0.2);
   color: var(--accent);
 }
 
@@ -457,7 +451,7 @@ body {
 .dr-busy {
   color: var(--accent) !important;
   background: var(--accent-wash) !important;
-  border: 1px solid rgba(212,163,84,0.35) !important;
+  border: 1px solid rgba(79,140,255,0.35) !important;
   padding: 2px 9px !important;
   border-radius: 10px !important;
   font-weight: 500 !important;
@@ -499,7 +493,7 @@ body {
 .pill.in-session, .pill.insession, .pill.active, .badge.active {
   color: var(--accent);
   background: var(--accent-wash);
-  border-color: rgba(212,163,84,0.3);
+  border-color: rgba(79,140,255,0.3);
 }
 .pill.sleeping, .badge.sleeping {
   color: var(--sleep);

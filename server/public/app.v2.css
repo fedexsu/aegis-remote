@@ -164,6 +164,29 @@ body {
 }
 .nav-item .ic { width: 16px !important; height: 16px !important; }
 
+/* ---- agent version chip (dr-ver, added by app.js when v2 is on) ---- */
+.dr-ver {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  margin-left: 2px;
+  background: var(--panel2);
+  color: var(--txt2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  letter-spacing: -0.01em;
+  vertical-align: middle;
+  line-height: 1.4;
+}
+.dr-ver.stale {
+  color: var(--amber);
+  background: rgba(217,168,66,0.08);
+  border-color: rgba(217,168,66,0.3);
+}
+
 /* ---- devices-page segmented filter: production uses .seg + .seg-btn,
        but at the top of the Devices page it renders as a horizontal row of
        filter chips, not a pill group — restyle it that way for consistency
@@ -194,6 +217,25 @@ body {
   background: var(--accent-wash) !important;
   border-color: rgba(79,140,255,0.35) !important;
   color: var(--accent) !important;
+}
+.seg-count {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 0 5px;
+  background: var(--panel2);
+  color: var(--txt3);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  min-width: 15px;
+  justify-content: center;
+}
+#dev-filter .seg-btn.active .seg-count {
+  background: rgba(79,140,255,0.2);
+  color: var(--accent);
 }
 
 /* ---- side-foot "Sign out" + user pill flattened ---- */

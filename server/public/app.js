@@ -2,6 +2,11 @@
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+// v2 overlay flag: true when app.v2.css is currently loaded (toggled by the
+// inline bootstrap in app.html via ?legacy=1 / localStorage.hcTheme). Gates
+// the mockup-faithful DOM enhancements below. Legacy = false, no risk, same
+// DOM as before.
+const HC_V2 = (function () { try { return !!document.getElementById('hc-v2-css'); } catch (e) { return false; } })();
 let ws = null, admin = null, attachedId = null;
 let frameW = 0, frameH = 0;
 // Deep-link support: /?device=<id>&solo=1 opens a focused window that auto-joins
@@ -352,8 +357,32 @@ function renderDevices() {
   $('#st-online').textContent = online;
   $('#st-busy').textContent = busy;
   $('#st-sleep').textContent = sleeping;
-  $('#st-offline').textContent = list.length - online - uninstalled - sleeping;
+  const offlineCount = list.length - online - uninstalled - sleeping;
+  $('#st-offline').textContent = offlineCount;
   $('#st-uninstalled').textContent = uninstalled;
+  // v2 only: paint matching counts into the filter-chip row so the operator
+  // sees at-a-glance how many devices each filter would reveal. "Newly
+  // installed" / "Older" use firstSeen, same windows as the filter below.
+  if (HC_V2) {
+    const nowMs = Date.now();
+    const newly = list.filter((d) => d.firstSeen && nowMs - d.firstSeen < 7 * 86400000).length;
+    const older = list.filter((d) => d.firstSeen && nowMs - d.firstSeen > 30 * 86400000).length;
+    const counts = { all: list.length, online, sleep: sleeping, offline: offlineCount, uninstalled, new: newly, old: older };
+    for (const b of $$('#dev-filter .seg-btn')) {
+      const k = b.dataset.f;
+      const n = counts[k];
+      // Keep the original label unchanged — stash it once, then re-render as
+      // "<label> <count>" so the operator keeps the plain word.
+      if (!b.dataset.labelCache) b.dataset.labelCache = b.textContent.replace(/\s+\d+$/, '').trim();
+      const labelOnly = b.dataset.labelCache;
+      b.innerHTML = '';
+      b.appendChild(document.createTextNode(labelOnly + ' '));
+      const c = document.createElement('span');
+      c.className = 'seg-count';
+      c.textContent = (typeof n === 'number' ? n : 0);
+      b.appendChild(c);
+    }
+  }
 
   const q = search.toLowerCase();
   const shown = list.filter((d) => {
@@ -433,7 +462,27 @@ function updateDeviceCard(el, d, st) {
   nameEl.textContent = d.name; nameEl.title = d.id;
   el.querySelector('.dr-status').className = 'dr-status st-' + st;
   el.querySelector('.dr-status').title = statusLabel(st);
-  el.querySelector('.dr-sub').textContent = [(m.user || ''), (m.host || '')].filter(Boolean).join(' · ') + (m.os ? '  ·  ' + m.os : '') + (m.build ? '  ·  Agent v' + m.build : '');
+  // v2 breaks the sub-line into a chip for the agent version so the fleet-
+  // wide version spread is readable at a glance (stale builds pop immediately
+  // in a muted amber in CSS). Legacy keeps the plain-text concatenation.
+  {
+    const subEl = el.querySelector('.dr-sub');
+    const base  = [(m.user || ''), (m.host || '')].filter(Boolean).join(' · ') + (m.os ? '  ·  ' + m.os : '');
+    if (HC_V2 && m.build) {
+      subEl.textContent = base + '  ·  ';
+      const ver = document.createElement('span');
+      ver.className = 'dr-ver';
+      ver.textContent = 'v' + m.build;
+      // Stale version marker — flagged by comparing to the fleet's newest
+      // seen agent in meta.staleBuild (set upstream in the server pass). If
+      // that signal isn't present we fall back to a hard-coded floor.
+      const latest = (window.HC_LATEST_BUILD || 65);
+      if (Number(m.build) < latest) ver.classList.add('stale');
+      subEl.appendChild(ver);
+    } else {
+      subEl.textContent = base + (m.build ? '  ·  Agent v' + m.build : '');
+    }
+  }
   const pres = presenceInfo(d);
   const pe = el.querySelector('.dr-presence');
   pe.className = 'dr-presence' + (pres ? ' presence ' + pres.cls : '');

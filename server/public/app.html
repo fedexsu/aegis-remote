@@ -9,6 +9,29 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icon.svg" />
     <link rel="stylesheet" href="app.css" />
+    <!--
+      v2 overlay stylesheet. Loaded AFTER app.css so its tokens + component
+      tweaks override. Easy revert paths:
+        • `?legacy=1`                  — URL param, one-shot (sticks for the tab)
+        • `localStorage.hcTheme='legacy'` — persistent per-browser
+        • Just delete the <link> below to roll back for everyone.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link id="hc-v2-font" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" />
+    <link id="hc-v2-css" rel="stylesheet" href="app.v2.css" />
+    <script>
+      (function () {
+        var legacy = /[?&]legacy=1/.test(location.search);
+        try { if (!legacy && localStorage.getItem('hcTheme') === 'legacy') legacy = true; } catch (e) {}
+        if (location.search.indexOf('legacy=1') >= 0) { try { localStorage.setItem('hcTheme','legacy'); } catch(e){} }
+        if (location.search.indexOf('legacy=0') >= 0) { try { localStorage.removeItem('hcTheme'); } catch(e){} legacy = false; }
+        if (legacy) {
+          var v = document.getElementById('hc-v2-css'); if (v) v.remove();
+          var f = document.getElementById('hc-v2-font'); if (f) f.remove();
+        }
+      })();
+    </script>
     <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
   </head>
   <body>

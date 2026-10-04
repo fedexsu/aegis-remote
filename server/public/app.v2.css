@@ -1,0 +1,424 @@
+/* =====================================================================
+   HatchConnect v2 — overlay stylesheet
+   =====================================================================
+   OVERRIDES app.css. Loaded AFTER it in app.html so these rules win. To
+   revert instantly, add ?legacy=1 to the URL or run `localStorage.setItem
+   ("hcTheme","legacy")` in the console; the <link> in app.html honors it.
+   This is a RE-SKIN: tokens, typography, borders, radius, and a handful of
+   high-signal component tweaks. Structural CSS stays in app.css so no JS
+   wiring, selectors, or layout grids need to change.
+   ===================================================================== */
+
+/* ----- 1. design tokens --------------------------------------------- */
+:root {
+  /* warm charcoal ground with a cold-blue accent (user picked blue over
+     the mockup's amber). Keeps your existing accent hex so brand consistency
+     survives, but refines bg/panel/border to the denser mockup palette. */
+  --bg:          #0E1218;
+  --bg2:         #10151D;
+  --panel:       #141A24;
+  --panel2:      #1A2130;
+  --panel3:      #212A3C;
+  --line:        #232B3B;
+  --line2:       #2D374B;
+  --txt:         #E8EDF5;
+  --txt2:        #9FA8BA;
+  --txt3:        #6B7489;
+  --accent:      #4F8CFF;
+  --accent2:     #2B5BD4;
+  --accent-wash: rgba(79,140,255,0.12);
+  /* Keep semantic colors visible but calmer than the originals. */
+  --green:       #4CBD7A;
+  --green-glow:  rgba(76,189,122,0.25);
+  --amber:       #D9A842;
+  --sleep:       #8AA0FF;
+  --red:         #E05257;
+  --red-dim:     #B2434A;
+  /* Tighter geometry — mockup uses 3-8px radii, not 10-14. */
+  --radius:      8px;
+  --radius-sm:   5px;
+  --shadow:      0 20px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.4);
+  --shadow-sm:   0 2px 8px rgba(0,0,0,0.25);
+  --font-sans:   "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono:   "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* digits align in all data/metrics */
+.mono, code, kbd, pre, .num, .ver, .sess-name, .fname, .dep-out, .tele .v {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* ----- 2. buttons: flatten, remove gradient + glow ------------------- */
+.btn {
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line2);
+  background: var(--panel2);
+  color: var(--txt);
+  font-weight: 500;
+  font-size: 12.5px;
+  transition: background .15s, border-color .15s;
+}
+.btn:hover {
+  background: var(--panel3);
+  border-color: var(--txt3);
+  transform: none;
+}
+.btn.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: none;
+}
+.btn.primary:hover {
+  background: var(--accent2);
+  border-color: var(--accent2);
+  box-shadow: none;
+  filter: none;
+}
+.btn.ghost { background: transparent; border-color: var(--line2); }
+.btn.ghost:hover { background: var(--panel2); border-color: var(--txt3); }
+.btn.danger {
+  background: transparent;
+  border-color: rgba(224,82,87,0.4);
+  color: var(--red);
+}
+.btn.danger:hover { background: rgba(224,82,87,0.1); border-color: var(--red); }
+.btn.small { padding: 5px 9px; font-size: 11.5px; border-radius: 4px; }
+
+/* ----- 3. auth: calmer card, drop the glow + grid tiling ------------- */
+.auth-bg {
+  background:
+    radial-gradient(900px 600px at 50% 0%, rgba(79,140,255,0.08), transparent 60%),
+    var(--bg);
+}
+.auth-bg::after { opacity: 0.25; mask-image: radial-gradient(circle at 50% 30%, #000, transparent 80%); }
+.auth-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+  padding: 32px 30px 26px;
+}
+.auth-logo { filter: none; margin-bottom: 10px; }
+.auth-title { font-weight: 500; letter-spacing: -0.02em; font-size: 20px; }
+.auth-sub { color: var(--txt2); font-size: 12.5px; }
+.field input {
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--bg2);
+  border: 1px solid var(--line2);
+  font-size: 13px;
+}
+.field input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-wash);
+}
+
+/* ----- 4. sidebar / nav items --------------------------------------- */
+.side-brand b { color: var(--accent); font-weight: 600; }
+.side-brand svg { filter: none; }
+.side-nav button,
+.rail-item,
+.nav-item {
+  padding: 7px 10px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--txt2);
+  font-size: 13px;
+  font-weight: 400;
+}
+.side-nav button:hover,
+.rail-item:hover,
+.nav-item:hover { background: var(--panel2); color: var(--txt); }
+.side-nav button.active,
+.rail-item.active,
+.nav-item.active {
+  background: var(--panel2);
+  color: var(--txt);
+  font-weight: 500;
+  position: relative;
+}
+.side-nav button.active::before,
+.rail-item.active::before,
+.nav-item.active::before {
+  content: ""; position: absolute;
+  left: -14px; top: 7px; bottom: 7px;
+  width: 2px; background: var(--accent); border-radius: 2px;
+}
+
+/* ----- 5. page header + metrics ------------------------------------- */
+.dash-top h1, .dev-top h1, .page-title, h1, h2 {
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+/* generic stat card (if used) and the explicit stat classes */
+.stat,
+.stat-card,
+.metric {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+.stat .k, .stat-card .k, .stat-label, .metric .label {
+  color: var(--txt3);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-size: 10.5px;
+  font-weight: 500;
+}
+.stat .v, .stat-card .v, .stat-value, .metric .value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  font-size: 20px;
+  color: var(--txt);
+}
+
+/* ----- 6. device cards / rows: left status stripe ------------------- */
+.dev-card, .device-card, .dev-row {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  position: relative;
+  overflow: hidden;
+}
+.dev-card::before, .device-card::before, .dev-row::before {
+  content: ""; position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--txt3);
+}
+.dev-card.online::before, .device-card.online::before, .dev-row.online::before { background: var(--green); }
+.dev-card.in-session::before, .device-card.in-session::before, .dev-row.in-session::before,
+.dev-card.insession::before, .device-card.insession::before { background: var(--accent); }
+.dev-card.sleeping::before, .device-card.sleeping::before, .dev-row.sleeping::before { background: var(--sleep); }
+.dev-card.offline::before, .device-card.offline::before, .dev-row.offline::before { background: var(--txt3); opacity: 0.5; }
+
+/* host name reads as mono/ID — more technical, less marketing */
+.dev-card .host, .device-card .host, .dev-row .host, .dev-name {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--txt);
+}
+
+/* ----- 7. pills, badges, status chips ------------------------------- */
+.pill, .badge, .sess-pill, .rtc-mode {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  background: var(--panel2);
+  color: var(--txt2);
+  letter-spacing: 0;
+}
+.pill.online, .badge.online, .pill.ok, .badge.ok {
+  color: var(--green);
+  background: rgba(76,189,122,0.08);
+  border-color: rgba(76,189,122,0.3);
+}
+.pill.in-session, .pill.insession, .pill.active, .badge.active {
+  color: var(--accent);
+  background: var(--accent-wash);
+  border-color: rgba(79,140,255,0.3);
+}
+.pill.sleeping, .badge.sleeping {
+  color: var(--sleep);
+  background: rgba(138,160,255,0.08);
+  border-color: rgba(138,160,255,0.3);
+}
+.pill.offline, .badge.offline {
+  color: var(--txt3);
+  background: var(--panel2);
+  border-color: var(--line);
+}
+.rtc-mode {
+  font-family: var(--font-mono);
+  letter-spacing: 0.03em;
+  background: rgba(76,189,122,0.1);
+  color: var(--green);
+  border-color: rgba(76,189,122,0.3);
+}
+
+/* ----- 8. session top bar + sc-tabs toolbar ------------------------- */
+.sc-bar, .session-bar {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--line);
+  padding: 8px 14px;
+}
+.sess-name { color: var(--txt); font-weight: 500; letter-spacing: -0.01em; }
+.sc-tabs {
+  display: flex;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px;
+}
+.sc-tab {
+  width: 32px; height: 28px;
+  display: grid; place-items: center;
+  border-radius: 4px;
+  color: var(--txt2);
+  background: transparent;
+  border: none;
+  transition: color .15s, background .15s;
+}
+.sc-tab:hover { color: var(--txt); background: var(--panel2); }
+.sc-tab.active { color: var(--accent); background: var(--accent-wash); }
+.sc-tab .ic { width: 15px; height: 15px; }
+
+/* sc-panel (hover dropdown) — tighten the frame */
+.sc-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.sc-col-t {
+  color: var(--txt3);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 10.5px;
+  font-weight: 500;
+}
+.sc-tile {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  transition: border-color .15s, background .15s;
+}
+.sc-tile:hover { border-color: var(--accent); background: var(--panel3); }
+.sc-tile.active { border-color: var(--accent); color: var(--accent); }
+.sc-tile-l { font-size: 12.5px; font-weight: 500; }
+
+/* control-blocked warning: calmer background, same signal */
+.ctl-warn {
+  background: rgba(224,82,87,0.08);
+  border: 1px solid rgba(224,82,87,0.3);
+  color: var(--red);
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  padding: 4px 10px;
+}
+
+/* ----- 9. sys-tabs (System overlay segmented tabs) ------------------ */
+.seg {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px;
+}
+.seg-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--txt2);
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+}
+.seg-btn:hover { color: var(--txt); background: var(--panel2); }
+.seg-btn.active { color: var(--txt); background: var(--panel3); }
+
+/* ----- 10. tables / files / proc lists ------------------------------ */
+.files-table thead th,
+table thead th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--txt3);
+  font-weight: 500;
+  padding: 9px 12px;
+  background: var(--panel2);
+  border-bottom: 1px solid var(--line);
+}
+.files-table tbody td,
+table tbody td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--txt2);
+  font-size: 12.5px;
+}
+.files-table tbody tr:hover td,
+table tbody tr:hover td { background: var(--panel2); }
+
+/* ----- 11. form inputs ---------------------------------------------- */
+input[type="text"], input[type="password"], input[type="email"],
+input[type="search"], input[type="number"], select, textarea,
+.dep-args, .proc-search {
+  background: var(--bg2);
+  border: 1px solid var(--line2);
+  color: var(--txt);
+  border-radius: var(--radius-sm);
+  padding: 8px 11px;
+  font-size: 13px;
+  font-family: inherit;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-wash);
+}
+
+/* ----- 12. toolbox tiles (upload + list) ---------------------------- */
+.tb-tile { position: relative; }
+.tb-tile.tb-run:hover { color: var(--accent); }
+
+/* ----- 13. toasts, modals, dropdowns -------------------------------- */
+.toast {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  color: var(--txt);
+  font-size: 12.5px;
+}
+.toast.ok { border-color: rgba(76,189,122,0.4); }
+.toast.err { border-color: rgba(224,82,87,0.4); }
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+/* ----- 14. small refinements that reinforce the identity ------------ */
+::selection { background: var(--accent-wash); color: var(--txt); }
+hr, .divider { border-color: var(--line); }
+
+/* dense scrollbars that read "ops tool" not "consumer app" */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb {
+  background: var(--line2);
+  border: 2px solid var(--bg);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--txt3); }
+
+/* lastly: a thin top border on the main content region ties the chrome
+   together regardless of which page is open */
+.main > .topbar,
+.sess-bar,
+.devices-top,
+.dash-top {
+  border-bottom-color: var(--line);
+}

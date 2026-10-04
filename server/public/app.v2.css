@@ -249,17 +249,10 @@ body {
 }
 .side-foot .btn:hover { background: var(--panel) !important; color: var(--txt) !important; }
 
-/* ---- thin accent top band across the whole app shell so the identity is
-   unmistakable regardless of which page is open. */
-.app-shell::before {
-  content: "" !important;
-  position: fixed !important;
-  top: 0 !important; left: 0 !important; right: 0 !important;
-  height: 2px !important;
-  background: var(--accent) !important;
-  z-index: 1000 !important;
-  pointer-events: none !important;
-}
+/* Earlier iterations put a 2px accent band across the top of the whole app
+   shell. Removed per user request — the topbar + rail already carry the
+   identity, the extra line read as a browser-tab underline and leaked onto
+   the session view too. */
 /* flatten the avatar */
 .avatar {
   background: var(--accent) !important;
@@ -521,9 +514,10 @@ body {
 
 /* ----- 8. session top bar + sc-tabs toolbar ------------------------- */
 .sc-bar {
-  background: var(--bg2) !important;
+  background: var(--panel) !important;
   border-bottom: 1px solid var(--line) !important;
-  padding: 8px 14px !important;
+  padding: 10px 20px !important;
+  min-height: 56px;
 }
 .sess-name { color: var(--txt); font-weight: 500 !important; letter-spacing: -0.01em; font-family: var(--font-mono); font-size: 13px; }
 .sc-tabs {
@@ -538,9 +532,9 @@ body {
   margin: 0 auto !important;
 }
 .sc-tab {
-  width: 34px !important; height: 30px !important;
+  width: 40px !important; height: 36px !important;
   display: grid !important; place-items: center !important;
-  border-radius: 4px !important;
+  border-radius: 5px !important;
   color: var(--txt2) !important;
   background: transparent !important;
   border: none !important;

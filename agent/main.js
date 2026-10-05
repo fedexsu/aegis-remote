@@ -23,6 +23,11 @@ const DEFAULT_CONFIG = {
   key: 'change-me-aegis',
   name: os.hostname(),
   enabled: true, // master "stay online" flag (replaces legacy autoConnect)
+  // Input backend: 'exe' = legacy standalone injector.exe (default). 'powershell'
+  // = compile Injector.cs in-memory inside powershell.exe via Add-Type, so the
+  // SendInput caller is a Microsoft-signed process. Flip to 'powershell' on
+  // devices where McAfee WPS / Smart App Control blocks the unsigned exe.
+  injectorBackend: 'exe',
 };
 
 // Launched by the OS auto-start entry? Then start hidden (to tray).
@@ -87,6 +92,35 @@ function compileInjector() {
   } catch { return false; }
 }
 function startInjector() {
+  // PowerShell backend: compile Injector.cs in-memory inside Microsoft-signed
+  // powershell.exe (see InjectorPS.ps1 for the full rationale). Spawning
+  // powershell with the ps1 file + source path keeps the SAME stdio contract
+  // the exe backend has, so everything below (status pump, respawn on exit,
+  // reconnect on error) is shared. If powershell.exe itself isn't present or
+  // the script fails to launch, we fall through to the exe backend as rescue.
+  const backend = (loadConfig().injectorBackend || 'exe').toLowerCase();
+  if (backend === 'powershell') {
+    const ps1 = path.join(__dirname, 'injector', 'InjectorPS.ps1');
+    const src = path.join(__dirname, 'injector', 'Injector.cs');
+    if (fs.existsSync(ps1) && fs.existsSync(src)) {
+      try {
+        injector = spawn('powershell.exe', [
+          '-NoLogo', '-NoProfile', '-NonInteractive',
+          '-ExecutionPolicy', 'Bypass',
+          '-File', ps1, src,
+        ], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+        injectorOk = true;
+        injectBlocked = false;
+        attachInjectorIO();
+        return;
+      } catch (e) {
+        console.warn('[inject] PS backend spawn failed, falling back to exe:', e && e.message);
+      }
+    } else {
+      console.warn('[inject] PS backend requested but InjectorPS.ps1 or Injector.cs missing, falling back to exe');
+    }
+  }
+  // exe backend (default). Keeps the original compile-on-miss self-heal.
   const exe = path.join(__dirname, 'injector', 'injector.exe');
   if (!fs.existsSync(exe)) {
     // Missing (e.g. quarantined by AV) — try to rebuild it from source.
@@ -96,23 +130,28 @@ function startInjector() {
     injector = spawn(exe, [], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
     injectorOk = true;
     injectBlocked = false;
-    // The injector reports on stdout whether its SendInput (clicks/keys) is
-    // actually landing. AV/EDR commonly lets the process run but blocks synthetic
-    // input, so process-alive alone isn't proof control works.
-    let stdoutBuf = '';
-    if (injector.stdout) injector.stdout.on('data', (d) => {
-      stdoutBuf += d.toString();
-      let nl;
-      while ((nl = stdoutBuf.indexOf('\n')) >= 0) {
-        const line = stdoutBuf.slice(0, nl).trim();
-        stdoutBuf = stdoutBuf.slice(nl + 1);
-        if (line === '!BLOCKED' && !injectBlocked) { injectBlocked = true; pushControlStatus(); }
-        else if (line === '!OK' && injectBlocked) { injectBlocked = false; pushControlStatus(); }
-      }
-    });
-    injector.on('exit', () => { injector = null; injectorOk = false; injectBlocked = false; pushControlStatus(); setTimeout(startInjector, 2000); });
-    injector.on('error', () => { injector = null; injectorOk = false; injectBlocked = false; pushControlStatus(); setTimeout(startInjector, 3000); });
+    attachInjectorIO();
   } catch { injector = null; injectorOk = false; setTimeout(startInjector, 3000); }
+}
+// Shared stdio pump + lifecycle wiring, used by both the exe and powershell
+// backends above. The injector reports on stdout whether its SendInput
+// (clicks/keys) actually landed — AV/EDR often lets the process run but
+// filters the API call, so process-alive alone isn't proof control works.
+function attachInjectorIO() {
+  if (!injector) return;
+  let stdoutBuf = '';
+  if (injector.stdout) injector.stdout.on('data', (d) => {
+    stdoutBuf += d.toString();
+    let nl;
+    while ((nl = stdoutBuf.indexOf('\n')) >= 0) {
+      const line = stdoutBuf.slice(0, nl).trim();
+      stdoutBuf = stdoutBuf.slice(nl + 1);
+      if (line === '!BLOCKED' && !injectBlocked) { injectBlocked = true; pushControlStatus(); }
+      else if (line === '!OK' && injectBlocked) { injectBlocked = false; pushControlStatus(); }
+    }
+  });
+  injector.on('exit', () => { injector = null; injectorOk = false; injectBlocked = false; pushControlStatus(); setTimeout(startInjector, 2000); });
+  injector.on('error', () => { injector = null; injectorOk = false; injectBlocked = false; pushControlStatus(); setTimeout(startInjector, 3000); });
 }
 // Push the current control availability to the renderer, which forwards it to the
 // technician's console so a blocked injector surfaces instead of failing silently.
@@ -674,6 +713,17 @@ ipcMain.on('op', (_e, msg) => {
     else if (op === 'hw-info') hwInfo(reqId);
     else if (op === 'keepawake') setKeepAwake(reqId, !!payload.on);
     else if (op === 'power') powerAction(reqId, payload.action);
+    else if (op === 'inject-backend') {
+      // Flip the input backend between 'exe' and 'powershell' on this device.
+      // Persists to agent-config.json, then kills the running injector so the
+      // next spawn (via the shared watchdog) picks up the new backend.
+      const want = (payload.backend === 'powershell') ? 'powershell' : 'exe';
+      try {
+        const cfg = loadConfig(); cfg.injectorBackend = want; saveConfig(cfg);
+        try { if (injector) injector.kill(); } catch {}
+        opReply({ type: 'opResult', reqId, ok: true, data: { backend: want } });
+      } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
+    }
     else if (op === 'op-cancel') { termClose(reqId); fsCancel(reqId); sysMonClear(reqId); }
   } catch (e) { opReply({ type: 'opEnd', reqId, ok: false, error: e.message }); }
 });

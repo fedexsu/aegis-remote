@@ -319,6 +319,7 @@ ipcMain.handle('meta:get', () => {
     version: app.getVersion(),
     build: CODE_VERSION,
     keepAwake: userWakeLock,
+    injectorBackend: (loadConfig().injectorBackend || 'exe'),
     mac: primaryMac(),
     subnet: primarySubnet(),
   };

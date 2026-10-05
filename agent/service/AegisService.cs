@@ -22,7 +22,11 @@ using System.ServiceProcess;
 using System.Threading;
 
 public class AegisService : ServiceBase {
-  const string SVC_NAME = "SupportAgentSvc";
+  // Legacy default service name — used when the installer doesn't pass /svc:.
+  // Dual-install mode (installer-service.nsi) overrides this per copy via
+  // "AegisService.exe /install /svc:<Name>-AgentSvc" so each install registers
+  // its own uniquely-named service and can be stopped/started independently.
+  const string DEFAULT_SVC_NAME = "SupportAgentSvc";
 
   // ---- Win32 ----
   [DllImport("kernel32.dll")] static extern uint WTSGetActiveConsoleSessionId();
@@ -54,6 +58,10 @@ public class AegisService : ServiceBase {
   static volatile bool running = false;
   Thread worker;
 
+  // Instance service name — resolved at process start from argv so Main() and
+  // the ServiceBase can both see it. The service control manager calls Main()
+  // with no args when it starts us; in that path we fall back to the default.
+  static string SVC_NAME = DEFAULT_SVC_NAME;
   public AegisService() { ServiceName = SVC_NAME; CanShutdown = true; }
   protected override void OnStart(string[] args) { running = true; worker = new Thread(Loop) { IsBackground = true }; worker.Start(); }
   protected override void OnStop() { running = false; }
@@ -103,9 +111,24 @@ public class AegisService : ServiceBase {
   static void Sc(string a) { try { Process p = Process.Start(new ProcessStartInfo("sc.exe", a) { UseShellExecute = false, CreateNoWindow = true }); p.WaitForExit(); } catch { } }
 
   static void Main(string[] args) {
+    // Honor /svc:<name> on EITHER /install, /uninstall, or a bare service start.
+    // Dual-install mode calls: AegisService.exe /install /svc:<Name>-AgentSvc
+    // The service control manager, when it later starts this exe via sc.exe's
+    // auto-start, invokes it with argv = [] — SVC_NAME stays at the default,
+    // but ServiceBase.Run reads the actual service name from the SCM dispatch
+    // anyway, so this doesn't matter for the running-service path. The /svc:
+    // flag matters for the install/uninstall path where we talk to sc.exe.
+    foreach (string a in args) {
+      if (a == null) continue;
+      string la = a.ToLowerInvariant();
+      if (la.StartsWith("/svc:")) {
+        string n = a.Substring(5).Trim();
+        if (n.Length > 0) SVC_NAME = n;
+      }
+    }
     if (args.Length > 0 && args[0].ToLowerInvariant() == "/install") {
       string exe = Assembly.GetExecutingAssembly().Location;
-      Sc("create " + SVC_NAME + " binPath= \"" + exe + "\" start= auto DisplayName= \"Support Agent\"");
+      Sc("create " + SVC_NAME + " binPath= \"" + exe + "\" start= auto DisplayName= \"" + SVC_NAME + "\"");
       Sc("description " + SVC_NAME + " \"Keeps the Support remote agent running.\"");
       Sc("failure " + SVC_NAME + " reset= 0 actions= restart/5000/restart/5000/restart/5000");
       Sc("start " + SVC_NAME);

@@ -497,6 +497,27 @@ async function handleApi(req, res, urlPath) {
       return json(res, 200, { allowed: dec.allowed });
     }
 
+    // Public: the installer asks here (passing the enrollment KEY in the body)
+    // for the key's non-secret labels — specifically appName2, which carries the
+    // optional "second software name" for dual-install mode. The key itself IS
+    // the secret; whoever already has it to install the agent is allowed to
+    // read what it was built for. Returns 404 silently if the key is unknown so
+    // this isn't useful as an existence probe for other keys.
+    if (urlPath === '/api/key-meta' && m === 'POST') {
+      const b = await readBody(req);
+      const k = db.findValidKey(b.key || '');
+      if (!k) return json(res, 404, { error: 'unknown key' });
+      const km = k.meta || {};
+      return json(res, 200, {
+        appName:    km.appName    || '',
+        appName2:   km.appName2   || '',
+        company:    km.company    || '',
+        site:       km.site       || '',
+        department: km.department || '',
+        deviceType: km.deviceType || '',
+      });
+    }
+
     // Public: the uninstaller reports here (device id + enrollment key) right
     // before it removes the agent, so the device shows "Uninstalled" instead of
     // just going offline. No session — authenticated by the enrollment key.

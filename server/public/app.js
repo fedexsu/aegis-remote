@@ -830,6 +830,29 @@ function updateDeviceCard(el, d, st) {
   const m = d.meta || {};
   const nameEl = el.querySelector('.dr-name');
   nameEl.textContent = d.name; nameEl.title = d.id;
+  // Dual-install: when a device has more than one copy installed on the remote
+  // PC, show a tiny chip next to the name labelling the active copy. The chip
+  // is a clickable pill; the popover lists all connected copies and lets the
+  // operator switch which one receives ops. Hidden entirely for the single-
+  // install case (zero visual impact on normal devices).
+  {
+    const chip = el.querySelector('.dr-instance');
+    if (chip) {
+      const insts = Array.isArray(d.instances) ? d.instances : [];
+      if (d.online && insts.length > 1) {
+        const active = d.activeInstance || (insts[0] && insts[0].instance) || 1;
+        const activeEntry = insts.find((x) => x.instance === active) || insts[0];
+        chip.hidden = false;
+        chip.innerHTML = '<span class="dr-inst-label">' + (activeEntry.appName || ('Copy ' + active)) + '</span><span class="dr-inst-caret">▾</span>';
+        chip.title = 'Switch active copy (' + insts.length + ' connected)';
+        chip.onclick = (ev) => { ev.stopPropagation(); showInstancePicker(d, chip); };
+      } else {
+        chip.hidden = true;
+        chip.innerHTML = '';
+        chip.onclick = null;
+      }
+    }
+  }
   el.querySelector('.dr-status').className = 'dr-status st-' + st;
   el.querySelector('.dr-status').title = statusLabel(st);
   // v2 breaks the sub-line into a chip for the agent version so the fleet-
@@ -915,7 +938,7 @@ function createDeviceCard(d, st) {
   el.innerHTML = `
       <span class="dr-os">${osIcon(m)}</span>
       <span class="dr-status st-${st}"><span class="status-dot"></span></span>
-      <div class="dr-main"><span class="dr-name"></span><span class="dr-sub"></span></div>
+      <div class="dr-main"><span class="dr-name"></span><span class="dr-instance" hidden></span><span class="dr-sub"></span></div>
       <span class="dr-presence"></span>
       ${extraCols}
       <span class="dr-lock" hidden></span>
@@ -935,6 +958,50 @@ function createDeviceCard(d, st) {
 // Right-click / kebab context menu - the ScreenConnect-style action list.
 let ctxMenuEl = null;
 function closeDeviceMenu() { if (ctxMenuEl) { ctxMenuEl.remove(); ctxMenuEl = null; } }
+
+// Dual-install dropdown anchored to the .dr-instance chip. Lists every
+// currently-connected copy of this device and lets the owner pick which one is
+// active (receives ops). Secondary copies stay connected in the background so
+// the switch is instant — no reconnect, no disruption.
+let instancePickerEl = null;
+function closeInstancePicker() { if (instancePickerEl) { instancePickerEl.remove(); instancePickerEl = null; } }
+document.addEventListener('click', closeInstancePicker);
+window.addEventListener('resize', closeInstancePicker);
+function showInstancePicker(d, anchor) {
+  closeInstancePicker();
+  closeDeviceMenu();
+  const r = anchor.getBoundingClientRect();
+  const insts = Array.isArray(d.instances) ? d.instances : [];
+  const active = d.activeInstance || 1;
+  const menu = document.createElement('div');
+  menu.className = 'ctx-menu dr-inst-menu';
+  menu.style.left = Math.round(r.left) + 'px';
+  menu.style.top = Math.round(r.bottom + 4) + 'px';
+  menu.innerHTML = insts.map((e) => {
+    const isActive = e.instance === active;
+    return '<button class="ctx-item' + (isActive ? ' active' : '') + '" data-i="' + e.instance + '">'
+      + '<span class="ctx-ic">' + (isActive ? '●' : '○') + '</span>'
+      + '<span>' + (e.appName || ('Copy ' + e.instance)) + '</span>'
+      + '<span class="ctx-sub">' + (isActive ? 'active' : 'standby') + '</span>'
+      + '</button>';
+  }).join('')
+  + '<div class="ctx-sep"></div>'
+  + '<div class="ctx-note">If one copy is uninstalled, control automatically fails over to the other.</div>';
+  menu.addEventListener('click', (e) => e.stopPropagation());
+  menu.querySelectorAll('.ctx-item').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const want = Number(btn.dataset.i);
+      if (want === active) { closeInstancePicker(); return; }
+      try {
+        await api('/api/devices/active-instance', 'POST', { id: d.id, instance: want });
+        toast('Switched active copy', 'ok');
+        closeInstancePicker();
+      } catch (err) { toast(err.message || 'failed', 'err'); }
+    });
+  });
+  document.body.appendChild(menu);
+  instancePickerEl = menu;
+}
 document.addEventListener('click', closeDeviceMenu);
 window.addEventListener('resize', closeDeviceMenu);
 async function powerAction(d, action) {

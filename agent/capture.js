@@ -158,9 +158,15 @@ async function connect() {
     try { scr = await window.agent.getScreenSize(); } catch {}
     let meta = {};
     try { meta = await window.agent.getMeta(); } catch {}
+    // Dual-install: tell the relay which copy of this device we are (1 or 2).
+    // Single installs leave CFG.instance undefined → relay treats as instance 1.
+    // appName goes in meta so the console can label each copy in the dropdown.
+    if (CFG.appName) meta.appName = CFG.appName;
+    if (CFG.instance) meta.instance = CFG.instance;
     ws.send(JSON.stringify({
       type: 'register', role: 'agent',
       id: DEVICE_ID, name: CFG.name, key: CFG.key,
+      instance: CFG.instance || 1,
       screen: scr, meta,
     }));
     sendPresence(true);

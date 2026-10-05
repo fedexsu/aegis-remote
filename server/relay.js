@@ -224,8 +224,16 @@ catch { /* no bundle shipped */ }
 // ---------------------------------------------------------------------------
 // Live connection state (online status); durable data lives in db.js.
 // ---------------------------------------------------------------------------
-const agents = new Map();   // deviceId -> { ws, name, adminId, consoleId, streaming }
+const agents = new Map();   // deviceId -> { ws, name, adminId, consoleId, streaming } — points at the ACTIVE instance
 const consoles = new Map(); // consoleId -> { ws, adminId, agentId }
+// Dual-install sideband: tracks EVERY instance currently connected per device,
+// including the active one. `agents` above is the console-visible view of just
+// the active instance's socket, so existing op-routing code untouched. When
+// the active instance disconnects, we promote the first remaining entry here
+// to active (update `agents`); when all are gone the device goes offline.
+// Shape: deviceId -> Map<instanceNum, { ws, meta, screen, lastSeen }>
+const instanceConns = new Map();
+function instanceMap(id) { let m = instanceConns.get(id); if (!m) { m = new Map(); instanceConns.set(id, m); } return m; }
 const opRoutes = new Map(); // reqId -> { consoleId, agentId } — routes op replies back
 const guests = new Map();   // agentId -> Set(ws) — browser guest viewers (view-only JPEG)
 const guestTokens = new Map(); // token -> { adminId, agentId, exp } — share links
@@ -292,6 +300,18 @@ function deviceListFor(adminId) {
       protected: !!d.protected,             // uninstall protection on?
       uninstallAuthorized: !!d.uninstallAuthorized, // operator released it for removal
       screenshot: !!(d.meta && d.meta.screenshotAt), // true if an install screenshot is available
+      // Dual-install view: lists every currently-connected copy of this device
+      // with the name baked into each copy's config, and which one is active
+      // (the one receiving ops). Single-install devices get a 1-entry list.
+      instances: (function () {
+        const im = instanceConns.get(d.id);
+        if (!im) return [];
+        const out = [];
+        for (const [idx, e] of im) out.push({ instance: idx, appName: e.appName || null, online: true });
+        out.sort((a, b) => a.instance - b.instance);
+        return out;
+      })(),
+      activeInstance: online ? (live.activeInstance || 1) : null,
     };
   });
 }
@@ -840,6 +860,23 @@ async function handleApi(req, res, urlPath) {
     }
     if (urlPath === '/api/stats' && m === 'GET') return json(res, 200, { stats: db.statsForAdmin(admin.id) });
     if (urlPath === '/api/devices' && m === 'GET') return json(res, 200, { devices: deviceListFor(admin.id) });
+    // Dual-install: manually switch which installed copy is active for this
+    // device. Op-routing then targets the chosen copy's ws; the other copy
+    // stays connected in standby. Owner-only on devices the admin owns. 404
+    // if the target instance isn't currently connected.
+    if (urlPath === '/api/devices/active-instance' && m === 'POST') {
+      const b = await readBody(req);
+      const dev = dbDevice(admin.id, b.id);
+      if (!dev) return json(res, 404, { error: 'device not found' });
+      const imap = instanceConns.get(b.id);
+      const target = Number(b.instance) | 0;
+      if (!imap || !imap.has(target)) return json(res, 404, { error: 'that copy isn\'t connected right now' });
+      const entry = imap.get(target);
+      const a = agents.get(b.id);
+      agents.set(b.id, { ws: entry.ws, name: a ? a.name : dev.name, adminId: admin.id, consoleId: a ? a.consoleId : null, screen: entry.screen, activeInstance: target });
+      pushDevices(admin.id);
+      return json(res, 200, { ok: true, activeInstance: target });
+    }
     // Serve a device's install screenshot (saved by the relay when the agent sends it on first connect).
     const screenshotMatch = urlPath.match(/^\/api\/device\/([^/]+)\/screenshot$/);
     if (screenshotMatch && m === 'GET') {
@@ -1555,8 +1592,28 @@ wss.on('connection', (ws, req) => {
         if (k.meta) for (const fld of ['company', 'site', 'department', 'deviceType']) { if (k.meta[fld]) meta[fld] = k.meta[fld]; }
         const known = !!dbDevice(k.adminId, id);
         db.upsertDevice(id, k.adminId, name, k.key, meta);
-        ws.meta = { role: 'agent', id, adminId: k.adminId };
-        agents.set(id, { ws, name, adminId: k.adminId, consoleId: null, screen: msg.screen || null });
+        // Dual-install: `instance` says which copy on the remote PC is talking.
+        // Agents that don't bake instance in config.default.json default to 1
+        // (every legacy single install). The relay keeps BOTH connections alive,
+        // but `agents.set(id, …)` below only points at the ACTIVE one — the
+        // standby's ws stays in instanceConns so we can promote it later.
+        const instance = Number.isFinite(msg.instance) ? (msg.instance | 0) : 1;
+        const appName = (msg.meta && msg.meta.appName) || name;
+        ws.meta = { role: 'agent', id, adminId: k.adminId, instance };
+        const imap = instanceMap(id);
+        // Replace any previous socket for THIS instance (reconnect / auto-update
+        // relaunch is routine). Doesn't touch sibling instance.
+        const prev = imap.get(instance);
+        if (prev && prev.ws !== ws) { try { prev.ws.close(); } catch {} }
+        imap.set(instance, { ws, meta, screen: msg.screen || null, lastSeen: Date.now(), appName });
+        // Promote to active if no instance is currently active (first-connect
+        // after boot, or active just dropped). Otherwise leave the existing
+        // active in place — standby just sits in instanceConns silently.
+        const curActive = agents.get(id);
+        const needPromote = !curActive || !imap.has(curActive.activeInstance);
+        if (needPromote) {
+          agents.set(id, { ws, name, adminId: k.adminId, consoleId: null, screen: msg.screen || null, activeInstance: instance });
+        }
         // Cancel any pending offline-flash / Telegram-alert timers so a quick
         // relaunch (auto-update, VPN flip) is completely invisible to the admin.
         if (graceTimers.has(id)) { clearTimeout(graceTimers.get(id)); graceTimers.delete(id); }
@@ -1719,13 +1776,33 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
-    const { role, id, adminId } = ws.meta || {};
+    const { role, id, adminId, instance } = ws.meta || {};
     if (role === 'agent') {
+      // Clean the sideband first regardless of whether this ws is the active one.
+      const imap = instanceConns.get(id);
+      if (imap) {
+        const entry = imap.get(instance);
+        if (entry && entry.ws === ws) imap.delete(instance);
+        if (imap.size === 0) instanceConns.delete(id);
+      }
       const a = agents.get(id);
       // Reconnect race: if the agent already re-registered on a NEW socket (e.g.
       // after a VPN/Wi-Fi change), the entry now points at that live socket — this
       // stale close must NOT tear it down or the device flaps offline while it's up.
       if (a && a.ws !== ws) return;
+      // Dual-install: if the ACTIVE instance just dropped but a sibling is still
+      // connected, promote the sibling instead of marking the device offline.
+      // Device stays online in the dashboard, control continues uninterrupted
+      // (next op routes to the promoted instance's ws).
+      if (imap && imap.size > 0) {
+        const [[nextInstance, nextEntry]] = imap;
+        const newActive = { ws: nextEntry.ws, name: a ? a.name : (nextEntry.appName || id), adminId, consoleId: a ? a.consoleId : null, screen: nextEntry.screen, activeInstance: nextInstance };
+        agents.set(id, newActive);
+        // If a console was attached, keep it attached — the agentGone message is
+        // not sent because the device IS still here, just on the sibling socket.
+        if (adminId) pushDevices(adminId);
+        return;
+      }
       if (a && a.consoleId) { const c = consoles.get(a.consoleId); if (c) { c.agentId = null; send(c.ws, { type: 'agentGone' }); } }
       dropGuests(id, 'The device went offline.'); // end any guest sessions on this device
       // If a suspend was signalled just before this drop, it's sleeping, not dead.

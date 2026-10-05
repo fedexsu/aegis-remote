@@ -531,6 +531,20 @@ body.solo .sidebar{display:none}
 .ctl-fix-tag{font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:.5px}
 .ctl-fix-tag.ok{background:rgba(49,208,122,.15);color:var(--green);border:1px solid rgba(49,208,122,.35)}
 .ctl-fix-dim{opacity:.7}
+/* Dual-install: active-copy chip on the device row + its popover picker. */
+.dr-instance{display:inline-flex;align-items:center;gap:4px;margin-left:8px;padding:1px 7px;background:var(--panel3);border:1px solid var(--line2);border-radius:10px;font-size:10.5px;font-weight:600;color:var(--txt2);cursor:pointer;line-height:1.5;vertical-align:middle;user-select:none;transition:background .12s,border-color .12s}
+.dr-instance:hover{background:var(--panel2);border-color:var(--accent);color:var(--txt)}
+.dr-inst-label{letter-spacing:.02em}
+.dr-inst-caret{opacity:.6;font-size:9px}
+.dr-inst-menu{min-width:220px}
+.dr-inst-menu .ctx-item{display:grid;grid-template-columns:14px 1fr auto;align-items:center;gap:8px;padding:8px 12px;font-size:12.5px}
+.dr-inst-menu .ctx-item.active{color:var(--accent)}
+.dr-inst-menu .ctx-item .ctx-ic{color:var(--accent);font-size:14px;text-align:center}
+.dr-inst-menu .ctx-item:not(.active) .ctx-ic{color:var(--txt3)}
+.dr-inst-menu .ctx-item .ctx-sub{color:var(--txt3);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.dr-inst-menu .ctx-item.active .ctx-sub{color:var(--accent)}
+.dr-inst-menu .ctx-sep{height:1px;background:var(--line);margin:4px 0}
+.dr-inst-menu .ctx-note{padding:8px 12px;color:var(--txt3);font-size:11px;line-height:1.4}
 .rtc-mode{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;background:var(--panel3);color:var(--txt2);border:1px solid var(--line2)}
 .rtc-mode.hd{background:rgba(49,208,122,.15);border-color:rgba(49,208,122,.4);color:var(--green)}
 .rtc-mode.sd{background:rgba(245,181,68,.12);border-color:rgba(245,181,68,.35);color:var(--amber)}

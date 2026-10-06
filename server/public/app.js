@@ -2510,11 +2510,17 @@ function onAttached(msg) {
   lockOn = false; updateLockBtn();
   setRtcMode('connecting');
   $('#control-view').hidden = false;
+  // Immersive session view: body.in-session hides the dashboard sidebar + its
+  // top chrome via CSS so the remote screen fills the viewport like
+  // ScreenConnect / TeamViewer. Removed by backToDashboard. Safe no-op in
+  // solo-window mode (which already has no sidebar).
+  document.body.classList.add('in-session');
   if (msg.screen) { frameW = msg.screen.w; frameH = msg.screen.h; }
   canvas.focus();
 }
 function backToDashboard() {
   attachedId = null;
+  document.body.classList.remove('in-session'); // restore sidebar + dashboard chrome
   zoom = 0; annotOn = false; annotCanvas.hidden = true; $('#annot-btn').classList.remove('on'); stopShareClip(); // reset view tools
   try { if (document.fullscreenElement) document.exitFullscreen(); } catch {} // leave fullscreen when the session ends
   if (mediaRec) stopRecording(); // auto-save any in-progress recording
@@ -3266,6 +3272,14 @@ function sendInput(ev) {
     console.warn('[HC] sendInput dropped — ws not open');
     return;
   }
+  // Backpressure: if the WebSocket's send queue is backed up (slow uplink, a
+  // paused agent, a congested relay), additional mouse moves pile on and the UI
+  // can appear to hang while every stale move is drained. Drop mouse MOVES
+  // when the queue grows past 256 KB — click/key/wheel events always go through
+  // so the operator never loses a critical action. Threshold is small so a
+  // transient hiccup drops a handful of frames (invisible at 100fps) instead of
+  // seconds of lag.
+  if (ev.kind === 'move' && ws.bufferedAmount > 256 * 1024) return;
   ws.send(JSON.stringify({ type: 'input', event: ev }));
 }
 function normXY(e) {
@@ -3276,7 +3290,11 @@ const BTN = { 0: 'L', 1: 'M', 2: 'R' };
 let lastMove = 0;
 canvas.addEventListener('mousemove', (e) => {
   if (!controlOn()) return;
-  const now = performance.now(); if (now - lastMove < 16) return; lastMove = now;
+  // 100fps cap (was 60fps / 16ms) — the agent + injector have no trouble
+  // keeping up with this rate on normal links; the lower throttle makes drag
+  // operations and rapid pointer motion feel noticeably smoother. Combined
+  // with the sendInput backpressure drop above, flooding the WS is still safe.
+  const now = performance.now(); if (now - lastMove < 10) return; lastMove = now;
   const { x, y } = normXY(e); sendInput({ kind: 'move', x, y });
 });
 canvas.addEventListener('mousedown', (e) => {

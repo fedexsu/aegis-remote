@@ -550,6 +550,19 @@ body.solo .sidebar{display:none}
 .rtc-mode.sd{background:rgba(245,181,68,.12);border-color:rgba(245,181,68,.35);color:var(--amber)}
 .session-bar .btn.on{background:rgba(79,140,255,.25);border-color:var(--accent);color:#fff}
 .screen-wrap{flex:1;display:grid;place-items:center;overflow:auto;padding:14px;position:relative}
+/* Immersive session mode: body.in-session is set in onAttached, cleared in
+   backToDashboard. Hides the dashboard sidebar + the main container's chrome
+   so the remote screen fills the whole viewport like a native remote-support
+   tool. The session's top bar (.sc-bar with Disconnect, Control, etc.) stays
+   on top so the operator can always exit; its height is subtracted from the
+   screen-wrap so there's no scroll + no black bar. Padding goes to 0 so the
+   canvas sits at the exact viewport edge — eliminates any top offset that
+   could confuse "I clicked HERE but it landed slightly lower". */
+body.in-session .sidebar { display: none; }
+body.in-session .app-shell { grid-template-columns: 1fr; }
+body.in-session .screen-wrap { padding: 0; background: #000; }
+body.in-session #control-view { height: 100vh; }
+body.in-session #screen { max-width: 100vw; max-height: calc(100vh - 54px); border-radius: 0; box-shadow: none; }
 #screen{background:#000;border-radius:8px;box-shadow:var(--shadow);max-width:100%;max-height:100%;grid-area:1/1;z-index:2}
 /* The WebRTC <video> is a decode-only source: its frames are painted onto the
    canvas (some GPU/driver combos decode+advance the element but never composite

@@ -463,7 +463,29 @@ class Injector {
     if (logInputs > 0 || !ok) { logInputs--; Log("SetCursorPos(virtual) -> " + ok + (ok ? "" : " err=" + Marshal.GetLastWin32Error())); }
   }
 
+  // Make this process per-monitor DPI aware. Without this, Windows applies the
+  // DPI virtualization layer: GetSystemMetrics(SM_C*SCREEN) returns the SCALED
+  // screen size (e.g. 1536x864 on a 1920x1080 display at 125%), and SetCursorPos
+  // expects coords in that virtual space. The round-trip usually works but
+  // rounding + fractional scaling (125%, 150%) can introduce 1-3 pixel offsets
+  // on each axis that stack across the screen — matches the "clicks LAND
+  // slightly below where I clicked" symptom on high-DPI laptops. Declaring DPI
+  // awareness makes GetSystemMetrics return physical pixels and SetCursorPos
+  // operate in physical pixels — exact pixel landing, no rounding drift.
+  // SetProcessDpiAwarenessContext (Win 10 1703+) is preferred; fall through to
+  // the older SetProcessDPIAware (Win Vista+) when unavailable.
+  [DllImport("user32.dll")]
+  static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
+  [DllImport("user32.dll")]
+  static extern bool SetProcessDPIAware();
+  static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
+  static void EnableDpiAwareness() {
+    try { if (SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) return; } catch { }
+    try { SetProcessDPIAware(); } catch { }
+  }
+
   static void Main() {
+    EnableDpiAwareness();
     var ci = CultureInfo.InvariantCulture;
     EnsureInteractiveWinSta();   // switch to WinSta0 if we are a Session-0 service
     // Remember our home desktop (full-rights handle). EnsureInputDesktop keeps this

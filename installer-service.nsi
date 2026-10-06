@@ -302,7 +302,7 @@ Section "Uninstall"
   ; wmic (deprecated) or PowerShell. PowerShell: list support.exe/injector.exe
   ; processes whose Path starts with $INSTDIR and stop them. Falls back to a
   ; blanket taskkill if PowerShell is unavailable (very old Windows).
-  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try { Get-Process support,injector -ErrorAction SilentlyContinue | Where-Object { $$_.Path -and $$_.Path.ToLower().StartsWith((\"$INSTDIR\").ToLower()) } | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}"'
+  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try { Get-Process support,injector,Aegis,blanker,keepsystemawake,offkeepsystemawake,sdcap -ErrorAction SilentlyContinue | Where-Object { $$_.Path -and $$_.Path.ToLower().StartsWith((\"$INSTDIR\").ToLower()) } | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}"'
   Sleep 600
   ; Delete only this copy's ARP subkey. $1 was set above to this copy's name
   ; (defaults to "Support" for legacy single installs; set by the install step

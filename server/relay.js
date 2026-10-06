@@ -1796,10 +1796,18 @@ wss.on('connection', (ws, req) => {
       // (next op routes to the promoted instance's ws).
       if (imap && imap.size > 0) {
         const [[nextInstance, nextEntry]] = imap;
+        const hadConsole = !!(a && a.consoleId);
         const newActive = { ws: nextEntry.ws, name: a ? a.name : (nextEntry.appName || id), adminId, consoleId: a ? a.consoleId : null, screen: nextEntry.screen, activeInstance: nextInstance };
         agents.set(id, newActive);
-        // If a console was attached, keep it attached — the agentGone message is
-        // not sent because the device IS still here, just on the sibling socket.
+        // If a console was attached, the console-side state (attached, agentId,
+        // etc.) is unchanged — but the NEW active agent process has no idea it
+        // just inherited that session, so it isn't streaming, won't send input
+        // acks, and ops like `blank` land on an agent that thinks it has no
+        // viewer. Kick-start it by routing through updateViewers, which sees
+        // consoleId=set + streaming=undefined and sends the start message that
+        // triggers screen capture + a fresh rtc-offer. Console's existing
+        // handlers then re-establish WebRTC transparently.
+        if (hadConsole) updateViewers(id);
         if (adminId) pushDevices(adminId);
         return;
       }

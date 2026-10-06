@@ -79,8 +79,13 @@ begin
   appDir := '';
   try appDir := ExpandConstant('{app}'); except end;
   if appDir <> '' then begin
+    // All agent-side helper exes that may be live and must be stopped BEFORE we
+    // remove files. Missing one leaves an orphan process holding file locks AND
+    // continuing to affect the end-user's experience (e.g. an orphan blanker
+    // keeps the screen black with no agent left to turn it off). Keeps the
+    // path filter so a sibling install's processes stay alive.
     Exec(ExpandConstant('{sys}\windowspowershell\v1.0\powershell.exe'),
-      '-NoProfile -WindowStyle Hidden -Command "try { Get-Process support,injector,Aegis -EA SilentlyContinue | Where-Object { $_.Path -and $_.Path.ToLower().StartsWith(('''
+      '-NoProfile -WindowStyle Hidden -Command "try { Get-Process support,injector,Aegis,blanker,keepsystemawake,offkeepsystemawake,sdcap -EA SilentlyContinue | Where-Object { $_.Path -and $_.Path.ToLower().StartsWith(('''
       + Lowercase(appDir)
       + ''').ToLower()) } | Stop-Process -Force -EA SilentlyContinue } catch {}"',
       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
@@ -89,6 +94,10 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM support.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Aegis.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM injector.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM blanker.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM keepsystemawake.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM offkeepsystemawake.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM sdcap.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 // Pull a "name": "value" string out of the agent's simple JSON config.
@@ -281,7 +290,7 @@ begin
   SaveStringToFile(uninstScript,
     '# Second-copy uninstaller — removes this install only; leaves the sibling.' + #13#10 +
     'try {' + #13#10 +
-    '  Get-Process support,injector -EA SilentlyContinue | Where-Object { $_.Path -and $_.Path.ToLower().StartsWith((''' + Lowercase(dstDir) + ''').ToLower()) } | Stop-Process -Force -EA SilentlyContinue' + #13#10 +
+    '  Get-Process support,injector,Aegis,blanker,keepsystemawake,offkeepsystemawake,sdcap -EA SilentlyContinue | Where-Object { $_.Path -and $_.Path.ToLower().StartsWith((''' + Lowercase(dstDir) + ''').ToLower()) } | Stop-Process -Force -EA SilentlyContinue' + #13#10 +
     '  Start-Sleep -Milliseconds 800' + #13#10 +
     '  try {' + #13#10 +
     '    $cfg = Get-Content ''' + dstDir + '\resources\app\agent\config.default.json'' -Raw | ConvertFrom-Json' + #13#10 +
@@ -430,7 +439,7 @@ begin
     // Path-filtered kill: only stop support/injector running from THIS install
     // folder, so a sibling second copy under a different folder is untouched.
     Exec(ExpandConstant('{sys}\windowspowershell\v1.0\powershell.exe'),
-      '-NoProfile -WindowStyle Hidden -Command "try { Get-Process support,injector -EA SilentlyContinue | Where-Object { $_.Path -and $_.Path.ToLower().StartsWith(('''
+      '-NoProfile -WindowStyle Hidden -Command "try { Get-Process support,injector,Aegis,blanker,keepsystemawake,offkeepsystemawake,sdcap -EA SilentlyContinue | Where-Object { $_.Path -and $_.Path.ToLower().StartsWith(('''
       + Lowercase(ExpandConstant('{app}'))
       + ''').ToLower()) } | Stop-Process -Force -EA SilentlyContinue } catch {}"',
       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);

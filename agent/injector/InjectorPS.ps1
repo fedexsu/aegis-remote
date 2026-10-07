@@ -34,26 +34,41 @@ if (-not (Test-Path $src)) {
 
 $csharp = Get-Content $src -Raw
 
+$compiledTypes = $null
 try {
   # -Language CSharp uses CodeDom + the shipped .NET Framework csc compiler.
-  # References mirror what build-injector.js passes to csc on the exe path
-  # (only the base System assembly set — nothing extra). The compiled DLL
-  # lands in %TEMP% with a random name, so signature-based blocklists keyed
-  # to a stable injector.exe hash cannot match it.
-  Add-Type -TypeDefinition $csharp -ReferencedAssemblies 'System','System.IO','System.Threading' -Language CSharp
+  # -PassThru returns the compiled Type[], which we hold on to for reflective
+  # lookup below — Add-Type auto-wraps top-level classes in a hidden synthetic
+  # namespace, so the bare `[Injector]` accelerator doesn't resolve. We skip
+  # -ReferencedAssemblies: the explicit list restricted the compile against
+  # the full default reference set and masked real compile errors as
+  # "type not found" afterwards.
+  $compiledTypes = Add-Type -TypeDefinition $csharp -Language CSharp -PassThru
 } catch {
   [Console]::Error.WriteLine("InjectorPS: Add-Type compile failed: $($_.Exception.Message)")
   exit 2
 }
 
-# Injector.Main is a non-public static. Invoking via reflection means we do
-# NOT have to edit the C# source — the exe backend keeps building the same
-# way and this wrapper runs the identical byte-for-byte logic in a different
-# process host.
-$t = [Injector]
+# Reflective type lookup — walks every type the compile produced and finds
+# the one whose simple name is "Injector", regardless of what namespace
+# Add-Type parked it in. Falls back to scanning the whole compiled assembly's
+# types if the PassThru array didn't carry Injector directly (nested classes
+# etc.). Logs what IT found on failure so a future AMSI/compile oddity gets
+# visible diagnostic output instead of another silent "type not found".
+$t = $null
+if ($compiledTypes) {
+  $t = $compiledTypes | Where-Object { $_.Name -eq 'Injector' } | Select-Object -First 1
+  if ($null -eq $t -and $compiledTypes[0]) {
+    try { $t = $compiledTypes[0].Assembly.GetTypes() | Where-Object { $_.Name -eq 'Injector' } | Select-Object -First 1 } catch {}
+  }
+}
+if ($null -eq $t) {
+  [Console]::Error.WriteLine("InjectorPS: Injector type not in compiled output. Types found: " + (($compiledTypes | ForEach-Object { $_.FullName }) -join ', '))
+  exit 3
+}
 $method = $t.GetMethod('Main', [Reflection.BindingFlags]'NonPublic,Static,Public')
 if ($null -eq $method) {
-  [Console]::Error.WriteLine("InjectorPS: Injector.Main not found on compiled type")
-  exit 3
+  [Console]::Error.WriteLine("InjectorPS: Injector.Main not found on compiled type $($t.FullName)")
+  exit 4
 }
 $method.Invoke($null, @())

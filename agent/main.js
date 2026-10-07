@@ -49,13 +49,20 @@ function loadConfig() {
   let user = {};
   try { user = JSON.parse(fs.readFileSync(CONFIG_PATH(), 'utf8')); } catch { /* none yet */ }
   if (app.isPackaged) {
-    // Installed build: the relay + key come from the baked deployment config and
-    // are NOT overridable by saved state — so rotating the key (and reinstalling)
-    // actually takes effect. Only user-facing prefs persist.
+    // Installed build: the relay + key come from the baked deployment config
+    // and are NOT overridable by saved state — so rotating the key (and
+    // reinstalling) actually takes effect. User-facing prefs and runtime
+    // toggles stored by the agent itself (via saveConfig) DO persist, because
+    // without them, dashboard-controlled options like injectorBackend are
+    // silently thrown away and never take effect on the device.
     return {
       ...DEFAULT_CONFIG, ...bundled,
       name: user.name || bundled.name || DEFAULT_CONFIG.name,
       enabled: user.enabled !== undefined ? user.enabled : (bundled.enabled !== false),
+      // Runtime-settable fields the agent writes back via saveConfig. If the
+      // user file has an explicit value, it wins over the bundled default.
+      injectorBackend: user.injectorBackend || bundled.injectorBackend || DEFAULT_CONFIG.injectorBackend,
+      keepAwake: user.keepAwake !== undefined ? user.keepAwake : (bundled.keepAwake !== undefined ? bundled.keepAwake : false),
     };
   }
   // Dev build (`electron .`): saved config can override everything, for local testing.

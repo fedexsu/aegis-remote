@@ -1045,10 +1045,19 @@ function showDeviceMenu(d, x, y) {
     // defined in agent/main.js as 'inject-backend'.
     {
       const curr = (d.meta && d.meta.injectorBackend) || 'exe';
+      const actual = (d.meta && d.meta.injectorBackendActual) || curr;
       const next = curr === 'powershell' ? 'exe' : 'powershell';
-      const label = curr === 'powershell'
-        ? 'Input backend: PowerShell ✓ — switch to exe'
-        : 'Input backend: exe ✓ — try PowerShell (for McAfee)';
+      // Reflect auto-revert honestly: when the operator asked for PowerShell
+      // but AMSI/compile killed it, the agent flips the config back to exe
+      // after 3 fast-fail restarts (see injectorBackendActual in meta).
+      let label;
+      if (curr === actual) {
+        label = curr === 'powershell'
+          ? 'Input backend: PowerShell ✓ — switch to exe'
+          : 'Input backend: exe ✓ — try PowerShell (for McAfee)';
+      } else {
+        label = 'Input backend: PowerShell blocked by AV — running on exe, retry?';
+      }
       items.push({
         label,
         act: () => deviceOp(d.id, 'inject-backend', { backend: next }, { onResult: (m) => {

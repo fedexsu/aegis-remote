@@ -91,33 +91,88 @@ function compileInjector() {
     return fs.existsSync(out);
   } catch { return false; }
 }
+// Track the currently-live backend + consecutive quick-failures on the PS
+// side. If the PS backend fails fast (AMSI blocks the Add-Type compile, source
+// file missing, powershell.exe refused by group policy) three times in a row,
+// we auto-revert the config to 'exe' so the agent self-heals instead of
+// looping on a dead backend. injectorBackendActual is reported in meta so the
+// dashboard sees what's really running vs what the operator asked for.
+let injectorBackendActual = 'exe';
+let psFastFailCount = 0;
+const PS_FASTFAIL_WINDOW_MS = 10000;      // sub-10-second exits count as fast failures
+const PS_FASTFAIL_LIMIT     = 3;          // after this many, auto-fallback to exe
+function logInjectorBackend(line) {
+  // Keep a small diagnostic file next to hc-inject.log the operator can grab.
+  try {
+    const p = path.join(os.tmpdir(), 'hc-inject-backend.log');
+    fs.appendFileSync(p, '[' + new Date().toISOString() + '] ' + line + '\n');
+  } catch {}
+}
 function startInjector() {
   // PowerShell backend: compile Injector.cs in-memory inside Microsoft-signed
   // powershell.exe (see InjectorPS.ps1 for the full rationale). Spawning
   // powershell with the ps1 file + source path keeps the SAME stdio contract
   // the exe backend has, so everything below (status pump, respawn on exit,
   // reconnect on error) is shared. If powershell.exe itself isn't present or
-  // the script fails to launch, we fall through to the exe backend as rescue.
-  const backend = (loadConfig().injectorBackend || 'exe').toLowerCase();
+  // the script fails to launch repeatedly, we auto-revert to exe.
+  const cfg = loadConfig();
+  const backend = (cfg.injectorBackend || 'exe').toLowerCase();
   if (backend === 'powershell') {
     const ps1 = path.join(__dirname, 'injector', 'InjectorPS.ps1');
     const src = path.join(__dirname, 'injector', 'Injector.cs');
-    if (fs.existsSync(ps1) && fs.existsSync(src)) {
+    if (!fs.existsSync(ps1) || !fs.existsSync(src)) {
+      logInjectorBackend('PS requested but ' + (fs.existsSync(ps1) ? 'Injector.cs' : 'InjectorPS.ps1') + ' missing; falling back to exe');
+      // Fall through to exe path below (don't retry PS until operator asks again).
+    } else {
       try {
+        // stderr piped to a logfile instead of 'ignore' so the operator can see
+        // AMSI block messages / compile errors / policy refusals. Rotated to
+        // keep from growing unbounded (truncate at ~64 KB).
+        const stderrLog = path.join(os.tmpdir(), 'hc-inject-ps.err.log');
+        try { const st = fs.statSync(stderrLog); if (st.size > 65536) fs.truncateSync(stderrLog, 0); } catch {}
+        const errFd = fs.openSync(stderrLog, 'a');
+        const spawnedAt = Date.now();
         injector = spawn('powershell.exe', [
           '-NoLogo', '-NoProfile', '-NonInteractive',
           '-ExecutionPolicy', 'Bypass',
           '-File', ps1, src,
-        ], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+        ], { stdio: ['pipe', 'pipe', errFd], windowsHide: true });
+        try { fs.closeSync(errFd); } catch {}
         injectorOk = true;
         injectBlocked = false;
+        injectorBackendActual = 'powershell';
+        logInjectorBackend('PS backend spawned pid=' + injector.pid);
+        // Fast-fail counter: if this process exits in under PS_FASTFAIL_WINDOW_MS,
+        // bump the counter; if we cross the limit, flip the config to 'exe' so
+        // the next watchdog respawn uses the known-good backend. Successful
+        // runs (>window alive) reset the counter.
+        injector.once('exit', (code) => {
+          const alive = Date.now() - spawnedAt;
+          if (alive < PS_FASTFAIL_WINDOW_MS) {
+            psFastFailCount++;
+            logInjectorBackend('PS backend exited fast (code=' + code + ', ran=' + alive + 'ms, fastFails=' + psFastFailCount + ')');
+            if (psFastFailCount >= PS_FASTFAIL_LIMIT) {
+              try {
+                const c = loadConfig(); c.injectorBackend = 'exe'; saveConfig(c);
+                logInjectorBackend('PS backend hit fastfail limit — reverting config to exe. Check ' + path.join(os.tmpdir(), 'hc-inject-ps.err.log') + ' for the compiler/AMSI output.');
+              } catch {}
+              psFastFailCount = 0;
+              injectorBackendActual = 'exe';
+            }
+          } else {
+            psFastFailCount = 0; // long-lived run — forgive earlier flakes
+          }
+        });
         attachInjectorIO();
         return;
       } catch (e) {
-        console.warn('[inject] PS backend spawn failed, falling back to exe:', e && e.message);
+        logInjectorBackend('PS backend spawn threw: ' + (e && e.message));
+        psFastFailCount++;
+        if (psFastFailCount >= PS_FASTFAIL_LIMIT) {
+          try { const c = loadConfig(); c.injectorBackend = 'exe'; saveConfig(c); } catch {}
+          psFastFailCount = 0;
+        }
       }
-    } else {
-      console.warn('[inject] PS backend requested but InjectorPS.ps1 or Injector.cs missing, falling back to exe');
     }
   }
   // exe backend (default). Keeps the original compile-on-miss self-heal.
@@ -130,6 +185,7 @@ function startInjector() {
     injector = spawn(exe, [], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
     injectorOk = true;
     injectBlocked = false;
+    injectorBackendActual = 'exe';
     attachInjectorIO();
   } catch { injector = null; injectorOk = false; setTimeout(startInjector, 3000); }
 }
@@ -319,7 +375,11 @@ ipcMain.handle('meta:get', () => {
     version: app.getVersion(),
     build: CODE_VERSION,
     keepAwake: userWakeLock,
+    // injectorBackend = what the operator asked for; injectorBackendActual =
+    // what's actually running right now (differs when PS was requested but
+    // AMSI blocked the compile and the agent auto-reverted to exe).
     injectorBackend: (loadConfig().injectorBackend || 'exe'),
+    injectorBackendActual,
     mac: primaryMac(),
     subnet: primarySubnet(),
   };

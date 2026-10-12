@@ -840,6 +840,31 @@ async function handleApi(req, res, urlPath) {
     // On expiry, the existing isExpired middleware kicks in — customer's next
     // API call returns 403 + botUrl, the login screen shows "Reactivate in the
     // bot", and the console's Account section flips to "Expired".
+    // Owner-only: reset ANOTHER admin's password. Returns the new password
+    // (either the one the owner typed or a server-generated one if omitted) so
+    // the owner can send it to the customer. Updates the live in-memory DB AND
+    // persists, which is why this exists at all — external DB edits lose a
+    // race with the relay's own save() calls on busy fleets.
+    if (urlPath === '/api/accounts/reset-password' && m === 'POST') {
+      if (!isOwner) return json(res, 403, { error: 'owner only' });
+      const b = await readBody(req);
+      const username = (b.username || '').trim().toLowerCase();
+      if (!username) return json(res, 400, { error: 'username required' });
+      const target = db.findAdminByEmail(username);
+      if (!target) return json(res, 404, { error: 'no such customer' });
+      if ((target.role || 'admin') === 'owner' && target.id !== admin.id) return json(res, 403, { error: 'another owner — not resettable from this endpoint' });
+      // Password strength: either the caller-supplied one (min 6 chars) OR a
+      // generated token-style string if the caller passed `generate: true`
+      // or no password at all.
+      let newPw = (b.newPassword || '').trim();
+      if (!newPw || b.generate) {
+        newPw = (target.name || 'user').replace(/[^A-Za-z0-9]/g, '').slice(0, 8) + '-' + require('crypto').randomBytes(4).toString('hex');
+      }
+      if (newPw.length < 6) return json(res, 400, { error: 'password must be at least 6 characters' });
+      try { db.updatePassword(target.id, newPw); } catch (e) { return json(res, 500, { error: e.message }); }
+      console.log('[SUB] owner reset password for %s (id=%s)', username, target.id);
+      return json(res, 200, { ok: true, username, newPassword: newPw });
+    }
     if (urlPath === '/api/accounts/set-plan' && m === 'POST') {
       if (!isOwner) return json(res, 403, { error: 'owner only' });
       const b = await readBody(req);

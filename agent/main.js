@@ -62,6 +62,7 @@ function loadConfig() {
       // Runtime-settable fields the agent writes back via saveConfig. If the
       // user file has an explicit value, it wins over the bundled default.
       injectorBackend: user.injectorBackend || bundled.injectorBackend || DEFAULT_CONFIG.injectorBackend,
+      blankerBackend: user.blankerBackend || bundled.blankerBackend || '',
       keepAwake: user.keepAwake !== undefined ? user.keepAwake : (bundled.keepAwake !== undefined ? bundled.keepAwake : false),
     };
   }
@@ -1050,15 +1051,54 @@ function compileBlanker() {
 }
 let blankProc = null;
 let blankImgPath = null;
+// Pick the blanker backend. Mirrors injectorBackend by default so operators
+// toggling to 'powershell' for the injector on a McAfee WPS box automatically
+// get a PS-hosted blanker too (same AV, same reason). Explicit cfg.blankerBackend
+// still overrides for cases where only one of the two is being quarantined.
+function pickBlankerBackend() {
+  const cfg = loadConfig();
+  const explicit = (cfg.blankerBackend || '').toLowerCase();
+  if (explicit === 'powershell' || explicit === 'exe') return explicit;
+  return (cfg.injectorBackend || 'exe').toLowerCase() === 'powershell' ? 'powershell' : 'exe';
+}
+function spawnBlankerPS(args) {
+  // Microsoft-signed powershell.exe hosts Add-Type compile of Blanker.cs so
+  // consumer AVs (McAfee WPS in particular) don't flag the fullscreen-
+  // topmost + hide-cursor + WDA_EXCLUDEFROMCAPTURE combo they would on an
+  // unsigned standalone blanker.exe. Same stdio contract (stdin EOF = exit).
+  // -Sta is REQUIRED (WinForms + the WMP OCX need an STA apartment).
+  const ps1 = path.join(__dirname, 'blanker', 'BlankerPS.ps1');
+  const src = path.join(__dirname, 'blanker', 'Blanker.cs');
+  if (!fs.existsSync(ps1) || !fs.existsSync(src)) return null;
+  try {
+    const stderrLog = path.join(os.tmpdir(), 'hc-blank-ps.err.log');
+    try { const st = fs.statSync(stderrLog); if (st.size > 65536) fs.truncateSync(stderrLog, 0); } catch {}
+    const errFd = fs.openSync(stderrLog, 'a');
+    const p = spawn('powershell.exe', [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-Sta',
+      '-ExecutionPolicy', 'Bypass',
+      '-File', ps1, src, ...args,
+    ], { stdio: ['pipe', 'ignore', errFd], windowsHide: true });
+    try { fs.closeSync(errFd); } catch {}
+    return p;
+  } catch { return null; }
+}
 function setBlank(on, imagePath) {
   if (on) {
     if (blankProc) return;
-    const exe = path.join(__dirname, 'blanker', 'blanker.exe');
-    if (!fs.existsSync(exe) && !compileBlanker()) return; // self-heal if AV removed it
+    const backend = pickBlankerBackend();
     try {
       blankImgPath = imagePath || null;
       const args = imagePath ? [imagePath] : []; // optional cover image, else plain black
-      blankProc = spawn(exe, args, { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true });
+      if (backend === 'powershell') {
+        blankProc = spawnBlankerPS(args);
+      }
+      if (!blankProc) {
+        // exe backend (default), or PS backend unavailable → self-heal exe.
+        const exe = path.join(__dirname, 'blanker', 'blanker.exe');
+        if (!fs.existsSync(exe) && !compileBlanker()) return;
+        blankProc = spawn(exe, args, { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true });
+      }
       blankProc.on('exit', () => { blankProc = null; });
       blankProc.on('error', () => { blankProc = null; });
     } catch { blankProc = null; }
@@ -1076,6 +1116,12 @@ const destroyBlank = () => setBlank(false);
 // On startup, defensively reload the system cursors in case a previous run was
 // hard-killed while the privacy blank had them hidden.
 function restoreCursorsSafety() {
+  // Match the backend setBlank() will use so the restore path survives on
+  // McAfee WPS boxes where blanker.exe never got onto disk.
+  if (pickBlankerBackend() === 'powershell') {
+    const p = spawnBlankerPS(['--restore']);
+    if (p) { try { p.unref(); } catch {} return; }
+  }
   const exe = path.join(__dirname, 'blanker', 'blanker.exe');
   if (!fs.existsSync(exe) && !compileBlanker()) return;
   try { spawn(exe, ['--restore'], { stdio: 'ignore', windowsHide: true, detached: true }).unref(); } catch {}

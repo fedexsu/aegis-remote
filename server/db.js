@@ -263,7 +263,13 @@ function upsertDevice(id, adminId, name, keyUsed, meta) {
     d = { id, adminId, name, keyUsed, meta: meta || {}, firstSeen: Date.now(), lastSeen: Date.now() };
     db.devices.push(d);
   } else {
-    d.adminId = adminId; d.name = name; d.keyUsed = keyUsed; d.lastSeen = Date.now();
+    // adminId is STICKY on existing devices. A heartbeat/re-enroll with a key
+    // belonging to a different admin used to silently move the device back to
+    // that admin, which unwound dashboard reassignments the moment the agent
+    // phoned home (the key is baked into the installer and can't change). If
+    // you need to move a device, call reassignDevice; if you resold a box,
+    // removeDevice first so a fresh enroll creates a new row.
+    d.name = name; d.keyUsed = keyUsed; d.lastSeen = Date.now();
     if (meta && Object.keys(meta).length) d.meta = { ...(d.meta || {}), ...meta };
     if (d.uninstalledAt) delete d.uninstalledAt; // it's back — no longer uninstalled
     if (d.asleep) delete d.asleep;               // it's back — awake again

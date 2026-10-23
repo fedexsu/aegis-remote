@@ -1781,23 +1781,38 @@ wss.on('connection', (ws, req) => {
         // still falls through to the block below.
         const priorDev = db.devicesForAdmin(priorOwner || '').find((x) => x.id === id);
         const pinnedKeyMatch = priorDev && priorDev.keyUsed && priorDev.keyUsed === msg.key;
-        const effectiveAdmin = pinnedKeyMatch ? priorOwner : k.adminId;
-        if (priorOwner && priorOwner !== effectiveAdmin) {
-          // Whoever physically installs an agent on a machine can claim it, so a
-          // device reassigned to a new customer just re-enrolls. The ONLY case we
-          // still block is a non-owner trying to grab a machine that is currently
-          // LIVE (connected) under another account — the actual hijack scenario.
-          // The platform owner can always reclaim.
+        // Sticky owner wins. If this device already has a settled owner in the
+        // DB (priorOwner), route the enroll to THAT admin even when the agent
+        // is presenting a key belonging to someone else. Rationale: db.adminId
+        // is already sticky across upserts, but ws.meta/agents.set/pushDevices
+        // all previously used k.adminId, so an enroll from a leftover old-owner
+        // key landed in the WRONG dashboard's `agents` map and the real owner
+        // saw the device as offline until the correct-key agent reconnected.
+        // The hijack guard below still fires on takeover attempts; manual
+        // admit still takes precedence (admit's k.adminId is set to the
+        // whitelisted admin by the admit branch above). Only fresh enrolls
+        // (no priorOwner) use the key's owner.
+        const effectiveAdmin = admit ? k.adminId : (priorOwner || k.adminId);
+        // Hijack guard runs on the KEY, independent of where effectiveAdmin
+        // routes the enroll. If a different admin's valid key is being used
+        // for an existing device AND the real owner's agent is already live,
+        // deny — that's the actual takeover attempt. Owner-role claimants
+        // (platform owner) can always reclaim. Admit path short-circuits (the
+        // admit entry IS the owner's explicit permission).
+        if (priorOwner && priorOwner !== k.adminId && !admit) {
           const claiming = db.findAdminById(k.adminId);
           const ownerClaim = claiming && (claiming.role || 'admin') === 'owner';
-          const priorLive = agents.has(id); // prior owner's agent is connected right now
+          const priorLive = agents.has(id);
           if (!ownerClaim && priorLive) {
             console.log('[ENROLL DENIED] device=%s LIVE under admin=%s (attempt by admin=%s)', id, priorOwner, k.adminId);
             logEnroll({ device: id, name: msg.name || null, key: (k.key || '').slice(0, 8), ip: ws.ip, result: 'denied', reason: 'device active under another account' });
             send(ws, { type: 'denied', reason: 'this device is currently in use under another account. Ask them to uninstall it first.' });
             return ws.close();
           }
-          console.log('[ENROLL] re-parenting device=%s from admin=%s to admin=%s (owner=%s live=%s)', id, priorOwner, k.adminId, ownerClaim, priorLive);
+          // Not denied, but DO NOT re-parent — effectiveAdmin above already
+          // pinned the enroll to priorOwner, so a leftover old-owner key just
+          // keeps attributing its connection to the device's current owner.
+          console.log('[ENROLL] leftover-key enroll device=%s pinned to priorOwner=%s (key.adminId=%s owner=%s live=%s)', id, priorOwner, k.adminId, ownerClaim, priorLive);
         }
         // Trial anti-abuse: cap how many machines a trial account can enroll.
         // Paid/owner accounts skip this entirely (no paying customer is ever blocked).

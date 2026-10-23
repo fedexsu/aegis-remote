@@ -1748,8 +1748,17 @@ wss.on('connection', (ws, req) => {
         // Promote to active if no instance is currently active (first-connect
         // after boot, or active just dropped). Otherwise leave the existing
         // active in place — standby just sits in instanceConns silently.
+        // Exception: whenever a non-SYSTEM agent connects, prefer it over a
+        // currently-active SYSTEM-session agent. SYSTEM services sit in Windows
+        // session 0 and can't capture the interactive desktop or webcam, so
+        // leaving one as the active instance means the console sees a frozen
+        // "SYSTEM" view with no screen frames or camera. Common on boxes with
+        // two coexisting installs (service + per-user).
         const curActive = agents.get(id);
-        const needPromote = !curActive || !imap.has(curActive.activeInstance);
+        const activeConn = curActive && imap.get(curActive.activeInstance);
+        const activeIsSystem = activeConn && activeConn.meta && (activeConn.meta.user || '').toLowerCase() === 'system';
+        const incomingIsUser = (meta.user || '').toLowerCase() !== 'system' && (meta.user || '') !== '';
+        const needPromote = !curActive || !imap.has(curActive.activeInstance) || (activeIsSystem && incomingIsUser);
         if (needPromote) {
           agents.set(id, { ws, name, adminId: effectiveAdmin, consoleId: null, screen: msg.screen || null, activeInstance: instance });
         }

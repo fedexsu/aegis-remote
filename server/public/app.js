@@ -1812,7 +1812,10 @@ function openPrivateDesktop(d) {
       }
     }
   }
-  deviceOp(d.id, 'pdesk-start', { shell: 'C:\\Windows\\explorer.exe' }, { onResult: (m) => {
+  // notepad is a safe default — always creates a window (unlike explorer or
+  // cmd+CREATE_NEW_CONSOLE which don't play well on a hidden desktop).
+  // Operator can then "Launch" anything else from the footer input.
+  deviceOp(d.id, 'pdesk-start', { shell: 'C:\\Windows\\System32\\notepad.exe' }, { onResult: (m) => {
     if (!m.ok) {
       status.textContent = 'start failed';
       if (phaseLabel) phaseLabel.innerHTML = '<div style="color:#f66;margin-bottom:8px">Could not start</div><div style="font-size:11px;color:#aaa">' + (m.error || 'unknown') + '</div>';

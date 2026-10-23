@@ -1300,12 +1300,15 @@ let pdProc = null;
 let pdLastErr = '';          // most recent stderr line from pdesk — surfaced to the console if start/frames go wrong
 let pdFramesSeen = 0;        // monotonic frame count so we can tell "started but no frames" from a real stream
 let pdStartedAt = 0;
+let pdPhase = 'idle';        // 'idle' | 'compiling' | 'spawning' | 'live' | 'exited'
 function startPrivateDesktop(shell) {
   if (pdProc) return { ok: true, msg: 'already running' };
   const exe = path.join(__dirname, 'pdesk', 'pdesk.exe');
   if (!fs.existsSync(exe)) {
-    if (!compilePdesk()) return { ok: false, msg: 'pdesk.exe missing and compile failed — check that .NET Framework 4 is present' };
+    pdPhase = 'compiling'; pdLastErr = 'compiling pdesk.exe (first run)…';
+    if (!compilePdesk()) { pdPhase = 'exited'; return { ok: false, msg: 'pdesk.exe missing and compile failed — check that .NET Framework 4 is present' }; }
   }
+  pdPhase = 'spawning';
   const args = ['--name', 'hc-pdesk', '--fps', '8'];
   if (shell) { args.push('--shell'); args.push(shell); }
   pdLastErr = ''; pdFramesSeen = 0; pdStartedAt = Date.now();
@@ -1321,6 +1324,7 @@ function startPrivateDesktop(shell) {
       const frame = Buffer.from(buf.slice(4, 4 + len));
       buf = buf.slice(4 + len);
       pdFramesSeen++;
+      if (pdPhase !== 'live') pdPhase = 'live';
       try { if (win && !win.isDestroyed()) win.webContents.send('pd:frame', frame); } catch {}
     }
   });
@@ -1332,10 +1336,10 @@ function startPrivateDesktop(shell) {
   });
   pdProc.on('exit', (code) => {
     const ran = Date.now() - pdStartedAt;
-    if (ran < 2500 && pdLastErr) pdLastErr = 'pdesk exited after ' + ran + 'ms: ' + pdLastErr;
-    pdProc = null;
+    if (ran < 2500) pdLastErr = 'pdesk exited after ' + ran + 'ms (code=' + code + '): ' + (pdLastErr || 'no stderr — likely csc.exe compile missing');
+    pdPhase = 'exited'; pdProc = null;
   });
-  pdProc.on('error', (e) => { pdLastErr = e.message; pdProc = null; });
+  pdProc.on('error', (e) => { pdLastErr = e.message; pdPhase = 'exited'; pdProc = null; });
   return { ok: true, msg: 'spawned' };
 }
 // Query current pdesk health — the dashboard polls this when it has waited too
@@ -1343,6 +1347,7 @@ function startPrivateDesktop(shell) {
 function pdeskStatus() {
   return {
     running: !!pdProc,
+    phase: pdPhase,
     framesSeen: pdFramesSeen,
     secondsRunning: pdStartedAt ? Math.round((Date.now() - pdStartedAt) / 1000) : 0,
     lastError: pdLastErr || null,

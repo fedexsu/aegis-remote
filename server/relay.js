@@ -1660,7 +1660,20 @@ wss.on('connection', (ws, req) => {
         // under their own valid key and re-parent that device. Refuse an id already
         // owned by a DIFFERENT admin.
         const priorOwner = db.ownerOfDevice(id);
-        if (priorOwner && priorOwner !== k.adminId) {
+        // Resolve which admin this enroll belongs to. Normally it's the key's
+        // owner (k.adminId). But after an owner-triggered reassignDevice, the
+        // device's d.adminId is sticky under its new owner while the agent
+        // still presents its baked-in installer key (which belongs to the old
+        // owner). Trust that pinned key — if the agent presents the SAME key
+        // this device last enrolled with (d.keyUsed), honour the sticky
+        // d.adminId instead of letting the key drag the device back. Pinning
+        // to d.keyUsed keeps the cross-tenant takeover guard intact: an
+        // attacker who presents a DIFFERENT valid key for a victim's device
+        // still falls through to the block below.
+        const priorDev = db.devicesForAdmin(priorOwner || '').find((x) => x.id === id);
+        const pinnedKeyMatch = priorDev && priorDev.keyUsed && priorDev.keyUsed === msg.key;
+        const effectiveAdmin = pinnedKeyMatch ? priorOwner : k.adminId;
+        if (priorOwner && priorOwner !== effectiveAdmin) {
           // Whoever physically installs an agent on a machine can claim it, so a
           // device reassigned to a new customer just re-enrolls. The ONLY case we
           // still block is a non-owner trying to grab a machine that is currently
@@ -1691,8 +1704,8 @@ wss.on('connection', (ws, req) => {
         if (msg.screen) meta.screen = `${msg.screen.w}×${msg.screen.h}`;
         // Inherit the enrollment key's labels (Company / Site / Department / Type).
         if (k.meta) for (const fld of ['company', 'site', 'department', 'deviceType']) { if (k.meta[fld]) meta[fld] = k.meta[fld]; }
-        const known = !!dbDevice(k.adminId, id);
-        db.upsertDevice(id, k.adminId, name, k.key, meta);
+        const known = !!dbDevice(effectiveAdmin, id);
+        db.upsertDevice(id, effectiveAdmin, name, k.key, meta);
         // Dual-install: `instance` says which copy on the remote PC is talking.
         // Agents that don't bake instance in config.default.json default to 1
         // (every legacy single install). The relay keeps BOTH connections alive,
@@ -1700,7 +1713,7 @@ wss.on('connection', (ws, req) => {
         // standby's ws stays in instanceConns so we can promote it later.
         const instance = Number.isFinite(msg.instance) ? (msg.instance | 0) : 1;
         const appName = (msg.meta && msg.meta.appName) || name;
-        ws.meta = { role: 'agent', id, adminId: k.adminId, instance };
+        ws.meta = { role: 'agent', id, adminId: effectiveAdmin, instance };
         const imap = instanceMap(id);
         // Replace any previous socket for THIS instance (reconnect / auto-update
         // relaunch is routine). Doesn't touch sibling instance.
@@ -1713,14 +1726,14 @@ wss.on('connection', (ws, req) => {
         const curActive = agents.get(id);
         const needPromote = !curActive || !imap.has(curActive.activeInstance);
         if (needPromote) {
-          agents.set(id, { ws, name, adminId: k.adminId, consoleId: null, screen: msg.screen || null, activeInstance: instance });
+          agents.set(id, { ws, name, adminId: effectiveAdmin, consoleId: null, screen: msg.screen || null, activeInstance: instance });
         }
         // Cancel any pending offline-flash / Telegram-alert timers so a quick
         // relaunch (auto-update, VPN flip) is completely invisible to the admin.
         if (graceTimers.has(id)) { clearTimeout(graceTimers.get(id)); graceTimers.delete(id); }
         if (offlineTimers.has(id)) { clearTimeout(offlineTimers.get(id)); offlineTimers.delete(id); offlineFlagged.delete(id); }
         send(ws, { type: 'registered', id });
-        logEnroll({ device: id, name, key: (k.key || '').slice(0, 8), host: meta.host || null, ip: ws.ip, result: 'ok', admin: k.adminId });
+        logEnroll({ device: id, name, key: (k.key || '').slice(0, 8), host: meta.host || null, ip: ws.ip, result: 'ok', admin: effectiveAdmin });
         // Self-heal legacy duplicates: older builds keyed the device id off the app's
         // userData folder, so a rebrand/reinstall could enroll the SAME machine twice
         // (one online, one offline). New builds use a stable per-machine id ("m-…").
@@ -1729,25 +1742,25 @@ wss.on('connection', (ws, req) => {
         // legacy (non "m-") id, and currently offline. (Host alone is unsafe — imaged
         // fleets and default DESKTOP-XXXX names collide.)
         if (id.startsWith('m-') && meta.host) {
-          for (const other of db.devicesForAdmin(k.adminId)) {
+          for (const other of db.devicesForAdmin(effectiveAdmin)) {
             if (other.id === id || other.id.startsWith('m-')) continue;
             const om = other.meta || {};
             const sameMachine = om.host && om.host === meta.host && (om.user || '') === (meta.user || '') && other.keyUsed === k.key;
             if (sameMachine && !agents.has(other.id)) {
-              db.removeDevice(k.adminId, other.id);
+              db.removeDevice(effectiveAdmin, other.id);
               if (offlineTimers.has(other.id)) { clearTimeout(offlineTimers.get(other.id)); offlineTimers.delete(other.id); }
               offlineFlagged.delete(other.id);
               console.log('[DEDUP] removed legacy duplicate %s for host=%s user=%s (now %s)', other.id, meta.host, om.user || '', id);
             }
           }
         }
-        pushDevices(k.adminId);
-        pushStats(k.adminId);   // an enrollment = an install; refresh the funnel
+        pushDevices(effectiveAdmin);
+        pushStats(effectiveAdmin);   // an enrollment = an install; refresh the funnel
         // Telegram alerts: new install, or a genuine offline→online recovery.
         if (offlineTimers.has(id)) { clearTimeout(offlineTimers.get(id)); offlineTimers.delete(id); }
-        const dev = dbDevice(k.adminId, id);
-        if (!known) sendAlert(k.adminId, 'install', dev);
-        else if (offlineFlagged.has(id)) sendAlert(k.adminId, 'online', dev);
+        const dev = dbDevice(effectiveAdmin, id);
+        if (!known) sendAlert(effectiveAdmin, 'install', dev);
+        else if (offlineFlagged.has(id)) sendAlert(effectiveAdmin, 'online', dev);
         offlineFlagged.delete(id);
         // Ask for an install screenshot on first connect (best-effort).
         if (!known) send(ws, { type: 'requestScreenshot' });

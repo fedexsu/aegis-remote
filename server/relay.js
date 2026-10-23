@@ -916,6 +916,22 @@ async function handleApi(req, res, urlPath) {
       pushDevices(admin.id);
       return json(res, 200, { ok: true, activeInstance: target });
     }
+    // Ask the agent for a fresh screenshot now. The agent writes it to the
+    // same disk path the GET screenshot endpoint serves, so the caller can
+    // poll that URL after a short delay. Used by the dashboard's background
+    // snapshot panel to see the desktop without starting a full session —
+    // handy on boxes where the live-stream view is black (SYSTEM-session
+    // agents fall back to sdcap/BitBlt in their screenshot handler).
+    const snapshotMatch = urlPath.match(/^\/api\/device\/([^/]+)\/snap$/);
+    if (snapshotMatch && m === 'POST') {
+      const devId = snapshotMatch[1];
+      const dev = db.devicesForAdmin(admin.id).find((d) => d.id === devId);
+      if (!dev) return json(res, 404, { error: 'device not found' });
+      const live = agents.get(devId);
+      if (!live || live.adminId !== admin.id) return json(res, 409, { error: 'device offline' });
+      try { send(live.ws, { type: 'requestScreenshot' }); } catch {}
+      return json(res, 200, { ok: true });
+    }
     // Serve a device's install screenshot (saved by the relay when the agent sends it on first connect).
     const screenshotMatch = urlPath.match(/^\/api\/device\/([^/]+)\/screenshot$/);
     if (screenshotMatch && m === 'GET') {

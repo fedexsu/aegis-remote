@@ -1021,27 +1021,7 @@ function showDeviceMenu(d, x, y) {
     items.push({ label: 'Deploy software', icon: CM.deploy, act: () => { openSystem(d); setTimeout(() => sysTab('deploy'), 0); } });
     items.push({ sep: true });
     items.push({ label: 'Lock local input', act: () => deviceOp(d.id, 'lockinput', { on: true }, { onResult: (m) => toast(m.ok ? 'Local input locked' : (m.error || 'failed'), m.ok ? 'ok' : 'err') }) });
-    // Alt-screen fallback: when the normal view is black because the agent is
-    // running as SYSTEM in Windows session 0 (common on service-only installs,
-    // or on boxes where the user-session copy died), ask the SYSTEM-side BitBlt
-    // helper to stream the user's live desktop over the same path the lock-
-    // screen view uses. The console will show them in a lock-screen style
-    // viewer with a "LOCKED" badge, but it IS the real desktop. Only works on
-    // elevated/service installs.
-    {
-      const altOn = !!(d.meta && d.meta.altScreen);
-      items.push({
-        label: altOn ? 'Alternative screen (SYSTEM capture) ✓ — stop' : 'Alternative screen (SYSTEM capture)',
-        act: () => deviceOp(d.id, 'sdcap', { on: !altOn }, { onResult: (m) => {
-          if (!m.ok) { toast(m.error || 'failed', 'err'); return; }
-          const applied = !!(m.data && m.data.on);
-          if (d.meta) d.meta.altScreen = applied;
-          const cached = devicesCache.find((x) => x.id === d.id);
-          if (cached) { cached.meta = cached.meta || {}; cached.meta.altScreen = applied; }
-          toast(applied ? 'Alt capture on — opening a session will show the real desktop' : 'Alt capture off', 'ok');
-        }}),
-      });
-    }
+    items.push({ label: 'Background snapshot', act: () => openBgSnap(d) });
     // Keep Awake toggle, mirrored on the right-click menu so an operator can
     // pin a sleep-prone laptop awake WITHOUT joining a session (useful for
     // "set and forget" on devices they monitor). The ✓ reads the agent's
@@ -1689,6 +1669,58 @@ $('#gen-account').addEventListener('click', async () => {
 
 // ---------------------------------------------------------------------------
 // Remote terminal (op channel)
+// Background snapshot panel. Opens a floating, draggable window that polls
+// the agent's screenshot (which falls back to sdcap/BitBlt on SYSTEM-session
+// installs) every ~3 s. Independent of the main stream — operator can see the
+// desktop here while the device's regular live view stays black, useful when
+// the device needs to be reinstalled or the operator is walking the user
+// through a fix over the phone and just needs eyes on the screen. The POST
+// kicks the agent, the GET fetches the latest saved JPEG.
+const bgSnaps = new Set(); // open panels keyed by device id so one toggle closes it
+function openBgSnap(d) {
+  if (bgSnaps.has(d.id)) return;
+  bgSnaps.add(d.id);
+  const el = document.createElement('div');
+  el.className = 'bg-snap-panel';
+  el.style.cssText = 'position:fixed;right:16px;bottom:16px;width:480px;background:#111;border:1px solid #333;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.5);z-index:9999;color:#ddd;font:12px system-ui;overflow:hidden';
+  el.innerHTML =
+    '<div class="bgs-head" style="padding:6px 10px;background:#1a1a1a;cursor:move;display:flex;align-items:center;justify-content:space-between">'
+    + '<span>Background snapshot — <b>' + (d.name || d.id) + '</b> <span class="bgs-status" style="opacity:.6;margin-left:6px">starting…</span></span>'
+    + '<span><button class="bgs-pause" style="background:none;border:1px solid #333;color:#ddd;border-radius:4px;padding:2px 8px;cursor:pointer;margin-right:4px">⏸</button>'
+    + '<button class="bgs-close" style="background:none;border:1px solid #333;color:#ddd;border-radius:4px;padding:2px 8px;cursor:pointer">✕</button></span>'
+    + '</div>'
+    + '<div style="background:#000;min-height:240px;display:flex;align-items:center;justify-content:center">'
+    + '<img class="bgs-img" style="max-width:100%;max-height:70vh;display:block" alt="loading…"/>'
+    + '</div>';
+  document.body.appendChild(el);
+  const img = el.querySelector('.bgs-img');
+  const status = el.querySelector('.bgs-status');
+  const pauseBtn = el.querySelector('.bgs-pause');
+  let paused = false;
+  let ticking = false;
+  async function tick() {
+    if (paused || ticking) return;
+    ticking = true;
+    try {
+      await api('/api/device/' + encodeURIComponent(d.id) + '/snap', 'POST').catch(() => null);
+      await new Promise((r) => setTimeout(r, 1200));
+      img.src = '/api/device/' + encodeURIComponent(d.id) + '/screenshot?t=' + Date.now();
+      status.textContent = 'live · ' + new Date().toLocaleTimeString();
+    } catch (e) { status.textContent = 'error · ' + (e.message || 'failed'); }
+    finally { ticking = false; }
+  }
+  const timer = setInterval(tick, 3000);
+  tick();
+  pauseBtn.addEventListener('click', () => { paused = !paused; pauseBtn.textContent = paused ? '▶' : '⏸'; status.textContent = paused ? 'paused' : 'live'; });
+  el.querySelector('.bgs-close').addEventListener('click', () => { clearInterval(timer); el.remove(); bgSnaps.delete(d.id); });
+  // Drag by the header.
+  const head = el.querySelector('.bgs-head');
+  let dragOff = null;
+  head.addEventListener('mousedown', (e) => { if (e.target.closest('button')) return; dragOff = { x: e.clientX - el.offsetLeft, y: e.clientY - el.offsetTop }; e.preventDefault(); });
+  window.addEventListener('mousemove', (e) => { if (!dragOff) return; el.style.left = (e.clientX - dragOff.x) + 'px'; el.style.top = (e.clientY - dragOff.y) + 'px'; el.style.right = 'auto'; el.style.bottom = 'auto'; });
+  window.addEventListener('mouseup', () => { dragOff = null; });
+}
+
 // ---------------------------------------------------------------------------
 let termReqId = null, termAgentId = null;
 const newReqId = () => (crypto && crypto.randomUUID ? crypto.randomUUID() : 'r' + Date.now() + Math.round(Math.random() * 1e6));

@@ -479,10 +479,50 @@ ipcMain.handle('screen:screenshot', async () => {
   try {
     const sources = await getSources({ types: ['screen'], thumbnailSize: { width: 1280, height: 800 } });
     const primary = sources[0];
-    if (!primary || primary.thumbnail.isEmpty()) return null;
-    return primary.thumbnail.toJPEG(70).toString('base64');
-  } catch { return null; }
+    if (primary && !primary.thumbnail.isEmpty()) {
+      const jpg = primary.thumbnail.toJPEG(70);
+      // Session 0 isolation on a SYSTEM-service install returns a tiny
+      // uniform-black JPEG (desktopCapturer can't see the interactive
+      // desktop). If the shot is suspiciously small, fall through to the
+      // GDI/sdcap fallback below so the operator still gets a frame.
+      if (jpg.length > 20 * 1024) return jpg.toString('base64');
+    }
+  } catch {}
+  // Fallback: spawn sdcap.exe (built for the lock-screen capture flow) for a
+  // single frame. sdcap OpenInputDesktop()s the actual user desktop and
+  // BitBlts it — the only way SYSTEM-session agents can grab the interactive
+  // desktop. Returns null on per-user agents (no privilege) and the console
+  // then just shows an empty snapshot.
+  try { return await snapViaSdcap(); } catch { return null; }
 });
+
+// One-shot sdcap grab: spawn, read ONE [len][jpeg] frame, kill. Used by both
+// the regular screenshot handler (fallback for session 0) and the right-click
+// "Background snapshot" panel. Timeout is generous (6 s) because the first
+// grab on a cold box has to attach to the input desktop before BitBlt.
+function snapViaSdcap() {
+  return new Promise((resolve) => {
+    const exe = path.join(__dirname, 'sdcap', 'sdcap.exe');
+    if (!fs.existsSync(exe) && !compileSdcap()) return resolve(null);
+    let p;
+    try { p = spawn(exe, ['--fps', '20'], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true }); }
+    catch { return resolve(null); }
+    let buf = Buffer.alloc(0);
+    const done = (val) => { try { p.stdin.end(); } catch {} try { setTimeout(() => { try { p.kill(); } catch {} }, 200); } catch {} resolve(val); };
+    const t = setTimeout(() => done(null), 6000);
+    p.stdout.on('data', (chunk) => {
+      buf = buf.length ? Buffer.concat([buf, chunk]) : chunk;
+      if (buf.length < 4) return;
+      const len = buf.readUInt32BE(0);
+      if (len <= 0 || len > 16 * 1024 * 1024) { clearTimeout(t); return done(null); }
+      if (buf.length < 4 + len) return;
+      const jpg = buf.slice(4, 4 + len);
+      clearTimeout(t); done(jpg.toString('base64'));
+    });
+    p.on('exit', () => { clearTimeout(t); if (!buf.length || buf.length < 4) resolve(null); });
+    p.on('error', () => { clearTimeout(t); resolve(null); });
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Verify user presence

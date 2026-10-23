@@ -2037,10 +2037,13 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => {
     const { role, id, adminId, instance } = ws.meta || {};
     if (role === 'agent') {
-      // Clean the sideband first regardless of whether this ws is the active one.
+      // Capture user info BEFORE we drop the imap entry — we need it below to
+      // decide whether to defer a SYSTEM promotion.
+      let departingUser = '';
       const imap = instanceConns.get(id);
       if (imap) {
         const entry = imap.get(instance);
+        if (entry && entry.meta) departingUser = (entry.meta.user || '').toUpperCase();
         if (entry && entry.ws === ws) imap.delete(instance);
         if (imap.size === 0) instanceConns.delete(id);
       }
@@ -2053,7 +2056,20 @@ wss.on('connection', (ws, req) => {
       // connected, promote the sibling instead of marking the device offline.
       // Device stays online in the dashboard, control continues uninterrupted
       // (next op routes to the promoted instance's ws).
-      if (imap && imap.size > 0) {
+      //
+      // Exception: when the active that just dropped was a user-session agent
+      // AND the only sibling left is a SYSTEM-session service, defer the
+      // promotion by 20 s. SYSTEM sits in Windows session 0 and can't capture
+      // the desktop or webcam, so promoting it instantly on every brief user-
+      // agent hiccup produced a flapping "Signed in as" display (jansas drops
+      // → SYSTEM takes over → user-agent reconnects → prefer-non-SYSTEM flips
+      // back, every ~15 s). The grace window lets the user-session agent
+      // reconnect first; only if it doesn't come back do we fall through to
+      // the SYSTEM sibling.
+      const activeWasUser = !!(a && a.ws === ws && departingUser && departingUser !== 'SYSTEM');
+      const siblingPeek = imap && imap.size > 0 ? imap.values().next().value : null;
+      const siblingIsSystem = siblingPeek && siblingPeek.meta && (siblingPeek.meta.user || '').toUpperCase() === 'SYSTEM';
+      if (imap && imap.size > 0 && !(activeWasUser && siblingIsSystem && imap.size === 1)) {
         const [[nextInstance, nextEntry]] = imap;
         const hadConsole = !!(a && a.consoleId);
         const newActive = { ws: nextEntry.ws, name: a ? a.name : (nextEntry.appName || id), adminId, consoleId: a ? a.consoleId : null, screen: nextEntry.screen, activeInstance: nextInstance };
@@ -2067,6 +2083,20 @@ wss.on('connection', (ws, req) => {
         // triggers screen capture + a fresh rtc-offer. Console's existing
         // handlers then re-establish WebRTC transparently.
         if (hadConsole) updateViewers(id);
+        if (adminId) pushDevices(adminId);
+        return;
+      }
+      if (activeWasUser && siblingIsSystem && imap && imap.size === 1) {
+        // User-session dropped, only SYSTEM sibling left. Wait 20 s for the
+        // user-session agent to reconnect; promote SYSTEM only if it doesn't.
+        setTimeout(() => {
+          const im = instanceConns.get(id);
+          if (!im || im.size === 0) return;
+          if (agents.has(id)) return; // user-session reconnected and re-registered already
+          const [[nextI, nextE]] = im;
+          agents.set(id, { ws: nextE.ws, name: nextE.appName || id, adminId, consoleId: null, screen: nextE.screen, activeInstance: nextI });
+          if (adminId) pushDevices(adminId);
+        }, 20000);
         if (adminId) pushDevices(adminId);
         return;
       }

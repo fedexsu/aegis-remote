@@ -414,6 +414,15 @@ window.agent.onSdFrame((buf) => {
   if (!sdLiveSent) { sdLiveSent = true; try { ws.send(JSON.stringify({ type: 'locked', on: true, live: true })); } catch {} }
   try { ws.send(buf); } catch {}
 });
+// Private-desktop frames: forward verbatim as a distinct text message so the
+// console can tell them apart from the main screen stream and display them in
+// its own panel instead of the main viewer. Base64 is coarse but adequate at
+// 8fps JPEG; no need for a separate binary channel.
+window.agent.onPdFrame((buf) => {
+  if (!ws || ws.readyState !== ws.OPEN) return;
+  if (ws.bufferedAmount > SEND_HIWATER) return;
+  try { ws.send(JSON.stringify({ type: 'pdFrame', jpeg: buf.toString('base64') })); } catch {}
+});
 let altScreenOn = false;
 window.agent.onAltScreen((s) => {
   altScreenOn = !!(s && s.on);

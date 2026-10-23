@@ -32,6 +32,12 @@ contextBridge.exposeInMainWorld('agent', {
   // Electron capture returns black (session 0 isolation under SYSTEM service).
   // Main process broadcasts { on } whenever the op fires.
   onAltScreen: (cb) => ipcRenderer.on('alt-screen', (_e, s) => cb(s)),
+  // Private-desktop ("backstage GUI") bridge: streams JPEG frames of an
+  // invisible second desktop and relays input commands into it.
+  onPdFrame: (cb) => ipcRenderer.on('pd:frame', (_e, buf) => cb(buf)),
+  pdStart: (shell) => ipcRenderer.send('pd:start', { shell }),
+  pdStop: () => ipcRenderer.send('pd:stop'),
+  pdInput: (line) => ipcRenderer.send('pd:input', line),
   captureScreenshot: () => ipcRenderer.invoke('screen:screenshot'),
   // Webcam feature: console asks for camera, agent kills any app currently
   // holding the webcam (Camera.exe & friends), then getUserMedia opens it

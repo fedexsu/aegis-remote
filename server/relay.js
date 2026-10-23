@@ -235,6 +235,7 @@ const consoles = new Map(); // consoleId -> { ws, adminId, agentId }
 const instanceConns = new Map();
 function instanceMap(id) { let m = instanceConns.get(id); if (!m) { m = new Map(); instanceConns.set(id, m); } return m; }
 const opRoutes = new Map(); // reqId -> { consoleId, agentId } — routes op replies back
+const pdeskSubs = new Map(); // deviceId -> Set<consoleWs> — subscribers of pdFrame updates (don't need to attach)
 const guests = new Map();   // agentId -> Set(ws) — browser guest viewers (view-only JPEG)
 const guestTokens = new Map(); // token -> { adminId, agentId, exp } — share links
 const appTokens = new Map();   // token -> { adminId, exp } — desktop-app SSO handoff
@@ -1975,6 +1976,19 @@ wss.on('connection', (ws, req) => {
         return;
       }
       if (msg.type === 'detach') { detachConsole(id); send(ws, { type: 'agents', list: deviceListFor(adminId) }); return; }
+      // Private-desktop subscription: lets a console receive pdFrame updates
+      // from this device without having to attach to its main screen session.
+      // Attach would commandeer the viewer and swap in the main (black) view,
+      // which defeats the point of pdesk. msg: { type:'pdesk-sub', on, deviceId }.
+      if (msg.type === 'pdesk-sub') {
+        const a = agents.get(msg.deviceId);
+        if (!a || a.adminId !== adminId) return; // tenant isolation
+        let set = pdeskSubs.get(msg.deviceId);
+        if (!set) { set = new Set(); pdeskSubs.set(msg.deviceId, set); }
+        if (msg.on) set.add(ws); else set.delete(ws);
+        if (set.size === 0) pdeskSubs.delete(msg.deviceId);
+        return;
+      }
       // Generic op channel (terminal, sysinfo, processes, files…) addressed to a
       // device by id — no screen attach required. Replies route back by reqId.
       if (msg.type === 'op') {
@@ -2029,6 +2043,24 @@ wss.on('connection', (ws, req) => {
         const route = opRoutes.get(msg.reqId);
         if (route) { const c = consoles.get(route.consoleId); if (c) send(c.ws, msg); }
         if (msg.type !== 'opStream') opRoutes.delete(msg.reqId);
+        return;
+      }
+      // Private-desktop frame: broadcast to subscribers (consoles that opened
+      // the pdesk panel) regardless of main-screen attach. Backpressure-check
+      // each subscriber so a slow viewer doesn't block the agent's upload.
+      if (msg.type === 'pdFrame') {
+        const subs = pdeskSubs.get(id);
+        if (subs) {
+          // Tag with the deviceId so a console with multiple pdesk panels open
+          // (one per device) can route the frame to the correct one.
+          const outMsg = Object.assign({}, msg, { deviceId: id });
+          for (const w of subs) {
+            if (w.readyState === w.OPEN && w.bufferedAmount <= 512 * 1024) {
+              try { send(w, outMsg); } catch {}
+            }
+          }
+        }
+        db.touchDevice(id);
         return;
       }
       if (msg.type === 'screen') { a.screen = { w: msg.w, h: msg.h }; }
@@ -2158,6 +2190,11 @@ wss.on('connection', (ws, req) => {
         const a = agents.get(route.agentId);
         if (a) send(a.ws, { type: 'op', op: 'op-cancel', reqId, payload: {} });
         opRoutes.delete(reqId);
+      }
+      // Drop any pdesk subscriptions this console had so the agent isn't still
+      // streaming frames to nobody.
+      for (const [devId, set] of pdeskSubs) {
+        if (set.delete(ws) && set.size === 0) pdeskSubs.delete(devId);
       }
       consoles.delete(id);
     } else if (role === 'guest') {

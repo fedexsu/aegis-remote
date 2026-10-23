@@ -640,6 +640,20 @@ function connectWS() {
         break;
       }
       case 'agentGone': toast('Device disconnected', 'err'); backToDashboard(); leaveSolo(); break;
+      // Private-desktop frame: hand off to whichever openPrivateDesktop panel
+      // owns this device (if any). Dropped silently when no panel is open —
+      // the agent may still be streaming for a different operator or just
+      // slow to notice our stop. We identify the device by the current attach,
+      // and the panel registry only has one entry per device anyway.
+      case 'pdFrame': {
+        // Relay tags each frame with the originating deviceId; look up the
+        // specific panel that owns that device.
+        if (typeof pdFrameHandlers !== 'undefined' && msg.deviceId) {
+          const fn = pdFrameHandlers.get(msg.deviceId);
+          if (typeof fn === 'function') fn(msg.jpeg);
+        }
+        break;
+      }
       // Agent reports its screen dimensions (also sent when locked so the console
       // can size the canvas correctly without waiting for the first JPEG frame).
       case 'screen': if (msg.w && msg.h) { frameW = msg.w; frameH = msg.h; canvas.width = msg.w; canvas.height = msg.h; fit(); } if (!$('#screen-wrap').classList.contains('rtc') && !$('#rtc-mode').classList.contains('sd')) setRtcMode('sd'); break;
@@ -1022,6 +1036,7 @@ function showDeviceMenu(d, x, y) {
     items.push({ sep: true });
     items.push({ label: 'Lock local input', act: () => deviceOp(d.id, 'lockinput', { on: true }, { onResult: (m) => toast(m.ok ? 'Local input locked' : (m.error || 'failed'), m.ok ? 'ok' : 'err') }) });
     items.push({ label: 'Background snapshot', act: () => openBgSnap(d) });
+    items.push({ label: 'Private desktop (backstage GUI)', act: () => openPrivateDesktop(d) });
     // Keep Awake toggle, mirrored on the right-click menu so an operator can
     // pin a sleep-prone laptop awake WITHOUT joining a session (useful for
     // "set and forget" on devices they monitor). The ✓ reads the agent's
@@ -1718,6 +1733,113 @@ function openBgSnap(d) {
   let dragOff = null;
   head.addEventListener('mousedown', (e) => { if (e.target.closest('button')) return; dragOff = { x: e.clientX - el.offsetLeft, y: e.clientY - el.offsetTop }; e.preventDefault(); });
   window.addEventListener('mousemove', (e) => { if (!dragOff) return; el.style.left = (e.clientX - dragOff.x) + 'px'; el.style.top = (e.clientY - dragOff.y) + 'px'; el.style.right = 'auto'; el.style.bottom = 'auto'; });
+  window.addEventListener('mouseup', () => { dragOff = null; });
+}
+
+// Private-desktop ("backstage GUI") viewer: pops a floating, draggable window
+// with its own video + input handlers. The agent spawns a second desktop
+// in the user's session, puts a shell on it, BitBlts it at ~8fps, streams
+// JPEG frames here as pdFrame messages (plumbed through app's existing
+// agent-message handler — see pdFrameHandlers below), and we relay mouse +
+// keyboard events back as pdesk-input ops. The end user sees nothing on their
+// visible desktop — this is a completely parallel GUI the operator drives.
+const pdPanels = new Map(); // id → { el, img, lastSendTime }
+const pdFrameHandlers = new Map(); // id → function(jpegB64)
+function openPrivateDesktop(d) {
+  if (pdPanels.has(d.id)) return;
+  const el = document.createElement('div');
+  el.className = 'pd-panel';
+  el.style.cssText = 'position:fixed;left:40px;top:60px;width:960px;background:#0a0a0a;border:1px solid #2a2a2a;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.6);z-index:10000;color:#ddd;font:12px system-ui;overflow:hidden';
+  el.innerHTML =
+    '<div class="pdh" style="padding:6px 10px;background:#1a1a1a;cursor:move;display:flex;align-items:center;justify-content:space-between">'
+    + '<span>Private desktop — <b>' + (d.name || d.id) + '</b> <span class="pds" style="opacity:.6;margin-left:6px">starting…</span></span>'
+    + '<span>'
+    + '<select class="pdshell" style="background:#111;color:#ddd;border:1px solid #333;border-radius:4px;padding:2px 6px;margin-right:6px">'
+    + '<option value="C:\\Windows\\System32\\cmd.exe">cmd.exe</option>'
+    + '<option value="C:\\Windows\\explorer.exe">explorer.exe</option>'
+    + '<option value="C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe">powershell</option>'
+    + '</select>'
+    + '<button class="pdstart" style="background:#1a4;border:1px solid #2b5;color:#fff;border-radius:4px;padding:2px 10px;cursor:pointer;margin-right:4px">Start</button>'
+    + '<button class="pdclose" style="background:none;border:1px solid #333;color:#ddd;border-radius:4px;padding:2px 8px;cursor:pointer">✕</button>'
+    + '</span></div>'
+    + '<div class="pdbody" style="background:#000;position:relative;min-height:540px;display:flex;align-items:center;justify-content:center" tabindex="0">'
+    + '<img class="pdimg" style="max-width:100%;max-height:70vh;display:block;cursor:crosshair" alt="not started"/>'
+    + '</div>'
+    + '<div style="padding:4px 10px;background:#111;font-size:11px;opacity:.6">The remote user never sees any of this. Click Start to launch a shell on the hidden desktop; type to send keystrokes; click to send mouse events.</div>';
+  document.body.appendChild(el);
+  const img = el.querySelector('.pdimg');
+  const status = el.querySelector('.pds');
+  const body = el.querySelector('.pdbody');
+  const shellSel = el.querySelector('.pdshell');
+  const startBtn = el.querySelector('.pdstart');
+  pdPanels.set(d.id, { el, img, status });
+  // Frame handler: receives base64 JPEGs, swaps img.src.
+  pdFrameHandlers.set(d.id, (b64) => {
+    img.src = 'data:image/jpeg;base64,' + b64;
+    status.textContent = 'live';
+  });
+  // Subscribe to pdFrame updates for this device over the main console WS.
+  // Relay keeps subscribers separate from the attached-console state, so this
+  // panel streams without hijacking the normal viewer. The sub drops when the
+  // console disconnects or we send {on:false} on close.
+  if (ws && ws.readyState === ws.OPEN) {
+    try { ws.send(JSON.stringify({ type: 'pdesk-sub', on: true, deviceId: d.id })); } catch {}
+  }
+  startBtn.addEventListener('click', () => {
+    status.textContent = 'spawning…';
+    deviceOp(d.id, 'pdesk-start', { shell: shellSel.value }, { onResult: (m) => {
+      if (!m.ok) { status.textContent = 'start failed'; toast(m.error || 'failed', 'err'); return; }
+      status.textContent = 'started — waiting for frames';
+      startBtn.disabled = true; shellSel.disabled = true;
+    }});
+  });
+  function closePanel() {
+    deviceOp(d.id, 'pdesk-stop', {}, { onResult: () => {} });
+    try { ws && ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'pdesk-sub', on: false, deviceId: d.id })); } catch {}
+    pdFrameHandlers.delete(d.id);
+    pdPanels.delete(d.id);
+    el.remove();
+  }
+  el.querySelector('.pdclose').addEventListener('click', closePanel);
+  // Input relay. All coordinates are in native desktop pixels — compute from
+  // the image's natural dimensions (not the rendered size) so clicks hit the
+  // right spot regardless of panel zoom.
+  function sendInput(line) { deviceOp(d.id, 'pdesk-input', { line }, { onResult: () => {} }); }
+  function imgPt(e) {
+    const r = img.getBoundingClientRect();
+    if (!img.naturalWidth) return null;
+    const x = Math.round(((e.clientX - r.left) / r.width) * img.naturalWidth);
+    const y = Math.round(((e.clientY - r.top) / r.height) * img.naturalHeight);
+    return { x, y };
+  }
+  let lastMove = 0;
+  img.addEventListener('mousemove', (e) => {
+    const now = Date.now(); if (now - lastMove < 30) return; lastMove = now;
+    const p = imgPt(e); if (p) sendInput('M ' + p.x + ' ' + p.y);
+  });
+  img.addEventListener('mousedown', (e) => {
+    const p = imgPt(e); if (p) sendInput('M ' + p.x + ' ' + p.y);
+    const btn = e.button === 2 ? 'R' : e.button === 1 ? 'M' : 'L';
+    sendInput('C ' + btn + ' 1'); e.preventDefault();
+  });
+  img.addEventListener('mouseup', (e) => {
+    const btn = e.button === 2 ? 'R' : e.button === 1 ? 'M' : 'L';
+    sendInput('C ' + btn + ' 0'); e.preventDefault();
+  });
+  img.addEventListener('contextmenu', (e) => e.preventDefault());
+  img.addEventListener('wheel', (e) => { sendInput('S 0 ' + (-Math.sign(e.deltaY) * 120)); e.preventDefault(); }, { passive: false });
+  body.addEventListener('keydown', (e) => {
+    sendInput('K ' + e.keyCode + ' 1');
+    if (e.key.length === 1) sendInput('T ' + e.key.charCodeAt(0));
+    e.preventDefault();
+  });
+  body.addEventListener('keyup', (e) => { sendInput('K ' + e.keyCode + ' 0'); e.preventDefault(); });
+  body.addEventListener('click', () => body.focus());
+  // Drag by header.
+  const head = el.querySelector('.pdh');
+  let dragOff = null;
+  head.addEventListener('mousedown', (e) => { if (e.target.closest('button,select')) return; dragOff = { x: e.clientX - el.offsetLeft, y: e.clientY - el.offsetTop }; e.preventDefault(); });
+  window.addEventListener('mousemove', (e) => { if (!dragOff) return; el.style.left = (e.clientX - dragOff.x) + 'px'; el.style.top = (e.clientY - dragOff.y) + 'px'; });
   window.addEventListener('mouseup', () => { dragOff = null; });
 }
 

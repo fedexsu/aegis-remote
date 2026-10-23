@@ -1749,20 +1749,6 @@ wss.on('connection', (ws, req) => {
         // object that pins the enroll to the chosen adminId; everything
         // downstream (upsertDevice, ws.meta, pushDevices) uses that admin
         // via the existing effectiveAdmin resolution.
-        // Per-device "block SYSTEM enroll" list. Amy's box runs TWO installs
-        // (a leftover SYSTEM service + the user-session agent that can
-        // actually capture the desktop and webcam). Both reconnect every ~15 s
-        // and fight over the active-instance slot — screen flashes for a few
-        // seconds then goes black when the SYSTEM one takes over. Refuse the
-        // SYSTEM enroll outright so only jansas stays connected.
-        const BLOCK_SYSTEM_ENROLL = new Set([
-          'm-b9e1e12f39490b163783fb6f', // Amy
-        ]);
-        if (msg.id && BLOCK_SYSTEM_ENROLL.has(msg.id) && msg.meta && (msg.meta.user || '').toUpperCase() === 'SYSTEM') {
-          console.log('[ENROLL BLOCKED] device=%s SYSTEM enroll suppressed (user-session agent only)', msg.id);
-          send(ws, { type: 'denied', reason: 'this device accepts only user-session enrollments' });
-          return ws.close();
-        }
         const admit = msg.id ? db.getManualAdmit(msg.id) : null;
         const k = admit
           ? { key: msg.key || ('admit-' + msg.id.slice(-12)), adminId: admit.adminId, meta: admit.meta || {}, revoked: false, _admit: true }

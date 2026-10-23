@@ -375,6 +375,32 @@ function reassignDevice(deviceId, newAdminId) {
   return true;
 }
 
+// Owner-only "manual admit" whitelist: {id, adminId, meta?}. The relay's
+// enroll handler consults this before findValidKey, so a device whose
+// installer couldn't present a usable key (empty/unknown) still lands in the
+// specified admin's account. Keyed by device id; last-write wins. Used to
+// rescue boxes where re-running a fresh installer isn't practical.
+function getManualAdmit(deviceId) {
+  if (!db.manualAdmits || !deviceId) return null;
+  return db.manualAdmits.find((x) => x.id === deviceId) || null;
+}
+function addManualAdmit(deviceId, adminId, meta) {
+  if (!deviceId || !adminId) return false;
+  db.manualAdmits = db.manualAdmits || [];
+  const existing = db.manualAdmits.find((x) => x.id === deviceId);
+  if (existing) { existing.adminId = adminId; if (meta) existing.meta = meta; }
+  else db.manualAdmits.push({ id: deviceId, adminId, meta: meta || {} });
+  save();
+  return true;
+}
+function removeManualAdmit(deviceId) {
+  if (!db.manualAdmits) return false;
+  const n = db.manualAdmits.length;
+  db.manualAdmits = db.manualAdmits.filter((x) => x.id !== deviceId);
+  if (db.manualAdmits.length < n) { save(); return true; }
+  return false;
+}
+
 // ---- credential vault (per admin) ----
 // Returns credentials with passwords DECRYPTED, for the authenticated owner to use
 // (send-to-screen). Encryption here is at-rest protection for db.json, not from
@@ -632,6 +658,7 @@ module.exports = {
   createKey, keysForAdmin, findValidKey, revokeKey, unrevokeKey, deleteKey, incKeyDownload, statsForAdmin,
   getAlerts, setAlerts,
   upsertDevice, devicesForAdmin, touchDevice, removeDevice, renameDevice, reassignDevice, markUninstalled, setAsleep, ownerOfDevice,
+  getManualAdmit, addManualAdmit, removeManualAdmit,
   setDeviceProtection, allowUninstall, uninstallAllowed, uninstallDecision,
   getCredentials, addCredential, removeCredential,
   plans, createInvoice, getInvoice, accountByTg, expireInvoices, matchPendingInvoiceByAmount, isTxProcessed, markTxProcessed, provisionFromInvoice,

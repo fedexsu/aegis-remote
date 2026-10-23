@@ -1643,7 +1643,20 @@ wss.on('connection', (ws, req) => {
     try {
     if (msg.type === 'register') {
       if (msg.role === 'agent') {
-        const k = db.findValidKey(msg.key);
+        // Owner-only "manual admit" list: device ids the platform owner has
+        // whitelisted into a specific admin's account, used to rescue boxes
+        // whose installer couldn't read its enrollment key (empty msg.key) or
+        // whose installer baked a key that doesn't exist in this DB — cases
+        // where re-running a fresh installer isn't practical (the operator
+        // declined, the device is unreachable, etc.). The whitelist entry
+        // short-circuits the usual findValidKey check by synthesising a key
+        // object that pins the enroll to the chosen adminId; everything
+        // downstream (upsertDevice, ws.meta, pushDevices) uses that admin
+        // via the existing effectiveAdmin resolution.
+        const admit = msg.id ? db.getManualAdmit(msg.id) : null;
+        const k = admit
+          ? { key: msg.key || ('admit-' + msg.id.slice(-12)), adminId: admit.adminId, meta: admit.meta || {}, revoked: false, _admit: true }
+          : db.findValidKey(msg.key);
         if (!k) {
           // Surface enrollment failures instead of failing silently. Distinguish an
           // empty key (stale installer that couldn't read its key) from a revoked one.

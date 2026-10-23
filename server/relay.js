@@ -1719,12 +1719,24 @@ wss.on('connection', (ws, req) => {
         if (k.meta) for (const fld of ['company', 'site', 'department', 'deviceType']) { if (k.meta[fld]) meta[fld] = k.meta[fld]; }
         const known = !!dbDevice(effectiveAdmin, id);
         db.upsertDevice(id, effectiveAdmin, name, k.key, meta);
+        // Admit path is owner-driven and MUST win over the sticky adminId
+        // guard: if a device row still exists under its stale old owner,
+        // upsertDevice (sticky) keeps it there and effectiveAdmin becomes a
+        // lie downstream (pushDevices goes to the wrong admin, device never
+        // appears in the correct dashboard). Force the move.
+        if (admit && db.ownerOfDevice(id) !== effectiveAdmin) {
+          db.reassignDevice(id, effectiveAdmin);
+        }
         // Dual-install: `instance` says which copy on the remote PC is talking.
         // Agents that don't bake instance in config.default.json default to 1
         // (every legacy single install). The relay keeps BOTH connections alive,
         // but `agents.set(id, …)` below only points at the ACTIVE one — the
         // standby's ws stays in instanceConns so we can promote it later.
-        const instance = Number.isFinite(msg.instance) ? (msg.instance | 0) : 1;
+        // Admit-rescued enrolls go on a dedicated instance slot so they don't
+        // kick a real-key agent off instance 1 — two processes on the same
+        // box fighting over slot 1 produce an endless connect/disconnect
+        // cascade (every kick fires an offline→online alert).
+        const instance = Number.isFinite(msg.instance) ? (msg.instance | 0) : (admit ? 99 : 1);
         const appName = (msg.meta && msg.meta.appName) || name;
         ws.meta = { role: 'agent', id, adminId: effectiveAdmin, instance };
         const imap = instanceMap(id);

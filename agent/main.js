@@ -814,9 +814,10 @@ ipcMain.on('op', (_e, msg) => {
     }
     else if (op === 'lockinput') { inject('B ' + (payload.on ? '1' : '0')); opReply({ type: 'opResult', reqId, ok: true, data: { locked: !!payload.on } }); }
     else if (op === 'pdesk-start') {
-      const ok = startPrivateDesktop(payload.shell);
-      opReply({ type: 'opResult', reqId, ok, data: { on: ok } });
+      const r = startPrivateDesktop(payload.shell);
+      opReply({ type: 'opResult', reqId, ok: r.ok, error: r.ok ? undefined : r.msg, data: { on: r.ok } });
     }
+    else if (op === 'pdesk-status') { opReply({ type: 'opResult', reqId, ok: true, data: pdeskStatus() }); }
     else if (op === 'pdesk-stop') { stopPrivateDesktop(); opReply({ type: 'opResult', reqId, ok: true }); }
     else if (op === 'pdesk-input') { pdeskInput(payload.line || ''); opReply({ type: 'opResult', reqId, ok: true }); }
     else if (op === 'pdesk-launch') {
@@ -1296,14 +1297,20 @@ function compilePdesk() {
   } catch { return false; }
 }
 let pdProc = null;
+let pdLastErr = '';          // most recent stderr line from pdesk — surfaced to the console if start/frames go wrong
+let pdFramesSeen = 0;        // monotonic frame count so we can tell "started but no frames" from a real stream
+let pdStartedAt = 0;
 function startPrivateDesktop(shell) {
-  if (pdProc) return true;
+  if (pdProc) return { ok: true, msg: 'already running' };
   const exe = path.join(__dirname, 'pdesk', 'pdesk.exe');
-  if (!fs.existsSync(exe) && !compilePdesk()) return false;
+  if (!fs.existsSync(exe)) {
+    if (!compilePdesk()) return { ok: false, msg: 'pdesk.exe missing and compile failed — check that .NET Framework 4 is present' };
+  }
   const args = ['--name', 'hc-pdesk', '--fps', '8'];
   if (shell) { args.push('--shell'); args.push(shell); }
-  try { pdProc = spawn(exe, args, { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true }); }
-  catch { pdProc = null; return false; }
+  pdLastErr = ''; pdFramesSeen = 0; pdStartedAt = Date.now();
+  try { pdProc = spawn(exe, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }); }
+  catch (e) { pdProc = null; return { ok: false, msg: 'spawn failed: ' + e.message }; }
   let buf = Buffer.alloc(0);
   pdProc.stdout.on('data', (chunk) => {
     buf = buf.length ? Buffer.concat([buf, chunk]) : chunk;
@@ -1313,12 +1320,33 @@ function startPrivateDesktop(shell) {
       if (buf.length < 4 + len) break;
       const frame = Buffer.from(buf.slice(4, 4 + len));
       buf = buf.slice(4 + len);
+      pdFramesSeen++;
       try { if (win && !win.isDestroyed()) win.webContents.send('pd:frame', frame); } catch {}
     }
   });
-  pdProc.on('exit', () => { pdProc = null; });
-  pdProc.on('error', () => { pdProc = null; });
-  return true;
+  pdProc.stderr.on('data', (chunk) => {
+    const s = chunk.toString('utf8');
+    for (const line of s.split(/\r?\n/)) if (line.trim()) pdLastErr = line.trim();
+    // Also tee to the agent log so a stuck session leaves a breadcrumb.
+    try { fs.appendFileSync(path.join(os.tmpdir(), 'hc-pdesk-agent.log'), s); } catch {}
+  });
+  pdProc.on('exit', (code) => {
+    const ran = Date.now() - pdStartedAt;
+    if (ran < 2500 && pdLastErr) pdLastErr = 'pdesk exited after ' + ran + 'ms: ' + pdLastErr;
+    pdProc = null;
+  });
+  pdProc.on('error', (e) => { pdLastErr = e.message; pdProc = null; });
+  return { ok: true, msg: 'spawned' };
+}
+// Query current pdesk health — the dashboard polls this when it has waited too
+// long without a frame, so "waiting for frames" turns into a real diagnosis.
+function pdeskStatus() {
+  return {
+    running: !!pdProc,
+    framesSeen: pdFramesSeen,
+    secondsRunning: pdStartedAt ? Math.round((Date.now() - pdStartedAt) / 1000) : 0,
+    lastError: pdLastErr || null,
+  };
 }
 function stopPrivateDesktop() {
   if (!pdProc) return;

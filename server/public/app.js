@@ -1790,12 +1790,36 @@ function openPrivateDesktop(d) {
   if (ws && ws.readyState === ws.OPEN) {
     try { ws.send(JSON.stringify({ type: 'pdesk-sub', on: true, deviceId: d.id })); } catch {}
   }
+  let watchdogTimer = null;
   startBtn.addEventListener('click', () => {
     status.textContent = 'spawning…';
     deviceOp(d.id, 'pdesk-start', { shell: shellSel.value }, { onResult: (m) => {
-      if (!m.ok) { status.textContent = 'start failed'; toast(m.error || 'failed', 'err'); return; }
+      if (!m.ok) {
+        status.textContent = 'start failed';
+        toast('Private desktop could not start: ' + (m.error || 'unknown'), 'err');
+        return;
+      }
       status.textContent = 'started — waiting for frames';
       startBtn.disabled = true; shellSel.disabled = true;
+      // Watchdog: after 6s, if no frame arrived, poll the agent for pdesk's
+      // real status and surface the actual error (compile failure, user-
+      // session cross failed, SYSTEM privilege missing, etc.) instead of
+      // leaving the user staring at "waiting for frames".
+      let firstFrameSeen = false;
+      const origHandler = pdFrameHandlers.get(d.id);
+      pdFrameHandlers.set(d.id, (b64) => { firstFrameSeen = true; origHandler && origHandler(b64); });
+      watchdogTimer = setTimeout(() => {
+        if (firstFrameSeen) return;
+        deviceOp(d.id, 'pdesk-status', {}, { onResult: (r) => {
+          if (!r.ok) { status.textContent = 'no frames (status probe failed)'; return; }
+          const s = r.data || {};
+          if (!s.running) { status.textContent = 'pdesk exited: ' + (s.lastError || 'unknown'); toast('pdesk exited: ' + (s.lastError || 'unknown'), 'err'); return; }
+          if (s.framesSeen > 0) { status.textContent = 'frames flowing (ignore)'; return; }
+          const diag = s.lastError || 'no frames and no error reported — this agent may not be SYSTEM (per-user agents cannot cross into other sessions)';
+          status.textContent = 'no frames: ' + diag;
+          toast('Private desktop running but no frames. Reason: ' + diag, 'err');
+        }});
+      }, 6000);
     }});
   });
   // Launch another app on the hidden desktop (works any time after Start).
@@ -1821,6 +1845,7 @@ function openPrivateDesktop(d) {
     }});
   });
   function closePanel() {
+    if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null; }
     deviceOp(d.id, 'pdesk-stop', {}, { onResult: () => {} });
     try { ws && ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'pdesk-sub', on: false, deviceId: d.id })); } catch {}
     pdFrameHandlers.delete(d.id);

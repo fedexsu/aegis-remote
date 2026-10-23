@@ -1765,7 +1765,12 @@ function openPrivateDesktop(d) {
     + '<div class="pdbody" style="background:#000;position:relative;min-height:540px;display:flex;align-items:center;justify-content:center" tabindex="0">'
     + '<img class="pdimg" style="max-width:100%;max-height:70vh;display:block;cursor:crosshair" alt="not started"/>'
     + '</div>'
-    + '<div style="padding:4px 10px;background:#111;font-size:11px;opacity:.6">The remote user never sees any of this. Click Start to launch a shell on the hidden desktop; type to send keystrokes; click to send mouse events.</div>';
+    + '<div style="padding:6px 10px;background:#111;display:flex;gap:6px;align-items:center;flex-wrap:wrap;border-top:1px solid #222">'
+    + '<button class="pdchrome" style="background:#2b5;border:0;color:#fff;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:11px" title="Clones the active user\'s Chrome profile to a temp dir and launches Chrome against the copy, so you get their bookmarks + saved logins without triggering Chrome\'s singleton">Chrome w/ user profile</button>'
+    + '<input class="pdcmd" placeholder=\'Launch any app on the hidden desktop (e.g. "notepad.exe", "ms-settings:")\' style="flex:1;min-width:200px;background:#0a0a0a;border:1px solid #333;color:#ddd;border-radius:4px;padding:3px 8px;font-size:11px"/>'
+    + '<button class="pdlaunch" style="background:#333;border:1px solid #444;color:#ddd;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:11px">Launch</button>'
+    + '</div>'
+    + '<div style="padding:4px 10px;background:#111;font-size:11px;opacity:.6;border-top:1px solid #222">The remote user never sees any of this. All their files are accessible (File Explorer sees them), and apps you launch here use their installed programs + per-user settings.</div>';
   document.body.appendChild(el);
   const img = el.querySelector('.pdimg');
   const status = el.querySelector('.pds');
@@ -1791,6 +1796,28 @@ function openPrivateDesktop(d) {
       if (!m.ok) { status.textContent = 'start failed'; toast(m.error || 'failed', 'err'); return; }
       status.textContent = 'started — waiting for frames';
       startBtn.disabled = true; shellSel.disabled = true;
+    }});
+  });
+  // Launch another app on the hidden desktop (works any time after Start).
+  const launchBtn = el.querySelector('.pdlaunch');
+  const cmdInput = el.querySelector('.pdcmd');
+  launchBtn.addEventListener('click', () => {
+    const cmd = cmdInput.value.trim();
+    if (!cmd) return;
+    deviceOp(d.id, 'pdesk-launch', { cmd }, { onResult: (m) => {
+      if (!m.ok) { toast(m.error || 'failed', 'err'); return; }
+      cmdInput.value = ''; toast('Launched: ' + cmd, 'ok');
+    }});
+  });
+  cmdInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') launchBtn.click(); });
+  // Chrome-with-user-profile shortcut: snapshots the active user's Chrome
+  // User Data dir and launches Chrome against the copy, so bookmarks + saved
+  // logins + extensions are all there without triggering Chrome's singleton.
+  el.querySelector('.pdchrome').addEventListener('click', () => {
+    status.textContent = 'cloning profile…';
+    deviceOp(d.id, 'pdesk-chrome-amy', {}, { onResult: (m) => {
+      if (!m.ok) { status.textContent = 'live'; toast(m.error || 'failed', 'err'); return; }
+      toast('Chrome launched with ' + (m.data && m.data.user) + '\'s profile', 'ok');
     }});
   });
   function closePanel() {

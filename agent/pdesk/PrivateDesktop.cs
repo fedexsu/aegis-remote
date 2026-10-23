@@ -18,6 +18,7 @@
 //              S <dx> <dy>                  mouse wheel
 //              K <vk> <down>                virtual-key; vk is decimal, down ∈ {0,1}
 //              T <char-codepoint>           synthesise a unicode text char
+//              L <cmdline>                  launch another process on this desktop
 //              Q                            quit
 //
 // Only works when the agent is running with enough rights to create a desktop
@@ -94,6 +95,7 @@ class PrivateDesktop {
   }
 
   static IntPtr pdeskHandle = IntPtr.Zero;
+  static string _desktopName = "hc-pdesk";
   static readonly object inputLock = new object();
 
   static bool EnsureDesktop(string name) {
@@ -202,6 +204,17 @@ class PrivateDesktop {
           short vk = short.Parse(parts[1]); int down = int.Parse(parts[2]);
           inp[0].type = INPUT_KEYBOARD; inp[0].ki.wVk = vk; inp[0].ki.dwFlags = down == 1 ? 0 : KEYEVENTF_KEYUP;
           SendInput(1, inp, Marshal.SizeOf(typeof(INPUT)));
+        } else if (parts[0] == "L") {
+          // Launch another process on this desktop. The payload is the full
+          // remainder of the line after "L ", so quoted paths and arguments
+          // pass through unchanged. Spawning on the private desktop is the
+          // whole trick — SpawnShell() does the lpDesktop handoff.
+          int space = line.IndexOf(' ');
+          if (space > 0 && space < line.Length - 1) {
+            string cmd = line.Substring(space + 1);
+            SpawnShell(_desktopName, cmd);
+          }
+          continue;
         } else if (parts[0] == "T" && parts.Length == 2) {
           short cp = short.Parse(parts[1]);
           INPUT[] two = new INPUT[2];
@@ -227,6 +240,7 @@ class PrivateDesktop {
       if (fps < 2) fps = 2; if (fps > 20) fps = 20;
       int period = 1000 / fps;
 
+      _desktopName = name;
       if (!EnsureDesktop(name)) return 2;
       SpawnShell(name, shell);
 

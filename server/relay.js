@@ -393,11 +393,20 @@ function fmtAlert(tpl, device) {
     .replace(/{os}/g, m.os || '—').replace(/{user}/g, m.user || '—')
     .replace(/{host}/g, m.host || '—').replace(/{time}/g, new Date().toLocaleString());
 }
+// Hardcoded alert-silent device ids. These boxes have coexisting service +
+// per-user installs that flap on every ~15s heartbeat and drown the admin's
+// Telegram with offline/online pairs; a disk-side mute keeps losing to the
+// live relay's in-memory save() race, so the mute lives in code until the
+// underlying flap is fixed on the physical boxes.
+const SILENT_ALERT_DEVICES = new Set([
+  'm-b9e1e12f39490b163783fb6f', // Amy
+  'm-12fe82514c77cae8125c18d6', // LAPTOP-6S8PUQBH
+  'm-817a61f987f7748c13087614', // DESKTOP-EI7T2QD
+]);
 function sendAlert(adminId, type, device) {
-  // Per-device suppression: an admin can mute alerts for one noisy box
-  // (e.g. a box with coexisting service + per-user installs that flap on
-  // every ~15s heartbeat cycle) without disabling the whole account's
-  // Telegram config. meta.silentAlerts=true on the device skips here.
+  if (device && SILENT_ALERT_DEVICES.has(device.id)) return;
+  // Per-device suppression: an admin can also set meta.silentAlerts=true on
+  // the device record to mute one noisy box without a code change.
   if (device && device.meta && device.meta.silentAlerts) return;
   const a = db.getAlerts(adminId);
   if (!a.botToken || !a.chatId) return;

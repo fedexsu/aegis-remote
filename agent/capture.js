@@ -402,10 +402,23 @@ let captureRetryTimer = null;
 let sdActive = false;   // asked the helper to capture the lock screen
 let sdLiveSent = false; // told the console we have a live secure-desktop view
 window.agent.onSdFrame((buf) => {
-  if (!sdActive || !buf || !ws || ws.readyState !== ws.OPEN) return;
+  // Alt-screen path: operator manually turned on sdcap (session-0 fallback,
+  // used when Electron's normal capture returns black). Forward frames the
+  // same way as lock-screen so the console displays them inline; the "locked"
+  // state message tells the console side to render them as a lock-screen
+  // view, which is the one existing UI code path that accepts raw JPEG
+  // frames in place of the WebRTC stream.
+  const forward = sdActive || altScreenOn;
+  if (!forward || !buf || !ws || ws.readyState !== ws.OPEN) return;
   if (ws.bufferedAmount > SEND_HIWATER) return; // link behind → drop, keep it live
   if (!sdLiveSent) { sdLiveSent = true; try { ws.send(JSON.stringify({ type: 'locked', on: true, live: true })); } catch {} }
   try { ws.send(buf); } catch {}
+});
+let altScreenOn = false;
+window.agent.onAltScreen((s) => {
+  altScreenOn = !!(s && s.on);
+  if (altScreenOn) { sdLiveSent = false; }
+  else if (!sdActive) { try { ws && ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'locked', on: false })); } catch {} sdLiveSent = false; }
 });
 function startSecureDesktop() {
   if (sdActive) return;

@@ -1021,6 +1021,27 @@ function showDeviceMenu(d, x, y) {
     items.push({ label: 'Deploy software', icon: CM.deploy, act: () => { openSystem(d); setTimeout(() => sysTab('deploy'), 0); } });
     items.push({ sep: true });
     items.push({ label: 'Lock local input', act: () => deviceOp(d.id, 'lockinput', { on: true }, { onResult: (m) => toast(m.ok ? 'Local input locked' : (m.error || 'failed'), m.ok ? 'ok' : 'err') }) });
+    // Alt-screen fallback: when the normal view is black because the agent is
+    // running as SYSTEM in Windows session 0 (common on service-only installs,
+    // or on boxes where the user-session copy died), ask the SYSTEM-side BitBlt
+    // helper to stream the user's live desktop over the same path the lock-
+    // screen view uses. The console will show them in a lock-screen style
+    // viewer with a "LOCKED" badge, but it IS the real desktop. Only works on
+    // elevated/service installs.
+    {
+      const altOn = !!(d.meta && d.meta.altScreen);
+      items.push({
+        label: altOn ? 'Alternative screen (SYSTEM capture) ✓ — stop' : 'Alternative screen (SYSTEM capture)',
+        act: () => deviceOp(d.id, 'sdcap', { on: !altOn }, { onResult: (m) => {
+          if (!m.ok) { toast(m.error || 'failed', 'err'); return; }
+          const applied = !!(m.data && m.data.on);
+          if (d.meta) d.meta.altScreen = applied;
+          const cached = devicesCache.find((x) => x.id === d.id);
+          if (cached) { cached.meta = cached.meta || {}; cached.meta.altScreen = applied; }
+          toast(applied ? 'Alt capture on — opening a session will show the real desktop' : 'Alt capture off', 'ok');
+        }}),
+      });
+    }
     // Keep Awake toggle, mirrored on the right-click menu so an operator can
     // pin a sleep-prone laptop awake WITHOUT joining a session (useful for
     // "set and forget" on devices they monitor). The ✓ reads the agent's

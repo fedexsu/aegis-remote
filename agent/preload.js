@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld('agent', {
   sdStart: () => ipcRenderer.send('sd:start'),
   sdStop: () => ipcRenderer.send('sd:stop'),
   onSdFrame: (cb) => ipcRenderer.on('sd:frame', (_e, buf) => cb(buf)),
+  // Alt-screen: operator-driven version of the sdcap flow for when normal
+  // Electron capture returns black (session 0 isolation under SYSTEM service).
+  // Main process broadcasts { on } whenever the op fires.
+  onAltScreen: (cb) => ipcRenderer.on('alt-screen', (_e, s) => cb(s)),
   captureScreenshot: () => ipcRenderer.invoke('screen:screenshot'),
   // Webcam feature: console asks for camera, agent kills any app currently
   // holding the webcam (Camera.exe & friends), then getUserMedia opens it

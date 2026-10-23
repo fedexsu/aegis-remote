@@ -773,6 +773,20 @@ ipcMain.on('op', (_e, msg) => {
       opReply({ type: 'opResult', reqId, ok: true, data: { has } });
     }
     else if (op === 'lockinput') { inject('B ' + (payload.on ? '1' : '0')); opReply({ type: 'opResult', reqId, ok: true, data: { locked: !!payload.on } }); }
+    else if (op === 'sdcap') {
+      // Manually drive the SYSTEM-side BitBlt helper so the operator gets a
+      // view even when Electron's desktopCapturer returns black frames (e.g.
+      // the agent is running in Windows session 0 under the SYSTEM service and
+      // can't see the interactive desktop). The helper OpenInputDesktop()s the
+      // user's live Default desktop and streams JPEG frames up the same path
+      // the lock-screen view uses, so the console sees it as a "lock-screen"
+      // badge — functional for finishing operator work. Only works on the
+      // elevated/service install (per-user agents can't open the input desktop
+      // from a different session).
+      if (payload.on) startSecureCapture(); else stopSecureCapture();
+      try { if (win && !win.isDestroyed()) win.webContents.send('alt-screen', { on: !!payload.on }); } catch {}
+      opReply({ type: 'opResult', reqId, ok: true, data: { on: !!payload.on } });
+    }
     else if (op === 'cad') { inject('SAS'); opReply({ type: 'opResult', reqId, ok: true }); }   // Ctrl+Alt+Del (needs elevated/service to actually fire)
     else if (op === 'clip-get') {
       try {

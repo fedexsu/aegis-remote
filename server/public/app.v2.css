@@ -369,12 +369,16 @@ body {
 [data-v2] .device-row .dr-os svg   { width: 16px; height: 16px; }
 [data-v2] .device-row .dr-os .dr-os-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 [data-v2] .device-row .dr-os .dr-os-ic  { display: inline-grid; place-items: center; }
+/* Offline devices show a flat black panel (asleep-screen look) instead of
+   a stale screenshot or OS icon. Same tile size, zero content inside. */
+[data-v2] .device-row .dr-os .dr-os-off { display: block; width: 100%; height: 100%; background: #000; }
 /* Public IP in neon-green. Monospace + subtle glow so it reads like a
    terminal value — makes it pop next to the OS string without screaming. */
 [data-v2] .device-row .dr-sub .dr-ip    { color: #00ff9c; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-feature-settings: "tnum" 1; text-shadow: 0 0 6px rgba(0, 255, 156, 0.45); }
-[data-v2] .device-row .dr-sub .dr-geo   { opacity: .85; }
-[data-v2] .device-row .dr-sub .dr-geo-flag { font-size: 14px; margin-right: 4px; vertical-align: -1px; }
-[data-v2] .device-row .dr-sub .dr-sep   { opacity: .35; margin: 0 4px; }
+[data-v2] .device-row .dr-sub .dr-geo       { opacity: .85; display: inline-flex; align-items: center; gap: 5px; }
+[data-v2] .device-row .dr-sub .dr-geo-flag  { display: inline-block; width: 18px; height: 13px; vertical-align: middle; border-radius: 2px; box-shadow: 0 0 0 1px rgba(255,255,255,.1); }
+[data-v2] .device-row .dr-sub .dr-geo-loc   { opacity: .9; }
+[data-v2] .device-row .dr-sub .dr-sep       { opacity: .35; margin: 0 4px; }
 [data-v2] .device-row .dr-status   { display: none !important; }
 [data-v2] .device-row .dr-main     { grid-column: 2 !important; min-width: 0 !important; }
 [data-v2] .device-row .dr-presence { grid-column: 3 !important; justify-self: start !important; }

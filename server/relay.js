@@ -1133,7 +1133,7 @@ function lookupGeo(ip) {
         try {
           const j = JSON.parse(s);
           if (j && j.success) {
-            const v = { country: j.country || '', countryCode: j.country_code || '', city: j.city || '' };
+            const v = { country: j.country || '', countryCode: j.country_code || '', city: j.city || '', region: j.region || j.region_code || '' };
             _geoCache.set(ip, { t: Date.now(), v });
             resolve(v);
           } else { console.log('[geo] lookup failed for ' + ip + ': ' + (j && j.message ? j.message : s.slice(0, 100))); resolve(null); }
@@ -2058,6 +2058,7 @@ wss.on('connection', (ws, req) => {
             if (prior.meta.country && !meta.country) meta.country = prior.meta.country;
             if (prior.meta.countryCode && !meta.countryCode) meta.countryCode = prior.meta.countryCode;
             if (prior.meta.city && !meta.city) meta.city = prior.meta.city;
+            if (prior.meta.region && !meta.region) meta.region = prior.meta.region;
             if (prior.meta.geoLookedUpIp && !meta.geoLookedUpIp) meta.geoLookedUpIp = prior.meta.geoLookedUpIp;
           }
           // Only fetch when we don't already have geo for THIS specific IP
@@ -2071,6 +2072,7 @@ wss.on('connection', (ws, req) => {
               live.meta.country = geo.country || '';
               live.meta.countryCode = geo.countryCode || '';
               live.meta.city = geo.city || '';
+              live.meta.region = geo.region || '';
               live.meta.geoLookedUpIp = ws.ip;
               try { db.touchDevice(id); pushDevices(effectiveAdmin); } catch {}
             }).catch(() => {});

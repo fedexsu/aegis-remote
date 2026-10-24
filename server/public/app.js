@@ -840,20 +840,19 @@ function osIcon(m) {
   if (os.includes('mac') || os.includes('darwin')) return APPLE_ICON;
   return WIN_ICON; // all current agents are Windows
 }
-// Country-code → regional-indicator flag emoji. ISO-3166 alpha-2 letters A-Z
-// map to Unicode regional indicator chars (U+1F1E6 .. U+1F1FF); pairs of them
-// render as the flag. Returns '' for invalid codes so the HTML stays clean.
+// Country-code → flag PNG from flagcdn.com. Flag emoji unicode doesn't
+// render on default Windows fonts (just shows "us"-text), so we go with
+// an actual image. 20px wide is enough for the sub-line next to the IP.
 function countryFlag(cc) {
-  const s = (cc || '').toUpperCase();
-  if (!/^[A-Z]{2}$/.test(s)) return '';
-  const A = 0x1F1E6, a = 'A'.charCodeAt(0);
-  return String.fromCodePoint(A + s.charCodeAt(0) - a) + String.fromCodePoint(A + s.charCodeAt(1) - a);
+  const s = (cc || '').toLowerCase();
+  if (!/^[a-z]{2}$/.test(s)) return '';
+  return '<img class="dr-geo-flag" src="https://flagcdn.com/w40/' + s + '.png" alt="" width="20" height="15"/>';
 }
-// Device-tile thumbnail: live mini-display streamed by the agent via
-// requestScreenshot (see startLiveThumbs below). First render falls back to
-// the OS icon until the first frame lands. Img onerror hides itself and
-// reveals the OS icon sibling kept in the DOM for free fallback.
+// Device-tile thumbnail: live mini-display for ONLINE devices, flat black
+// panel for offline devices (user asked for the sleeping-screen look). Img
+// onerror hides itself and reveals the OS icon sibling kept in the DOM.
 function deviceThumb(d, m) {
+  if (!d.online) return '<span class="dr-os-off"></span>';
   const ic = '<span class="dr-os-ic"' + (d.screenshot ? ' style="display:none"' : '') + '>' + osIcon(m) + '</span>';
   if (!d.screenshot) return ic;
   return '<img class="dr-os-img" src="/api/device/' + encodeURIComponent(d.id) + '/screenshot?t=' + Date.now()
@@ -928,13 +927,25 @@ function updateDeviceCard(el, d, st) {
       // version → dr-agent, tag → dr-tag. dr-sub carries OS + public IP +
       // country flag + country name — operator-glance info without opening
       // the device panel.
+      const esc = (x) => String(x || '').replace(/[<>&]/g, '');
       const parts = [];
-      if (m.os) parts.push('<span>' + m.os.replace(/[<>&]/g, '') + '</span>');
-      if (m.publicIp) parts.push('<span class="dr-ip">' + m.publicIp.replace(/[<>&]/g, '') + '</span>');
-      if (m.countryCode) {
-        const flag = countryFlag(m.countryCode);
-        const name = (m.country || '').replace(/[<>&]/g, '');
-        parts.push('<span class="dr-geo"' + (name ? ' title="' + name + (m.city ? ' · ' + m.city.replace(/[<>&]/g, '') : '') + '"' : '') + '>' + flag + ' ' + name + '</span>');
+      if (m.os) parts.push('<span>' + esc(m.os) + '</span>');
+      if (m.publicIp) {
+        // IP · City, Region 🇺🇸  — city + state read left-to-right, flag
+        // trails as the compact country indicator. Tooltip has the full
+        // "City, Region, Country" string for hover inspection.
+        const locBits = [];
+        if (m.city) locBits.push(esc(m.city));
+        if (m.region) locBits.push(esc(m.region));
+        const flag = m.countryCode ? countryFlag(m.countryCode) : '';
+        const tooltip = [m.city, m.region, m.country].filter(Boolean).map(esc).join(', ');
+        parts.push('<span class="dr-ip">' + esc(m.publicIp) + '</span>');
+        if (locBits.length || flag) {
+          parts.push('<span class="dr-geo"' + (tooltip ? ' title="' + tooltip + '"' : '') + '>'
+            + (locBits.length ? '<span class="dr-geo-loc">' + locBits.join(', ') + '</span>' : '')
+            + (flag ? (locBits.length ? ' ' : '') + flag : '')
+            + '</span>');
+        }
       }
       subEl.innerHTML = parts.join(' <span class="dr-sep">·</span> ');
       const uEl = el.querySelector('.dr-user');

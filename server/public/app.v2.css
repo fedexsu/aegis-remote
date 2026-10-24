@@ -365,8 +365,13 @@ body {
   border-bottom: 1px solid var(--line) !important;
   padding: 11px 14px 11px 22px !important;
 }
-[data-v2] .device-row .dr-os       { grid-column: 1 !important; color: var(--txt3) !important; }
+[data-v2] .device-row .dr-os       { grid-column: 1 !important; color: var(--txt3) !important; width: 56px; height: 36px; display: inline-grid; place-items: center; overflow: hidden; border-radius: 4px; background: var(--panel2, #1a1f2a); }
 [data-v2] .device-row .dr-os svg   { width: 14px; height: 14px; }
+[data-v2] .device-row .dr-os .dr-os-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+[data-v2] .device-row .dr-os .dr-os-ic  { display: inline-grid; place-items: center; }
+[data-v2] .device-row .dr-sub .dr-ip    { opacity: .85; font-feature-settings: "tnum" 1; }
+[data-v2] .device-row .dr-sub .dr-geo   { opacity: .85; }
+[data-v2] .device-row .dr-sub .dr-sep   { opacity: .35; margin: 0 2px; }
 [data-v2] .device-row .dr-status   { display: none !important; }
 [data-v2] .device-row .dr-main     { grid-column: 2 !important; min-width: 0 !important; }
 [data-v2] .device-row .dr-presence { grid-column: 3 !important; justify-self: start !important; }

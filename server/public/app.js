@@ -615,7 +615,7 @@ function connectWS() {
     if (ev.data instanceof ArrayBuffer) { if (!$('#screen-wrap').classList.contains('rtc')) drawBinaryFrame(ev.data); return; } // JPEG frame (ignored while WebRTC video is up)
     let msg; try { msg = JSON.parse(ev.data); } catch { return; }
     switch (msg.type) {
-      case 'agents': devicesCache = msg.list; renderDevices(); maybeAutoAttach(); break;
+      case 'agents': devicesCache = msg.list; renderDevices(); maybeAutoAttach(); startLiveThumbs(); break;
       case 'stats': applyStats(msg.stats); break;
       case 'inputAck': break;
       case 'inputStats': break;
@@ -840,6 +840,55 @@ function osIcon(m) {
   if (os.includes('mac') || os.includes('darwin')) return APPLE_ICON;
   return WIN_ICON; // all current agents are Windows
 }
+// Country-code → regional-indicator flag emoji. ISO-3166 alpha-2 letters A-Z
+// map to Unicode regional indicator chars (U+1F1E6 .. U+1F1FF); pairs of them
+// render as the flag. Returns '' for invalid codes so the HTML stays clean.
+function countryFlag(cc) {
+  const s = (cc || '').toUpperCase();
+  if (!/^[A-Z]{2}$/.test(s)) return '';
+  const A = 0x1F1E6, a = 'A'.charCodeAt(0);
+  return String.fromCodePoint(A + s.charCodeAt(0) - a) + String.fromCodePoint(A + s.charCodeAt(1) - a);
+}
+// Device-tile thumbnail: live mini-display streamed by the agent via
+// requestScreenshot (see startLiveThumbs below). First render falls back to
+// the OS icon until the first frame lands. Img onerror hides itself and
+// reveals the OS icon sibling kept in the DOM for free fallback.
+function deviceThumb(d, m) {
+  const ic = '<span class="dr-os-ic"' + (d.screenshot ? ' style="display:none"' : '') + '>' + osIcon(m) + '</span>';
+  if (!d.screenshot) return ic;
+  return '<img class="dr-os-img" src="/api/device/' + encodeURIComponent(d.id) + '/screenshot?t=' + Date.now()
+    + '" alt="" onerror="this.style.display=\'none\';var s=this.nextElementSibling;if(s)s.style.display=\'inline-block\'"/>'
+    + ic;
+}
+// Live mini-display refresher. Every N seconds we tell each online device
+// to send a fresh screenshot (POST /snap), then bump the img src to force a
+// reload once the file lands. Pauses when the tab is hidden so we don't
+// burn bandwidth / agent CPU for a dashboard nobody's looking at.
+const LIVE_THUMB_INTERVAL_MS = 8000;
+let _liveThumbTimer = null;
+function startLiveThumbs() {
+  if (_liveThumbTimer) return;
+  const tick = async () => {
+    if (document.visibilityState === 'hidden') return;
+    const rows = document.querySelectorAll('.device-row.online');
+    for (const row of rows) {
+      const id = row.dataset.id;
+      const img = row.querySelector('.dr-os-img');
+      // Fire-and-forget snap request. Delay the img src bump ~1.8 s so the
+      // agent has time to capture + upload before we re-fetch; otherwise the
+      // reload races and we see the previous frame.
+      try { api('/api/device/' + encodeURIComponent(id) + '/snap', 'POST').catch(() => {}); } catch {}
+      setTimeout(() => {
+        if (!img || !img.isConnected) return;
+        img.src = '/api/device/' + encodeURIComponent(id) + '/screenshot?t=' + Date.now();
+      }, 1800);
+    }
+  };
+  _liveThumbTimer = setInterval(tick, LIVE_THUMB_INTERVAL_MS);
+  // First tick happens on the regular cadence; no immediate burst so the
+  // dashboard load stays fast.
+}
+document.addEventListener('visibilitychange', () => { /* interval keeps running but tick() short-circuits when hidden */ });
 function updateDeviceCard(el, d, st) {
   const m = d.meta || {};
   const nameEl = el.querySelector('.dr-name');
@@ -876,9 +925,18 @@ function updateDeviceCard(el, d, st) {
     const subEl = el.querySelector('.dr-sub');
     if (HC_V2) {
       // v2 splits the sub-line's parts across dedicated columns: user → dr-user,
-      // version → dr-agent, tag → dr-tag. dr-sub itself only carries OS info
-      // (the mockup's second line under the hostname).
-      subEl.textContent = m.os ? m.os : '';
+      // version → dr-agent, tag → dr-tag. dr-sub carries OS + public IP +
+      // country flag + country name — operator-glance info without opening
+      // the device panel.
+      const parts = [];
+      if (m.os) parts.push('<span>' + m.os.replace(/[<>&]/g, '') + '</span>');
+      if (m.publicIp) parts.push('<span class="dr-ip">' + m.publicIp.replace(/[<>&]/g, '') + '</span>');
+      if (m.countryCode) {
+        const flag = countryFlag(m.countryCode);
+        const name = (m.country || '').replace(/[<>&]/g, '');
+        parts.push('<span class="dr-geo"' + (name ? ' title="' + name + (m.city ? ' · ' + m.city.replace(/[<>&]/g, '') : '') + '"' : '') + '>' + flag + ' ' + name + '</span>');
+      }
+      subEl.innerHTML = parts.join(' <span class="dr-sep">·</span> ');
       const uEl = el.querySelector('.dr-user');
       if (uEl) uEl.textContent = m.user || '—';
       const tEl = el.querySelector('.dr-tag');
@@ -950,7 +1008,7 @@ function createDeviceCard(d, st) {
     ? '<span class="dr-tag"></span><span class="dr-user"></span><span class="dr-agent"></span>'
     : '';
   el.innerHTML = `
-      <span class="dr-os">${osIcon(m)}</span>
+      <span class="dr-os">${deviceThumb(d, m)}</span>
       <span class="dr-status st-${st}"><span class="status-dot"></span></span>
       <div class="dr-main"><span class="dr-name"></span><span class="dr-instance" hidden></span><span class="dr-sub"></span></div>
       <span class="dr-presence"></span>

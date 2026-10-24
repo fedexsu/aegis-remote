@@ -1102,6 +1102,48 @@ function sessionCookie(token) {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
   return `aegis_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secure}`;
 }
+// GeoIP lookup via ip-api.com (free, no auth, 45 req/min per source IP).
+// Cached in-memory so repeat enrolls from the same IP skip the network call.
+// Returns {country, countryCode, city} or null on any failure. Private / LAN
+// IPs short-circuit to null so the dashboard doesn't show "unknown country"
+// for devices on an office network.
+const _geoCache = new Map();
+function isPrivateIp(ip) {
+  if (!ip) return true;
+  if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('::ffff:127.')) return true;
+  if (ip.startsWith('10.')) return true;
+  if (ip.startsWith('192.168.')) return true;
+  if (ip.startsWith('169.254.')) return true;
+  if (ip.startsWith('fc') || ip.startsWith('fd')) return true;
+  const m = ip.match(/^172\.(\d+)\./);
+  if (m && +m[1] >= 16 && +m[1] <= 31) return true;
+  return false;
+}
+function lookupGeo(ip) {
+  return new Promise((resolve) => {
+    if (!ip || isPrivateIp(ip)) return resolve(null);
+    const cached = _geoCache.get(ip);
+    if (cached && (Date.now() - cached.t) < 7 * 24 * 3600 * 1000) return resolve(cached.v);
+    const https = require('https');
+    const req = https.get('https://ip-api.com/json/' + encodeURIComponent(ip) + '?fields=status,country,countryCode,city', (r) => {
+      let s = '';
+      r.on('data', (c) => { s += c; });
+      r.on('end', () => {
+        try {
+          const j = JSON.parse(s);
+          if (j && j.status === 'success') {
+            const v = { country: j.country || '', countryCode: j.countryCode || '', city: j.city || '' };
+            _geoCache.set(ip, { t: Date.now(), v });
+            resolve(v);
+          } else resolve(null);
+        } catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(5000, () => { try { req.destroy(); } catch {} resolve(null); });
+  });
+}
+
 function publicBase(req) {
   const proto = req.headers['x-forwarded-proto'] || 'http';
   return `${proto}://${req.headers.host}`;
@@ -2002,6 +2044,37 @@ wss.on('connection', (ws, req) => {
         if (msg.screen) meta.screen = `${msg.screen.w}×${msg.screen.h}`;
         // Inherit the enrollment key's labels (Company / Site / Department / Type).
         if (k.meta) for (const fld of ['company', 'site', 'department', 'deviceType']) { if (k.meta[fld]) meta[fld] = k.meta[fld]; }
+        // Capture the public IP the enroll came in on + do a one-shot
+        // geolocation lookup. The dashboard shows IP + country name + flag
+        // next to the OS line; without a lookup we only had "Windows 10.0.X".
+        // Preserve any existing geo cached from a previous enroll so the
+        // dashboard doesn't flicker between "country" and blank while the
+        // async fetch is in flight.
+        if (ws.ip) {
+          meta.publicIp = ws.ip;
+          const prior = db.devicesForAdmin(effectiveAdmin).find((x) => x.id === id);
+          if (prior && prior.meta) {
+            if (prior.meta.country && !meta.country) meta.country = prior.meta.country;
+            if (prior.meta.countryCode && !meta.countryCode) meta.countryCode = prior.meta.countryCode;
+            if (prior.meta.city && !meta.city) meta.city = prior.meta.city;
+            if (prior.meta.geoLookedUpIp && !meta.geoLookedUpIp) meta.geoLookedUpIp = prior.meta.geoLookedUpIp;
+          }
+          // Only fetch when we don't already have geo for THIS specific IP
+          // (users roam between networks, so re-fetch when the IP changes).
+          if (meta.geoLookedUpIp !== ws.ip) {
+            lookupGeo(ws.ip).then((geo) => {
+              if (!geo) return;
+              const live = db.devicesForAdmin(effectiveAdmin).find((x) => x.id === id);
+              if (!live) return;
+              live.meta = live.meta || {};
+              live.meta.country = geo.country || '';
+              live.meta.countryCode = geo.countryCode || '';
+              live.meta.city = geo.city || '';
+              live.meta.geoLookedUpIp = ws.ip;
+              try { db.touchDevice(id); pushDevices(effectiveAdmin); } catch {}
+            }).catch(() => {});
+          }
+        }
         const known = !!dbDevice(effectiveAdmin, id);
         db.upsertDevice(id, effectiveAdmin, name, k.key, meta);
         // Admit path is owner-driven and MUST win over the sticky adminId

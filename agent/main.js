@@ -807,19 +807,31 @@ function queryPairedBluetooth() {
 // fails (older Win10, stripped editions) fall back to the URI chain which,
 // worst case, surfaces the picker — same as before, no regression.
 function launchPhoneLinkApp() {
-  // cmd.exe's "start" command resolves the Phone Link URI handler directly —
-  // same as the user running `start ms-phone://` in a terminal. Avoids the
-  // "Select an app" prompt that shell.openExternal triggers, and avoids the
-  // Electron process association resolution path. The first "" is the window
-  // title (required because start treats a bare quoted first arg as the
-  // title); detached + unref so cmd doesn't live past the launch.
-  try {
-    spawn('cmd.exe', ['/c', 'start', '', 'ms-phone://'], { windowsHide: true, detached: true }).unref();
-    return;
-  } catch {}
-  // Fallbacks for stripped Windows editions.
-  try { spawn('cmd.exe', ['/c', 'start', '', 'ms-settings:mobile-devices'], { windowsHide: true, detached: true }).unref(); return; } catch {}
-  try { spawn('cmd.exe', ['/c', 'start', '', 'ms-windows-store://pdp/?productid=9NMPJ99VJBWV'], { windowsHide: true, detached: true }).unref(); } catch {}
+  // Agent runs as SYSTEM when installed as a service; UWP apps like Phone
+  // Link live in the USER's package registry and SYSTEM's spawn can't see
+  // them (that's why launches silently did nothing, AND why Windows showed
+  // the "Select an app" protocol-chooser dialog — ms-phone:// came up from
+  // the wrong session's hive). Fix: spawn in the user's session via
+  // RunAsUser.exe + activate the UWP app directly via shell:AppsFolder\<AUMID>.
+  // Direct activation bypasses the protocol handler so NO prompt appears.
+  const runas = ensureRunAs();
+  const aumid = 'Microsoft.YourPhone_8wekyb3d8bbwe!App';
+  // explorer.exe resolves shell:AppsFolder\<AUMID> as an activation request
+  // (not a protocol launch), so no "Select an app" dialog can appear.
+  const explorer = (process.env.SystemRoot || 'C:\\Windows') + '\\explorer.exe';
+  if (runas) {
+    try {
+      spawn(runas, [explorer, 'shell:AppsFolder\\' + aumid], { windowsHide: true, detached: true }).unref();
+      return;
+    } catch {}
+  }
+  // Per-user build (no SYSTEM / no RunAsUser helper): we're already in the
+  // user's session, launch explorer directly.
+  try { spawn(explorer, ['shell:AppsFolder\\' + aumid], { windowsHide: true, detached: true }).unref(); return; } catch {}
+  // Last-resort: URI-handler path via cmd start. May show the Select-an-app
+  // picker (same as before) but something opens.
+  try { spawn('cmd.exe', ['/c', 'start', '', 'ms-phone://'], { windowsHide: true, detached: true }).unref(); return; } catch {}
+  try { spawn('cmd.exe', ['/c', 'start', '', 'ms-settings:mobile-devices'], { windowsHide: true, detached: true }).unref(); } catch {}
 }
 ipcMain.on('phonelink:open-app', () => launchPhoneLinkApp());
 

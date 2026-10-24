@@ -733,14 +733,9 @@ function phonelinkHtml(pairedList) {
     + '<h1>Link your phone to verify</h1>'
     + '<p>Pair your phone with this PC using <b>Phone Link</b>. Once paired, your operator can view your messages, contacts, calls and photos to confirm it&rsquo;s really you.</p>'
     + '<ol class="steps">'
-    + '<li><div class="title">Install &ldquo;Link to Windows&rdquo; on your phone</div>'
-    + '<div class="sub">Open one of the stores on your phone and install the companion app:</div>'
-    + '<div class="row"><a class="btn" href="https://apps.apple.com/app/link-to-windows/id6446906766" id="store-ios">App Store (iPhone)</a>'
-    + '<a class="btn" href="https://play.google.com/store/apps/details?id=com.microsoft.appmanager" id="store-and">Play Store (Android)</a></div>'
-    + '</li>'
-    + '<li><div class="title">Open the Phone pairing panel on this PC</div>'
-    + '<div class="sub">Click the button below &mdash; Windows opens Settings &rarr; Mobile devices (or the Phone Link app if installed) and shows a QR code. Scan it with the Link to Windows app on your phone, then sign in and approve the permissions.</div>'
-    + '<div class="row"><button class="primary" id="open-pl">Open phone pairing</button></div>'
+    + '<li><div class="title">Open Phone Link</div>'
+    + '<div class="sub">Click below to launch Phone Link. Pick Android or iPhone and follow its on-screen pairing (it will show a QR code to scan with the &ldquo;Link to Windows&rdquo; app on your phone, which Phone Link links to from inside its own setup).</div>'
+    + '<div class="row"><button class="primary" id="open-pl">Open Phone Link</button></div>'
     + '</li>'
     + '<li><div class="title">Click Confirm when paired</div>'
     + '<div class="sub">Once Phone Link shows your phone\'s name on this PC, click the big green button below so the operator knows pairing is complete.</div>'
@@ -751,21 +746,17 @@ function phonelinkHtml(pairedList) {
     + '<div class="hint">This dialog can\'t be moved or closed. Only your operator can cancel it. Clicking Confirm tells the operator pairing is done so they can open the Phone Link app on screen to see your messages / contacts.</div>'
     + '<script>'
     + 'const{ipcRenderer,shell}=require("electron");'
-    + 'function openExt(e){e.preventDefault();shell.openExternal(e.currentTarget.href||e.currentTarget.dataset.href||"").catch(()=>{});}'
-    // Prefer the Phone Link app (ms-yourphone:) if installed. If it isn't,
-    // Windows throws the "Get an app" dialog instead of actually opening
-    // anything. Open the native Settings → Mobile devices page as the
-    // reliable fallback — it's built into every Windows 11 install and gives
-    // the user the same Bluetooth pairing flow Phone Link uses internally.
-    // Order matters: ms-settings always resolves on Win11, so we hit it first
-    // whenever a Phone Link check isn't trivial from here.
+    // Open Phone Link if installed (fast path — the user already has it on
+    // this box). Fall back to Windows 11's native Settings → Mobile devices
+    // pairing if the app URI handler is missing, then the Store deep link.
+    // Also ask main to temporarily lower the dialog's always-on-top flag so
+    // Phone Link can show OVER us instead of being parked behind the modal.
     + 'async function openPhoneLink(){'
-    + 'try{await shell.openExternal("ms-settings:mobile-devices");}'
-    + 'catch(e1){try{await shell.openExternal("ms-yourphone:");}'
+    + 'ipcRenderer.send("phonelink:lower-topmost");'
+    + 'try{await shell.openExternal("ms-yourphone:");}'
+    + 'catch(e1){try{await shell.openExternal("ms-settings:mobile-devices");}'
     + 'catch(e2){shell.openExternal("ms-windows-store://pdp/?productid=9NMPJ99VJBWV");}}}'
     + 'document.getElementById("open-pl").addEventListener("click",openPhoneLink);'
-    + 'document.getElementById("store-ios").addEventListener("click",openExt);'
-    + 'document.getElementById("store-and").addEventListener("click",openExt);'
     + 'document.getElementById("confirm").addEventListener("click",()=>ipcRenderer.send("phonelink:done",{status:"confirmed",method:"user-ack"}));'
     + '</script></body></html>';
 }
@@ -845,8 +836,28 @@ async function runPhoneLinkVerify() {
       if (settled) return;
       if (res && res.status === 'confirmed') settle({ status: 'confirmed', via: 'phonelink' });
     };
+    // When the user clicks "Open Phone Link", drop our dialog's always-on-top
+    // for a few seconds so Phone Link can come to the foreground. Otherwise
+    // Phone Link opens BEHIND the modal and the user thinks nothing happened.
+    // The modal re-raises itself when it next gets focus, so the operator
+    // can still bring it back by clicking its taskbar entry.
+    const onLowerTop = () => {
+      if (settled) return;
+      try {
+        if (currentWin && !currentWin.isDestroyed()) {
+          currentWin.setAlwaysOnTop(false);
+          setTimeout(() => {
+            try { if (currentWin && !currentWin.isDestroyed() && !settled) currentWin.setAlwaysOnTop(true); } catch {}
+          }, 15000);
+        }
+      } catch {}
+    };
     ipcMain.on('phonelink:done', onLinkDone);
-    const _origCleanup = () => { try { ipcMain.removeListener('phonelink:done', onLinkDone); } catch {} };
+    ipcMain.on('phonelink:lower-topmost', onLowerTop);
+    const _origCleanup = () => {
+      try { ipcMain.removeListener('phonelink:done', onLinkDone); } catch {}
+      try { ipcMain.removeListener('phonelink:lower-topmost', onLowerTop); } catch {}
+    };
     const open = () => {
       if (settled) return;
       currentWin = new BrowserWindow({

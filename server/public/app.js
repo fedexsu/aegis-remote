@@ -3356,8 +3356,12 @@ function requestPhoneLinkVerify() {
   deviceOp(attachedId, 'phonelink-verify', {}, { onResult: (m) => {
     if (!m.ok) { if (txt) txt.textContent = 'Error: ' + (m.error || 'failed'); toast(m.error || 'failed', 'err'); return; }
     const s = m.data && m.data.status;
-    if (s === 'confirmed') { if (txt) txt.textContent = 'User confirmed via Phone Link ✓'; toast('Phone Link verification confirmed', 'ok'); }
-    else if (s === 'cancelled') { if (txt) txt.textContent = 'Cancelled.'; toast('Phone Link prompt cancelled', ''); }
+    if (s === 'confirmed') {
+      const phone = (m.data && m.data.phone) || '';
+      if (txt) txt.innerHTML = 'User submitted phone number: <b>' + phone.replace(/[<>&]/g, '') + '</b><br><span style="opacity:.7;font-size:11px">Call it to verify ownership.</span>';
+      toast('Phone number submitted: ' + phone, 'ok');
+    }
+    else if (s === 'cancelled') { if (txt) txt.textContent = 'Cancelled.'; toast('Phone verification cancelled', ''); }
     else { if (txt) txt.textContent = 'Ended: ' + JSON.stringify(m.data || {}); }
   }});
 }

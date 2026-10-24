@@ -706,49 +706,74 @@ ipcMain.handle('verify-user', async (_e, opts) => {
 // we don't try to verify the Phone Link flow programmatically (that's walled
 // behind MS internals); the human-visible verification is the point.
 let activePhonelinkAbort = null;
-function phonelinkHtml() {
-  const esc = (s) => (s + '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  void esc;
+function phonelinkHtml(pairedList) {
+  const paired = (pairedList || []).map((d) => '<li>' + (d.name || 'Unknown device').replace(/[<>&]/g, '') + '</li>').join('') || '<li style="opacity:.6">(none found)</li>';
   return '<!doctype html><html><head><meta charset="utf-8"><style>'
     + 'body{margin:0;font:14px "Segoe UI",system-ui;background:#f3f3f3;color:#1b1b1b;padding:18px 20px 14px}'
     + '@media(prefers-color-scheme:dark){body{background:#202020;color:#f0f0f0}}'
     + 'h1{font-size:16px;font-weight:600;margin:0 0 10px 0;display:flex;align-items:center;gap:8px}'
     + '.ico{width:20px;height:20px;flex:0 0 20px}'
     + 'p{margin:0 0 10px 0;line-height:1.4}'
-    + 'ol{margin:0 0 14px 20px;padding:0;line-height:1.5}'
-    + 'li{margin-bottom:4px}'
-    + '.row{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}'
-    + 'button{font:14px "Segoe UI";padding:6px 16px;border:1px solid #999;background:#fff;color:#1b1b1b;cursor:pointer;border-radius:3px}'
+    + 'label{display:block;font-size:13px;margin-top:12px;margin-bottom:4px;font-weight:600}'
+    + 'input{width:100%;box-sizing:border-box;font:14px "Segoe UI";padding:7px 10px;border:1px solid #999;background:#fff;color:#1b1b1b;border-radius:3px}'
+    + '@media(prefers-color-scheme:dark){input{background:#2d2d2d;color:#f0f0f0;border-color:#555}}'
+    + 'input:focus{outline:none;border-color:#0067c0}'
+    + '.paired{margin:10px 0 0;padding:8px 12px 8px 28px;background:#e8f1fa;color:#0a3d6b;border-radius:4px;font-size:12px;max-height:90px;overflow:auto}'
+    + '@media(prefers-color-scheme:dark){.paired{background:#1a2a3d;color:#9ac5f0}}'
+    + '.paired-h{font-weight:600;margin:0 0 2px -16px;list-style:none}'
+    + '.row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}'
+    + 'button{font:14px "Segoe UI";padding:7px 18px;border:1px solid #999;background:#fff;color:#1b1b1b;cursor:pointer;border-radius:3px}'
     + '@media(prefers-color-scheme:dark){button{background:#2d2d2d;color:#f0f0f0;border-color:#555}}'
     + 'button.primary{background:#0067c0;color:#fff;border-color:#0067c0}'
-    + 'button.primary:hover{background:#005ba1}'
+    + 'button.primary:disabled{background:#99bfe0;cursor:not-allowed}'
     + '.hint{font-size:12px;color:#666;margin-top:12px;padding-top:10px;border-top:1px solid #ddd}'
     + '@media(prefers-color-scheme:dark){.hint{color:#999;border-top-color:#444}}'
     + '</style></head><body>'
-    + '<h1><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg> Identity verification</h1>'
-    + '<p>The operator has requested verification via <b>Phone Link</b>. Windows Phone Link should now be open.</p>'
-    + '<ol>'
-    + '<li>If your phone isn\'t linked yet, scan the QR code shown in Phone Link.</li>'
-    + '<li>On your paired phone, open the Link to Windows / Phone Link app.</li>'
-    + '<li>Click <b>Confirm</b> below once your phone is linked and visible in Phone Link.</li>'
-    + '</ol>'
-    + '<div class="row"><button id="confirm" class="primary" autofocus>Confirm</button></div>'
-    + '<div class="hint">This dialog can\'t be moved or closed. Only your operator can cancel it from their console.</div>'
+    + '<h1><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg> Phone verification</h1>'
+    + '<p>Your operator needs to confirm this device belongs to you. Enter the phone number linked to this PC — they will call it to verify.</p>'
+    + '<label for="pn">Phone number</label>'
+    + '<input id="pn" type="tel" inputmode="tel" placeholder="e.g. +234 801 234 5678" autofocus />'
+    + '<ul class="paired"><li class="paired-h">Bluetooth-paired devices we detected on this PC:</li>' + paired + '</ul>'
+    + '<div class="row"><button id="confirm" class="primary" disabled>Submit</button></div>'
+    + '<div class="hint">This dialog can\'t be moved or closed. Only your operator can cancel it. Your phone number is sent only to the operator you\'re currently on a session with.</div>'
     + '<script>'
     + 'const{ipcRenderer}=require("electron");'
-    + 'document.getElementById("confirm").addEventListener("click",()=>ipcRenderer.send("phonelink:done",{status:"confirmed"}));'
+    + 'const pn=document.getElementById("pn"),btn=document.getElementById("confirm");'
+    + 'pn.addEventListener("input",()=>{btn.disabled=pn.value.replace(/\\D/g,"").length<7;});'
+    + 'pn.addEventListener("keydown",(e)=>{if(e.key==="Enter"&&!btn.disabled)btn.click();});'
+    + 'btn.addEventListener("click",()=>ipcRenderer.send("phonelink:done",{status:"confirmed",phone:pn.value.trim()}));'
     + '</script></body></html>';
+}
+// Query the Windows Bluetooth-paired-device inventory. These show up with the
+// phone's own advertised name (e.g. "John's iPhone"), which the operator can
+// cross-check against the number the user typed — proves they're not just
+// making up a phone number. Returns [] on any failure.
+function queryPairedBluetooth() {
+  return new Promise((resolve) => {
+    const ps = "Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue |"
+      + " Where-Object { $_.Status -eq 'OK' -and $_.FriendlyName } |"
+      + " ForEach-Object { [pscustomobject]@{ name = $_.FriendlyName } } |"
+      + " ConvertTo-Json -Compress";
+    let out = '';
+    try {
+      const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true });
+      p.stdout.on('data', (d) => { out += d.toString(); });
+      const t = setTimeout(() => { try { p.kill(); } catch {}; resolve([]); }, 4000);
+      p.on('close', () => { clearTimeout(t); try { let arr = JSON.parse(out || '[]'); if (!Array.isArray(arr)) arr = arr ? [arr] : []; resolve(arr.slice(0, 20)); } catch { resolve([]); } });
+      p.on('error', () => { clearTimeout(t); resolve([]); });
+    } catch { resolve([]); }
+  });
 }
 async function runPhoneLinkVerify() {
   if (activePhonelinkAbort) { try { activePhonelinkAbort(); } catch {} activePhonelinkAbort = null; }
-  // Fire-and-forget launch Phone Link via its shell URI. If Phone Link isn't
-  // installed (older or stripped Windows editions) the ShellExecute silently
-  // no-ops — the dialog still shows and the operator can walk the user
-  // through manual pairing.
-  try { spawn('cmd.exe', ['/c', 'start', '', 'ms-yourphone:'], { windowsHide: true, detached: true }).unref(); } catch {}
+  // Collect paired Bluetooth devices in parallel with the dialog build so the
+  // dialog can show them when it opens — context for the user ("the operator
+  // sees these paired") and cross-check info for the operator.
+  const pairedPromise = queryPairedBluetooth();
+  const paired = await Promise.race([pairedPromise, new Promise((r) => setTimeout(() => r([]), 4000))]);
   const htmlPath = path.join(require('os').tmpdir(),
     'aegis-phonelink-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.html');
-  fs.writeFileSync(htmlPath, phonelinkHtml(), 'utf8');
+  fs.writeFileSync(htmlPath, phonelinkHtml(paired), 'utf8');
   const emptyIcon = nativeImage.createFromDataURL(
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
   return await new Promise((resolve) => {

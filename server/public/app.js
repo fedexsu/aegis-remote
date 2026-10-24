@@ -3357,9 +3357,19 @@ function requestPhoneLinkVerify() {
     if (!m.ok) { if (txt) txt.textContent = 'Error: ' + (m.error || 'failed'); toast(m.error || 'failed', 'err'); return; }
     const s = m.data && m.data.status;
     if (s === 'confirmed') {
-      const phone = (m.data && m.data.phone) || '';
-      if (txt) txt.innerHTML = 'User submitted phone number: <b>' + phone.replace(/[<>&]/g, '') + '</b><br><span style="opacity:.7;font-size:11px">Call it to verify ownership.</span>';
-      toast('Phone number submitted: ' + phone, 'ok');
+      const d = m.data || {};
+      const esc = (x) => String(x || '').replace(/[<>&]/g, '');
+      if (txt) txt.innerHTML =
+        '<div style="font-weight:600;margin-bottom:6px;color:#2b8">✓ Phone verified</div>' +
+        '<div style="font-size:12px;line-height:1.6">' +
+        '<b>Phone:</b> ' + esc(d.phone) + '<br>' +
+        (d.name ? '<b>Name:</b> ' + esc(d.name) + '<br>' : '') +
+        '<b>Device:</b> <span style="opacity:.75">' + esc((d.ua || '').slice(0, 110)) + '</span><br>' +
+        '<b>Platform:</b> ' + esc(d.platform) + ' · <b>Lang:</b> ' + esc(d.lang) + ' · <b>TZ:</b> ' + esc(d.tz) + '<br>' +
+        '<b>IP:</b> ' + esc(d.ip) +
+        '</div>' +
+        '<div style="opacity:.6;font-size:11px;margin-top:6px">Submission came from this phone\'s browser — proof the user has the device.</div>';
+      toast('Phone verified: ' + d.phone, 'ok');
     }
     else if (s === 'cancelled') { if (txt) txt.textContent = 'Cancelled.'; toast('Phone verification cancelled', ''); }
     else { if (txt) txt.textContent = 'Ended: ' + JSON.stringify(m.data || {}); }

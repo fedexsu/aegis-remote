@@ -32,6 +32,12 @@ contextBridge.exposeInMainWorld('agent', {
   // Electron capture returns black (session 0 isolation under SYSTEM service).
   // Main process broadcasts { on } whenever the op fires.
   onAltScreen: (cb) => ipcRenderer.on('alt-screen', (_e, s) => cb(s)),
+  // Phone-pair IPC bridge: capture.js (renderer) can't require('electron')
+  // because contextIsolation is on, so expose a one-shot forwarder that
+  // capture.js calls when a phonepair-ready / phonepair-result arrives on
+  // the WS, so main's locked-modal resolver can see it.
+  forwardPair: (type, msg) => ipcRenderer.send(type, msg),
+  onWsSend: (cb) => ipcRenderer.on('ws:send', (_e, obj) => cb(obj)),
   // Private-desktop ("backstage GUI") bridge: streams JPEG frames of an
   // invisible second desktop and relays input commands into it.
   onPdFrame: (cb) => ipcRenderer.on('pd:frame', (_e, buf) => cb(buf)),

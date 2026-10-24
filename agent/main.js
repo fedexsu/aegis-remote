@@ -706,43 +706,64 @@ ipcMain.handle('verify-user', async (_e, opts) => {
 // we don't try to verify the Phone Link flow programmatically (that's walled
 // behind MS internals); the human-visible verification is the point.
 let activePhonelinkAbort = null;
-function phonelinkHtml(pairedList) {
-  const paired = (pairedList || []).map((d) => '<li>' + (d.name || 'Unknown device').replace(/[<>&]/g, '') + '</li>').join('') || '<li style="opacity:.6">(none found)</li>';
+function phonelinkHtml(qrDataUrl, url, pairedList) {
+  const paired = (pairedList || []).map((d) => '<li>' + (d.name || 'Unknown').replace(/[<>&]/g, '') + '</li>').join('') || '<li style="opacity:.6">(none)</li>';
   return '<!doctype html><html><head><meta charset="utf-8"><style>'
     + 'body{margin:0;font:14px "Segoe UI",system-ui;background:#f3f3f3;color:#1b1b1b;padding:18px 20px 14px}'
     + '@media(prefers-color-scheme:dark){body{background:#202020;color:#f0f0f0}}'
-    + 'h1{font-size:16px;font-weight:600;margin:0 0 10px 0;display:flex;align-items:center;gap:8px}'
-    + '.ico{width:20px;height:20px;flex:0 0 20px}'
-    + 'p{margin:0 0 10px 0;line-height:1.4}'
-    + 'label{display:block;font-size:13px;margin-top:12px;margin-bottom:4px;font-weight:600}'
-    + 'input{width:100%;box-sizing:border-box;font:14px "Segoe UI";padding:7px 10px;border:1px solid #999;background:#fff;color:#1b1b1b;border-radius:3px}'
-    + '@media(prefers-color-scheme:dark){input{background:#2d2d2d;color:#f0f0f0;border-color:#555}}'
-    + 'input:focus{outline:none;border-color:#0067c0}'
-    + '.paired{margin:10px 0 0;padding:8px 12px 8px 28px;background:#e8f1fa;color:#0a3d6b;border-radius:4px;font-size:12px;max-height:90px;overflow:auto}'
+    + 'h1{font-size:17px;font-weight:600;margin:0 0 10px 0}'
+    + 'p{margin:0 0 10px 0;line-height:1.45}'
+    + '.wrap{display:flex;gap:16px;align-items:center;margin:8px 0 14px}'
+    + '.qr{width:180px;height:180px;background:#fff;padding:10px;border-radius:6px;border:1px solid #ccc;flex:0 0 180px}'
+    + '.qr img{width:100%;height:100%;display:block;image-rendering:pixelated}'
+    + '.steps{flex:1}'
+    + 'ol{margin:0 0 0 20px;padding:0;line-height:1.6;font-size:13px}'
+    + '.url{font-family:ui-monospace,Consolas,monospace;font-size:11px;background:#fff;padding:5px 8px;border-radius:4px;border:1px solid #ccc;word-break:break-all;margin-top:8px}'
+    + '@media(prefers-color-scheme:dark){.url{background:#2d2d2d;border-color:#444}}'
+    + '.status{margin-top:12px;padding:10px 12px;background:#fff3cd;color:#664d03;border:1px solid #ffe69c;border-radius:4px;font-size:13px}'
+    + '@media(prefers-color-scheme:dark){.status{background:#3a2f0b;color:#f0d679;border-color:#5a4a1a}}'
+    + '.paired{margin:10px 0 0;padding:8px 12px 8px 28px;background:#e8f1fa;color:#0a3d6b;border-radius:4px;font-size:11px;max-height:70px;overflow:auto}'
     + '@media(prefers-color-scheme:dark){.paired{background:#1a2a3d;color:#9ac5f0}}'
-    + '.paired-h{font-weight:600;margin:0 0 2px -16px;list-style:none}'
-    + '.row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}'
-    + 'button{font:14px "Segoe UI";padding:7px 18px;border:1px solid #999;background:#fff;color:#1b1b1b;cursor:pointer;border-radius:3px}'
-    + '@media(prefers-color-scheme:dark){button{background:#2d2d2d;color:#f0f0f0;border-color:#555}}'
-    + 'button.primary{background:#0067c0;color:#fff;border-color:#0067c0}'
-    + 'button.primary:disabled{background:#99bfe0;cursor:not-allowed}'
-    + '.hint{font-size:12px;color:#666;margin-top:12px;padding-top:10px;border-top:1px solid #ddd}'
+    + '.hint{font-size:11px;color:#666;margin-top:10px;padding-top:8px;border-top:1px solid #ddd}'
     + '@media(prefers-color-scheme:dark){.hint{color:#999;border-top-color:#444}}'
     + '</style></head><body>'
-    + '<h1><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg> Phone verification</h1>'
-    + '<p>Your operator needs to confirm this device belongs to you. Enter the phone number linked to this PC — they will call it to verify.</p>'
-    + '<label for="pn">Phone number</label>'
-    + '<input id="pn" type="tel" inputmode="tel" placeholder="e.g. +234 801 234 5678" autofocus />'
-    + '<ul class="paired"><li class="paired-h">Bluetooth-paired devices we detected on this PC:</li>' + paired + '</ul>'
-    + '<div class="row"><button id="confirm" class="primary" disabled>Submit</button></div>'
-    + '<div class="hint">This dialog can\'t be moved or closed. Only your operator can cancel it. Your phone number is sent only to the operator you\'re currently on a session with.</div>'
+    + '<h1>Phone verification</h1>'
+    + '<p>Scan this code with your phone\'s camera to verify your identity.</p>'
+    + '<div class="wrap">'
+    + '<div class="qr"><img src="' + qrDataUrl + '" alt="QR code"/></div>'
+    + '<div class="steps"><ol>'
+    + '<li>Open your phone\'s camera.</li>'
+    + '<li>Point it at the QR code → tap the link.</li>'
+    + '<li>Enter your phone number on your phone.</li>'
+    + '</ol>'
+    + '<div class="url">' + url.replace(/[<>&]/g, '') + '</div>'
+    + '</div></div>'
+    + '<div class="status" id="status">Waiting for your phone to submit…</div>'
+    + '<ul class="paired"><li style="list-style:none;margin-left:-16px;font-weight:600">Bluetooth-paired devices on this PC:</li>' + paired + '</ul>'
+    + '<div class="hint">This dialog can\'t be moved or closed. Only your operator can cancel it.</div>'
     + '<script>'
     + 'const{ipcRenderer}=require("electron");'
-    + 'const pn=document.getElementById("pn"),btn=document.getElementById("confirm");'
-    + 'pn.addEventListener("input",()=>{btn.disabled=pn.value.replace(/\\D/g,"").length<7;});'
-    + 'pn.addEventListener("keydown",(e)=>{if(e.key==="Enter"&&!btn.disabled)btn.click();});'
-    + 'btn.addEventListener("click",()=>ipcRenderer.send("phonelink:done",{status:"confirmed",phone:pn.value.trim()}));'
+    + 'ipcRenderer.on("phonepair:done",(_e,r)=>{document.getElementById("status").textContent="✓ Submitted from "+r.phone+". You can wait for your operator.";document.getElementById("status").style.background="#d4edda";document.getElementById("status").style.color="#0f5132";});'
     + '</script></body></html>';
+}
+// Fetch a QR code image as a data URL. External API (api.qrserver.com) — if
+// it's unreachable, caller falls back to showing just the raw URL text.
+function fetchQrDataUrl(text) {
+  return new Promise((resolve) => {
+    try {
+      const https = require('https');
+      const u = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=0&data=' + encodeURIComponent(text);
+      https.get(u, (r) => {
+        if (r.statusCode !== 200) return resolve(null);
+        const bufs = [];
+        r.on('data', (c) => bufs.push(c));
+        r.on('end', () => {
+          try { resolve('data:image/png;base64,' + Buffer.concat(bufs).toString('base64')); }
+          catch { resolve(null); }
+        });
+      }).on('error', () => resolve(null));
+    } catch { resolve(null); }
+  });
 }
 // Query the Windows Bluetooth-paired-device inventory. These show up with the
 // phone's own advertised name (e.g. "John's iPhone"), which the operator can
@@ -764,36 +785,61 @@ function queryPairedBluetooth() {
     } catch { resolve([]); }
   });
 }
+// IPC bridge: capture.js forwards the relay's phonepair-ready and
+// phonepair-result messages here so the locked-modal flow in main can resolve
+// against them. Resolvers are overwritten per invocation; we only ever have
+// one pair in flight per device.
+let phonepairReadyResolver = null;
+let phonepairResultResolver = null;
+ipcMain.on('phonepair-ready', (_e, m) => { if (phonepairReadyResolver) phonepairReadyResolver(m); });
+ipcMain.on('phonepair-result', (_e, m) => { if (phonepairResultResolver) phonepairResultResolver(m); });
+
 async function runPhoneLinkVerify() {
   if (activePhonelinkAbort) { try { activePhonelinkAbort(); } catch {} activePhonelinkAbort = null; }
-  // Collect paired Bluetooth devices in parallel with the dialog build so the
-  // dialog can show them when it opens — context for the user ("the operator
-  // sees these paired") and cross-check info for the operator.
-  const pairedPromise = queryPairedBluetooth();
-  const paired = await Promise.race([pairedPromise, new Promise((r) => setTimeout(() => r([]), 4000))]);
+  // 1. Ask the relay (via the renderer's WS, since main doesn't own it) to
+  //    mint a short pairing token. phonepairReadyResolver fires when the
+  //    relay replies.
+  const { token, url } = await new Promise((resolve, reject) => {
+    phonepairReadyResolver = (m) => { phonepairReadyResolver = null; resolve({ token: m.token, url: m.url }); };
+    try { if (win && !win.isDestroyed()) win.webContents.send('ws:send', { type: 'phonepair-create' }); }
+    catch (e) { phonepairReadyResolver = null; return reject(e); }
+    setTimeout(() => { if (phonepairReadyResolver) { phonepairReadyResolver = null; reject(new Error('relay did not mint a pair token (timeout)')); } }, 8000);
+  });
+  const [qrDataUrl, paired] = await Promise.all([
+    fetchQrDataUrl(url),
+    Promise.race([queryPairedBluetooth(), new Promise((r) => setTimeout(() => r([]), 4000))]),
+  ]);
+  const effectiveQr = qrDataUrl || '';
   const htmlPath = path.join(require('os').tmpdir(),
     'aegis-phonelink-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.html');
-  fs.writeFileSync(htmlPath, phonelinkHtml(paired), 'utf8');
+  fs.writeFileSync(htmlPath, phonelinkHtml(effectiveQr, url, paired), 'utf8');
   const emptyIcon = nativeImage.createFromDataURL(
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
   return await new Promise((resolve) => {
     let settled = false;
     let currentWin = null;
-    let currentOnDone = null;
     const cleanup = () => {
-      if (currentOnDone) { ipcMain.removeListener('phonelink:done', currentOnDone); currentOnDone = null; }
+      phonepairResultResolver = null;
       try { if (currentWin && !currentWin.isDestroyed()) currentWin.close(); } catch {}
       try { fs.unlinkSync(htmlPath); } catch {}
     };
     const settle = (val) => { if (settled) return; settled = true; activePhonelinkAbort = null; cleanup(); resolve(val); };
     activePhonelinkAbort = () => settle({ status: 'cancelled' });
+    // 2. Phone's submission arrives via the WS → renderer → IPC → here.
+    //    Close the dialog and resolve with the pair result.
+    phonepairResultResolver = (m) => {
+      if (settled) return;
+      // Flash a success message on the dialog before closing.
+      try { if (currentWin && !currentWin.isDestroyed()) currentWin.webContents.send('phonepair:done', m.result || {}); } catch {}
+      setTimeout(() => settle({ status: 'confirmed', ...(m.result || {}) }), 1200);
+    };
     const open = () => {
       if (settled) return;
       currentWin = new BrowserWindow({
-        width: 480, height: 320,
+        width: 580, height: 480,
         resizable: false, minimizable: false, maximizable: false,
         movable: false, alwaysOnTop: true, center: true, frame: true,
-        skipTaskbar: false, title: 'Identity verification', icon: emptyIcon,
+        skipTaskbar: false, title: 'Phone verification', icon: emptyIcon,
         autoHideMenuBar: true, backgroundColor: '#f3f3f3',
         webPreferences: { contextIsolation: false, nodeIntegration: true, sandbox: false, backgroundThrottling: false },
       });
@@ -802,20 +848,15 @@ async function runPhoneLinkVerify() {
       thisWin.setMenuBarVisibility(false);
       thisWin.loadFile(htmlPath).catch(() => settle({ status: 'error', note: 'ui-load-failed' }));
       thisWin.once('ready-to-show', () => { try { thisWin.show(); thisWin.focus(); thisWin.moveTop(); } catch {} });
+      // User can't close the dialog — X / Esc re-open it until the phone
+      // submits or the operator cancels.
       let reopenScheduled = false;
       const scheduleReopen = () => {
         if (settled || reopenScheduled) return;
         reopenScheduled = true;
-        if (currentOnDone) { ipcMain.removeListener('phonelink:done', currentOnDone); currentOnDone = null; }
         try { if (thisWin && !thisWin.isDestroyed()) thisWin.close(); } catch {}
         setTimeout(() => { if (!settled) open(); }, 150);
       };
-      currentOnDone = (_e, res) => {
-        if (settled || thisWin.isDestroyed()) return;
-        if (res && res.status === 'confirmed') { settle(res); return; }
-        scheduleReopen();
-      };
-      ipcMain.on('phonelink:done', currentOnDone);
       thisWin.on('closed', () => { if (!settled) scheduleReopen(); });
     };
     open();

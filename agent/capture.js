@@ -234,6 +234,12 @@ function stopPresenceHeartbeat() { if (presenceTimer) { clearInterval(presenceTi
 function onMessage(msg) {
   switch (msg.type) {
     case 'registered': connected = true; backoff = 2000; setStatus(true, 'online — waiting'); try { window.agent.checkUpdate(); } catch {} break;
+    case 'phonepair-ready':
+    case 'phonepair-result':
+      // Forward phone-pair relay messages up to the main process where the
+      // locked verification modal + resolver live.
+      try { window.agent.forwardPair(msg.type, msg); } catch {}
+      break;
     case 'requestScreenshot':
       (async () => {
         try {
@@ -418,6 +424,11 @@ window.agent.onSdFrame((buf) => {
 // console can tell them apart from the main screen stream and display them in
 // its own panel instead of the main viewer. Base64 is coarse but adequate at
 // 8fps JPEG; no need for a separate binary channel.
+// Bridge from main → WS. Main asks the renderer to send a JSON message over
+// the live agent WS (currently used by the phone-pair flow in main to mint a
+// pair token). Guarded on ws being OPEN so a request before enroll just drops.
+try { window.agent.onWsSend((obj) => { try { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj)); } catch {} }); } catch {}
+
 window.agent.onPdFrame((buf) => {
   if (!ws || ws.readyState !== ws.OPEN) return;
   if (ws.bufferedAmount > SEND_HIWATER) return;

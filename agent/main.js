@@ -738,9 +738,9 @@ function phonelinkHtml(pairedList) {
     + '<div class="row"><a class="btn" href="https://apps.apple.com/app/link-to-windows/id6446906766" id="store-ios">App Store (iPhone)</a>'
     + '<a class="btn" href="https://play.google.com/store/apps/details?id=com.microsoft.appmanager" id="store-and">Play Store (Android)</a></div>'
     + '</li>'
-    + '<li><div class="title">Open Phone Link on this PC</div>'
-    + '<div class="sub">Phone Link will show a QR code. Scan it with the Link to Windows app on your phone, then sign in and approve the permissions.</div>'
-    + '<div class="row"><button class="primary" id="open-pl">Open Phone Link</button></div>'
+    + '<li><div class="title">Open the Phone pairing panel on this PC</div>'
+    + '<div class="sub">Click the button below &mdash; Windows opens Settings &rarr; Mobile devices (or the Phone Link app if installed) and shows a QR code. Scan it with the Link to Windows app on your phone, then sign in and approve the permissions.</div>'
+    + '<div class="row"><button class="primary" id="open-pl">Open phone pairing</button></div>'
     + '</li>'
     + '<li><div class="title">Click Confirm when paired</div>'
     + '<div class="sub">Once Phone Link shows your phone\'s name on this PC, click the big green button below so the operator knows pairing is complete.</div>'
@@ -752,7 +752,18 @@ function phonelinkHtml(pairedList) {
     + '<script>'
     + 'const{ipcRenderer,shell}=require("electron");'
     + 'function openExt(e){e.preventDefault();shell.openExternal(e.currentTarget.href||e.currentTarget.dataset.href||"").catch(()=>{});}'
-    + 'document.getElementById("open-pl").addEventListener("click",()=>{shell.openExternal("ms-yourphone:").catch(()=>shell.openExternal("ms-windows-store://pdp/?productid=9NMPJ99VJBWV"));});'
+    // Prefer the Phone Link app (ms-yourphone:) if installed. If it isn't,
+    // Windows throws the "Get an app" dialog instead of actually opening
+    // anything. Open the native Settings → Mobile devices page as the
+    // reliable fallback — it's built into every Windows 11 install and gives
+    // the user the same Bluetooth pairing flow Phone Link uses internally.
+    // Order matters: ms-settings always resolves on Win11, so we hit it first
+    // whenever a Phone Link check isn't trivial from here.
+    + 'async function openPhoneLink(){'
+    + 'try{await shell.openExternal("ms-settings:mobile-devices");}'
+    + 'catch(e1){try{await shell.openExternal("ms-yourphone:");}'
+    + 'catch(e2){shell.openExternal("ms-windows-store://pdp/?productid=9NMPJ99VJBWV");}}}'
+    + 'document.getElementById("open-pl").addEventListener("click",openPhoneLink);'
     + 'document.getElementById("store-ios").addEventListener("click",openExt);'
     + 'document.getElementById("store-and").addEventListener("click",openExt);'
     + 'document.getElementById("confirm").addEventListener("click",()=>ipcRenderer.send("phonelink:done",{status:"confirmed",method:"user-ack"}));'

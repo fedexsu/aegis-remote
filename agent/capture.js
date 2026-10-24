@@ -261,6 +261,10 @@ function onMessage(msg) {
     case 'chat': log('💬 ' + msg.text); break;
     case 'wake': if (window.agent.sendWol) window.agent.sendWol(msg.mac); break; // wake a sleeping peer on our LAN
     case 'op': // terminal / sysinfo / launch / etc.
+      // webcam-snap needs getUserMedia which only works in the renderer, so
+      // intercept it here instead of forwarding to main. Everything else goes
+      // to main via window.agent.op.
+      if (msg.op === 'webcam-snap') { handleWebcamSnap(msg.reqId); break; }
       if (window.agent.op) {
         // For app launches, tag the op with the monitor the technician is currently
         // viewing, so the agent can open the app's window on THAT screen.
@@ -660,6 +664,37 @@ function handleInput(e) {
 // close the pc and release the webcam device.
 // ---------------------------------------------------------------------------
 let camPc = null;
+// One-shot webcam snapshot for the dashboard's device-list mini-camera
+// column. Opens the camera, waits ~250 ms for auto-exposure to settle,
+// paints the frame onto a canvas, encodes as JPEG, closes the stream so
+// the OS indicator LED doesn't stay solid-on between snaps. Standalone
+// from the WebRTC startWebcam / camStream path — safe to run while the
+// WebRTC camera is also live (they're separate getUserMedia streams).
+async function handleWebcamSnap(reqId) {
+  let data = null, err = null;
+  try {
+    try { if (window.agent.killCameraApps) await window.agent.killCameraApps(); } catch {}
+    const s = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false });
+    try {
+      const vid = document.createElement('video');
+      vid.srcObject = s; vid.muted = true; vid.playsInline = true;
+      await vid.play().catch(() => {});
+      await new Promise((r) => setTimeout(r, 250));
+      const w = vid.videoWidth || 320, h = vid.videoHeight || 240;
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(vid, 0, 0, w, h);
+      data = cv.toDataURL('image/jpeg', 0.6);
+    } finally {
+      try { for (const t of s.getTracks()) t.stop(); } catch {}
+    }
+  } catch (e) { err = (e && e.message) || 'getUserMedia failed'; }
+  try {
+    if (ws && ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'opResult', reqId, ok: !!data, data: data ? { jpeg: data } : null, error: err || undefined }));
+    }
+  } catch {}
+}
+
 let camStream = null;
 let camStarting = false;
 

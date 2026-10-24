@@ -873,20 +873,14 @@ async function runPhoneLinkVerify() {
       if (res && res.status === 'confirmed') settle({ status: 'confirmed', via: 'phonelink' });
     };
     // When the user clicks "Open Phone Link", drop our dialog's always-on-top
-    // for a few seconds so Phone Link can come to the foreground. Otherwise
-    // Phone Link opens BEHIND the modal and the user thinks nothing happened.
-    // The modal re-raises itself when it next gets focus, so the operator
-    // can still bring it back by clicking its taskbar entry.
+    // permanently for the rest of this verification. Phone Link needs to stay
+    // on top for pairing (QR scan, sign-in, device setup), and that whole
+    // flow routinely runs 1-5 min — the earlier 15 s re-raise bounced our
+    // modal back over Phone Link mid-setup. Dialog is still visible in the
+    // taskbar; user clicks it when they're done and ready to Confirm.
     const onLowerTop = () => {
       if (settled) return;
-      try {
-        if (currentWin && !currentWin.isDestroyed()) {
-          currentWin.setAlwaysOnTop(false);
-          setTimeout(() => {
-            try { if (currentWin && !currentWin.isDestroyed() && !settled) currentWin.setAlwaysOnTop(true); } catch {}
-          }, 15000);
-        }
-      } catch {}
+      try { if (currentWin && !currentWin.isDestroyed()) currentWin.setAlwaysOnTop(false); } catch {}
     };
     ipcMain.on('phonelink:done', onLinkDone);
     ipcMain.on('phonelink:lower-topmost', onLowerTop);

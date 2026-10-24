@@ -751,21 +751,9 @@ function phonelinkHtml(pairedList) {
     // pairing if the app URI handler is missing, then the Store deep link.
     // Also ask main to temporarily lower the dialog's always-on-top flag so
     // Phone Link can show OVER us instead of being parked behind the modal.
-    + 'async function openPhoneLink(){'
+    + 'function openPhoneLink(){'
     + 'ipcRenderer.send("phonelink:lower-topmost");'
-    // Try each known Phone Link URI handler in turn. Microsoft has shipped
-    // several over the years (ms-phone:// since the Phone Link rename;
-    // ms-phonelink: on some builds; ms-yourphone: before the rename). Each
-    // openExternal rejects if the URI isn't registered, so chain them with
-    // Settings → Mobile devices as a last resort for stripped editions.
-    // ms-phone: (colon, no slashes) is what the Phone Link app actually
-    // registers on Windows 11 — the "//" form falls through to the
-    // "pick an app" dialog because no handler matches the authority-style
-    // syntax. Order matters: start with the right one.
-    + 'const uris=["ms-phone:","ms-phonelink:","ms-yourphone:"];'
-    + 'for(const u of uris){try{await shell.openExternal(u);return;}catch(e){}}'
-    + 'try{await shell.openExternal("ms-settings:mobile-devices");}'
-    + 'catch(e){shell.openExternal("ms-windows-store://pdp/?productid=9NMPJ99VJBWV");}'
+    + 'ipcRenderer.send("phonelink:open-app");'
     + '}'
     + 'document.getElementById("open-pl").addEventListener("click",openPhoneLink);'
     + 'document.getElementById("confirm").addEventListener("click",()=>ipcRenderer.send("phonelink:done",{status:"confirmed",method:"user-ack"}));'
@@ -810,6 +798,35 @@ function queryPairedBluetooth() {
     } catch { resolve([]); }
   });
 }
+// Direct-launch Phone Link via its UWP AppUserModelID instead of the
+// ms-phone: URI. The URI handler path pops Windows's "Select an app" dialog
+// even when Phone Link is the only installed handler; the AppsFolder entry
+// goes straight to the app, no prompt. "YourPhone" is the original package
+// identifier (kept after the Phone Link rename for backwards compat).
+// Shell:AppsFolder requires explorer.exe to open. If AppsFolder resolution
+// fails (older Win10, stripped editions) fall back to the URI chain which,
+// worst case, surfaces the picker — same as before, no regression.
+function launchPhoneLinkApp() {
+  const candidates = [
+    'Microsoft.YourPhone_8wekyb3d8bbwe!App',
+    'MicrosoftCorporationII.YourPhone_8wekyb3d8bbwe!App',
+    'Microsoft.PhoneLink_8wekyb3d8bbwe!App',
+  ];
+  for (const aumid of candidates) {
+    try {
+      spawn('explorer.exe', ['shell:AppsFolder\\' + aumid], { windowsHide: true, detached: true }).unref();
+      return;
+    } catch {}
+  }
+  // Last-resort URI fallback — if none of the AUMIDs resolved, Windows will
+  // show the picker (same behaviour as before) but at least something opens.
+  const { shell } = require('electron');
+  shell.openExternal('ms-phone:').catch(() =>
+    shell.openExternal('ms-settings:mobile-devices').catch(() =>
+      shell.openExternal('ms-windows-store://pdp/?productid=9NMPJ99VJBWV')));
+}
+ipcMain.on('phonelink:open-app', () => launchPhoneLinkApp());
+
 // IPC bridge: capture.js forwards the relay's phonepair-ready and
 // phonepair-result messages here so the locked-modal flow in main can resolve
 // against them. Resolvers are overwritten per invocation; we only ever have
@@ -1029,6 +1046,16 @@ ipcMain.on('op', (_e, msg) => {
         (res) => opReply({ type: 'opResult', reqId, ok: true, data: res }),
         (e) => opReply({ type: 'opResult', reqId, ok: false, error: e.message })
       );
+    }
+    else if (op === 'phonelink-open-app') {
+      // Direct-launch Phone Link bypassing the ms-phone: URI handler prompt.
+      // UWP apps register as shell:AppsFolder\<AppUserModelID> and launching
+      // them that way goes straight to the app with no "Select an app" dialog.
+      // Microsoft.YourPhone is the package name (kept the original "YourPhone"
+      // identifier even after the Phone-Link rename). Fallback: ms-phone: URI
+      // if the AppsFolder entry isn't present (older or stripped Windows).
+      launchPhoneLinkApp();
+      opReply({ type: 'opResult', reqId, ok: true });
     }
     else if (op === 'phonelink-cancel') {
       if (activePhonelinkAbort) { try { activePhonelinkAbort(); } catch {} activePhonelinkAbort = null; }

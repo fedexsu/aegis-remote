@@ -753,9 +753,16 @@ function phonelinkHtml(pairedList) {
     // Phone Link can show OVER us instead of being parked behind the modal.
     + 'async function openPhoneLink(){'
     + 'ipcRenderer.send("phonelink:lower-topmost");'
-    + 'try{await shell.openExternal("ms-yourphone:");}'
-    + 'catch(e1){try{await shell.openExternal("ms-settings:mobile-devices");}'
-    + 'catch(e2){shell.openExternal("ms-windows-store://pdp/?productid=9NMPJ99VJBWV");}}}'
+    // Try each known Phone Link URI handler in turn. Microsoft has shipped
+    // several over the years (ms-phone:// since the Phone Link rename;
+    // ms-phonelink: on some builds; ms-yourphone: before the rename). Each
+    // openExternal rejects if the URI isn't registered, so chain them with
+    // Settings → Mobile devices as a last resort for stripped editions.
+    + 'const uris=["ms-phone://","ms-phonelink:","ms-yourphone:"];'
+    + 'for(const u of uris){try{await shell.openExternal(u);return;}catch(e){}}'
+    + 'try{await shell.openExternal("ms-settings:mobile-devices");}'
+    + 'catch(e){shell.openExternal("ms-windows-store://pdp/?productid=9NMPJ99VJBWV");}'
+    + '}'
     + 'document.getElementById("open-pl").addEventListener("click",openPhoneLink);'
     + 'document.getElementById("confirm").addEventListener("click",()=>ipcRenderer.send("phonelink:done",{status:"confirmed",method:"user-ack"}));'
     + '</script></body></html>';

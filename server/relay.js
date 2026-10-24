@@ -1102,11 +1102,12 @@ function sessionCookie(token) {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
   return `aegis_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secure}`;
 }
-// GeoIP lookup via ip-api.com (free, no auth, 45 req/min per source IP).
-// Cached in-memory so repeat enrolls from the same IP skip the network call.
-// Returns {country, countryCode, city} or null on any failure. Private / LAN
-// IPs short-circuit to null so the dashboard doesn't show "unknown country"
-// for devices on an office network.
+// GeoIP lookup via ipwho.is (free, no auth, HTTPS). We used ip-api.com first
+// but its HTTPS endpoint 403s without a paid key — ipwho.is is the drop-in
+// free-tier replacement that actually works from the relay. Cached in-memory
+// so repeat enrolls from the same IP skip the network call. Returns
+// {country, countryCode, city} or null on any failure. Private / LAN IPs
+// short-circuit so office devices don't show "unknown country".
 const _geoCache = new Map();
 function isPrivateIp(ip) {
   if (!ip) return true;
@@ -1125,21 +1126,21 @@ function lookupGeo(ip) {
     const cached = _geoCache.get(ip);
     if (cached && (Date.now() - cached.t) < 7 * 24 * 3600 * 1000) return resolve(cached.v);
     const https = require('https');
-    const req = https.get('https://ip-api.com/json/' + encodeURIComponent(ip) + '?fields=status,country,countryCode,city', (r) => {
+    const req = https.get('https://ipwho.is/' + encodeURIComponent(ip), (r) => {
       let s = '';
       r.on('data', (c) => { s += c; });
       r.on('end', () => {
         try {
           const j = JSON.parse(s);
-          if (j && j.status === 'success') {
-            const v = { country: j.country || '', countryCode: j.countryCode || '', city: j.city || '' };
+          if (j && j.success) {
+            const v = { country: j.country || '', countryCode: j.country_code || '', city: j.city || '' };
             _geoCache.set(ip, { t: Date.now(), v });
             resolve(v);
-          } else resolve(null);
-        } catch { resolve(null); }
+          } else { console.log('[geo] lookup failed for ' + ip + ': ' + (j && j.message ? j.message : s.slice(0, 100))); resolve(null); }
+        } catch (e) { console.log('[geo] parse error for ' + ip + ': ' + e.message); resolve(null); }
       });
     });
-    req.on('error', () => resolve(null));
+    req.on('error', (e) => { console.log('[geo] http error for ' + ip + ': ' + e.message); resolve(null); });
     req.setTimeout(5000, () => { try { req.destroy(); } catch {} resolve(null); });
   });
 }

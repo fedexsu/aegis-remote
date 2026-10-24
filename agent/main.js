@@ -813,6 +813,28 @@ ipcMain.on('op', (_e, msg) => {
       opReply({ type: 'opResult', reqId, ok: true, data: { has } });
     }
     else if (op === 'lockinput') { inject('B ' + (payload.on ? '1' : '0')); opReply({ type: 'opResult', reqId, ok: true, data: { locked: !!payload.on } }); }
+    else if (op === 'phonelink-verify') {
+      // Additional verification channel: launches Windows Phone Link on the
+      // remote PC and pops a modal dialog asking the end user to acknowledge
+      // via their paired phone. If they haven't linked a phone, Phone Link
+      // walks them through the QR-pairing flow (that's its own built-in
+      // verification: it proves they have the phone they claim). Operator
+      // sees the acknowledge button being clicked (or not) via the main
+      // Join view. The op returns as soon as the launch succeeds — the
+      // "verification" is user-visible, not programmatic, so there's no
+      // success/fail payload to route back here.
+      const ps =
+        "Start-Process ms-yourphone: -ErrorAction SilentlyContinue; " +
+        "Add-Type -AssemblyName PresentationFramework; " +
+        "[System.Windows.MessageBox]::Show(" +
+        "'The operator has requested Phone Link verification.\n\nPlease open Phone Link on your paired phone, verify the session, then click OK.'," +
+        "'Phone Link verification'," +
+        "'OK','Information') | Out-Null";
+      try {
+        spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', ps], { windowsHide: true, detached: true }).unref();
+        opReply({ type: 'opResult', reqId, ok: true, data: { prompted: true } });
+      } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
+    }
     else if (op === 'pdesk-start') {
       const r = startPrivateDesktop(payload.shell);
       opReply({ type: 'opResult', reqId, ok: r.ok, error: r.ok ? undefined : r.msg, data: { on: r.ok } });
@@ -1304,8 +1326,24 @@ let pdPhase = 'idle';        // 'idle' | 'compiling' | 'spawning' | 'live' | 'ex
 function startPrivateDesktop(shell) {
   if (pdProc) return { ok: true, msg: 'already running' };
   const exe = path.join(__dirname, 'pdesk', 'pdesk.exe');
-  if (!fs.existsSync(exe)) {
-    pdPhase = 'compiling'; pdLastErr = 'compiling pdesk.exe (first run)…';
+  const src = path.join(__dirname, 'pdesk', 'PrivateDesktop.cs');
+  // Recompile when the .cs source is newer than the existing .exe. Without
+  // this the agent keeps reusing an exe built from an older bundle, so
+  // every PrintWindow fix / default-shell change we push via the auto-update
+  // mechanism silently has no effect until the operator manually clears the
+  // .exe. Comparing mtimes catches it automatically on the first start after
+  // an update lands.
+  let needCompile = !fs.existsSync(exe);
+  if (!needCompile) {
+    try {
+      const srcM = fs.statSync(src).mtimeMs;
+      const exeM = fs.statSync(exe).mtimeMs;
+      if (srcM > exeM) needCompile = true;
+    } catch {}
+  }
+  if (needCompile) {
+    pdPhase = 'compiling'; pdLastErr = 'compiling pdesk.exe…';
+    try { fs.unlinkSync(exe); } catch {}
     if (!compilePdesk()) { pdPhase = 'exited'; return { ok: false, msg: 'pdesk.exe missing and compile failed — check that .NET Framework 4 is present' }; }
   }
   pdPhase = 'spawning';

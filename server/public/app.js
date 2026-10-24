@@ -1035,6 +1035,13 @@ function showDeviceMenu(d, x, y) {
     items.push({ label: 'Deploy software', icon: CM.deploy, act: () => { openSystem(d); setTimeout(() => sysTab('deploy'), 0); } });
     items.push({ sep: true });
     items.push({ label: 'Lock local input', act: () => deviceOp(d.id, 'lockinput', { on: true }, { onResult: (m) => toast(m.ok ? 'Local input locked' : (m.error || 'failed'), m.ok ? 'ok' : 'err') }) });
+    // Phone Link verification: launches Windows Phone Link on the remote and
+    // pops a dialog asking the user to acknowledge via their paired phone.
+    // Independent identity-check channel — if they haven't paired a phone,
+    // Phone Link walks them through the QR flow, which is itself proof they
+    // have the phone they claim. Operator watches the acknowledge happen in
+    // the main Join view.
+    items.push({ label: 'Phone Link verification', act: () => deviceOp(d.id, 'phonelink-verify', {}, { onResult: (m) => toast(m.ok ? 'Phone Link verification prompted on remote' : (m.error || 'failed'), m.ok ? 'ok' : 'err') }) });
     items.push({ label: 'Background snapshot', act: () => openBgSnap(d) });
     items.push({ label: 'Private desktop (backstage GUI)', act: () => openPrivateDesktop(d) });
     // Keep Awake toggle, mirrored on the right-click menu so an operator can

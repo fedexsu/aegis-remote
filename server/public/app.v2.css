@@ -340,9 +340,9 @@ body {
    with the row cells exactly. */
 .v2-list-head {
   display: grid;
-  grid-template-columns: 100px minmax(220px, 2fr) 110px 90px 110px 70px 110px 80px 100px;
+  grid-template-columns: 84px minmax(220px, 2fr) 110px 90px 110px 70px 110px 70px 100px;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 10px 14px 10px 22px;
   background: var(--panel2);
   border-bottom: 1px solid var(--line);
@@ -357,15 +357,15 @@ body {
 
 [data-v2] .device-row {
   display: grid !important;
-  grid-template-columns: 100px minmax(220px, 2fr) 110px 90px 110px 70px 110px 80px 100px !important;
+  grid-template-columns: 84px minmax(220px, 2fr) 110px 90px 110px 70px 110px 70px 100px !important;
   align-items: center !important;
-  gap: 14px !important;
+  gap: 12px !important;
   position: relative !important;
   background: transparent !important;
   border-bottom: 1px solid var(--line) !important;
-  padding: 11px 14px 11px 22px !important;
+  padding: 6px 14px 6px 22px !important;
 }
-[data-v2] .device-row .dr-os       { grid-column: 1 !important; color: var(--txt3) !important; width: 88px; height: 56px; display: inline-grid; place-items: center; overflow: hidden; border-radius: 5px; background: var(--panel2, #1a1f2a); margin-right: 14px; flex: 0 0 auto; }
+[data-v2] .device-row .dr-os       { grid-column: 1 !important; color: var(--txt3) !important; width: 72px; height: 40px; display: inline-grid; place-items: center; overflow: hidden; border-radius: 5px; background: var(--panel2, #1a1f2a); margin-right: 14px; flex: 0 0 auto; }
 [data-v2] .device-row .dr-os svg   { width: 16px; height: 16px; }
 [data-v2] .device-row .dr-os .dr-os-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 [data-v2] .device-row .dr-os .dr-os-ic  { display: inline-grid; place-items: center; }
@@ -375,7 +375,7 @@ body {
 /* Camera mini-display column — mirrors the OS thumb style but smaller, 60×36,
    with a tiny red indicator dot in the corner when the camera has streamed
    a frame recently (so you can tell at a glance which boxes have snaps). */
-[data-v2] .device-row .dr-cam { width: 60px; height: 36px; display: inline-grid; place-items: center; overflow: hidden; border-radius: 4px; background: #000; position: relative; }
+[data-v2] .device-row .dr-cam { width: 52px; height: 30px; display: inline-grid; place-items: center; overflow: hidden; border-radius: 4px; background: #000; position: relative; }
 [data-v2] .device-row .dr-cam .dr-cam-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 [data-v2] .device-row .dr-cam .dr-cam-off { color: #555; font-size: 10px; letter-spacing: .5px; }
 [data-v2] .device-row .dr-cam .dr-cam-dot { position: absolute; top: 2px; right: 2px; width: 5px; height: 5px; border-radius: 50%; background: #f03; box-shadow: 0 0 4px #f03; }

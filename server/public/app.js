@@ -1812,10 +1812,13 @@ function openPrivateDesktop(d) {
       }
     }
   }
-  // notepad is a safe default — always creates a window (unlike explorer or
-  // cmd+CREATE_NEW_CONSOLE which don't play well on a hidden desktop).
-  // Operator can then "Launch" anything else from the footer input.
-  deviceOp(d.id, 'pdesk-start', { shell: 'C:\\Windows\\System32\\notepad.exe' }, { onResult: (m) => {
+  // charmap.exe is the safest classic Win32 default on modern Windows: always
+  // present, no elevation needed, has a visible top-level window that renders
+  // cleanly via PrintWindow. notepad on Win 11 is a UWP shim (renders blank),
+  // mspaint was removed in Win 11 24H2, regedit needs elevation, cmd needs a
+  // console host that doesn't work on hidden desktops. The operator can
+  // "Launch" anything else from the footer input after charmap comes up.
+  deviceOp(d.id, 'pdesk-start', { shell: 'C:\\Windows\\System32\\charmap.exe' }, { onResult: (m) => {
     if (!m.ok) {
       status.textContent = 'start failed';
       if (phaseLabel) phaseLabel.innerHTML = '<div style="color:#f66;margin-bottom:8px">Could not start</div><div style="font-size:11px;color:#aaa">' + (m.error || 'unknown') + '</div>';

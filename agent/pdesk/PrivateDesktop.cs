@@ -258,11 +258,17 @@ class PrivateDesktop {
     try {
       EnumDesktopWindows(IntPtr.Zero, (hwnd, _l) => {
         // Can't use IsWindowVisible — it returns false for windows on
-        // non-input desktops even when WS_VISIBLE is set. Just gate on size.
+        // non-input desktops even when WS_VISIBLE is set. Gate on size + screen
+        // position: skip windows parked off-screen at the Windows "minimized"
+        // sentinel (-32000, -32000) and anything way outside a sensible canvas,
+        // otherwise they stretch the composite bounding box to 32000x32000 and
+        // the actual visible content shrinks to invisibility.
         RECT r;
         if (!GetWindowRect(hwnd, out r)) return true;
         int w = r.right - r.left, h = r.bottom - r.top;
-        if (w < 10 || h < 10) return true;
+        if (w < 20 || h < 20) return true;
+        if (r.left < -2000 || r.top < -2000) return true;  // minimized / off-screen
+        if (r.left > 10000 || r.top > 10000) return true;
         hwnds.Add(hwnd);
         return true;
       }, IntPtr.Zero);

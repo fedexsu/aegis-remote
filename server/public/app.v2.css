@@ -340,9 +340,9 @@ body {
    with the row cells exactly. */
 .v2-list-head {
   display: grid;
-  grid-template-columns: 84px minmax(220px, 2fr) 110px 90px 110px 70px 110px 70px 100px;
+  grid-template-columns: 100px minmax(220px, 2fr) 110px 90px 110px 70px 110px 100px;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   padding: 10px 14px 10px 22px;
   background: var(--panel2);
   border-bottom: 1px solid var(--line);
@@ -357,34 +357,21 @@ body {
 
 [data-v2] .device-row {
   display: grid !important;
-  grid-template-columns: 84px minmax(220px, 2fr) 110px 90px 110px 70px 110px 70px 100px !important;
+  grid-template-columns: 100px minmax(220px, 2fr) 110px 90px 110px 70px 110px 100px !important;
   align-items: center !important;
-  gap: 12px !important;
+  gap: 14px !important;
   position: relative !important;
   background: transparent !important;
   border-bottom: 1px solid var(--line) !important;
-  padding: 6px 14px 6px 22px !important;
+  padding: 11px 14px 11px 22px !important;
 }
-[data-v2] .device-row .dr-os       { grid-column: 1 !important; color: var(--txt3) !important; width: 72px; height: 40px; display: inline-grid; place-items: center; overflow: hidden; border-radius: 5px; background: var(--panel2, #1a1f2a); margin-right: 14px; flex: 0 0 auto; }
+[data-v2] .device-row .dr-os       { grid-column: 1 !important; color: var(--txt3) !important; width: 88px; height: 56px; display: inline-grid; place-items: center; overflow: hidden; border-radius: 5px; background: var(--panel2, #1a1f2a); margin-right: 14px; flex: 0 0 auto; }
 [data-v2] .device-row .dr-os svg   { width: 16px; height: 16px; }
 [data-v2] .device-row .dr-os .dr-os-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 [data-v2] .device-row .dr-os .dr-os-ic  { display: inline-grid; place-items: center; }
 /* Offline devices show a flat black panel (asleep-screen look) instead of
    a stale screenshot or OS icon. Same tile size, zero content inside. */
 [data-v2] .device-row .dr-os .dr-os-off { display: block; width: 100%; height: 100%; background: #000; }
-/* Camera mini-display column — mirrors the OS thumb style but smaller, 60×36,
-   with a tiny red indicator dot in the corner when the camera has streamed
-   a frame recently (so you can tell at a glance which boxes have snaps). */
-[data-v2] .device-row .dr-cam { width: 52px; height: 30px; display: inline-grid; place-items: center; overflow: hidden; border-radius: 4px; background: #000; position: relative; }
-[data-v2] .device-row .dr-cam .dr-cam-img { width: 100%; height: 100%; object-fit: cover; display: block; }
-[data-v2] .device-row .dr-cam .dr-cam-off { color: #555; font-size: 10px; letter-spacing: .5px; }
-[data-v2] .device-row .dr-cam .dr-cam-dot { position: absolute; top: 2px; right: 2px; width: 5px; height: 5px; border-radius: 50%; background: #f03; box-shadow: 0 0 4px #f03; }
-/* Live cam master toggle in the list header. */
-.v2-cams-toggle { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; font-size: 11px; color: var(--txt3); cursor: pointer; user-select: none; }
-.v2-cams-toggle input { appearance: none; width: 28px; height: 16px; border-radius: 10px; background: #333; position: relative; cursor: pointer; transition: background .15s; }
-.v2-cams-toggle input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #ddd; transition: left .15s; }
-.v2-cams-toggle input:checked { background: #0067c0; }
-.v2-cams-toggle input:checked::after { left: 14px; }
 /* Public IP in neon-green. Monospace + subtle glow so it reads like a
    terminal value — makes it pop next to the OS string without screaming. */
 [data-v2] .device-row .dr-sub .dr-ip    { color: #00ff9c; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-feature-settings: "tnum" 1; text-shadow: 0 0 6px rgba(0, 255, 156, 0.45); }
@@ -402,8 +389,7 @@ body {
 }
 [data-v2] .device-row .dr-agent    { grid-column: 6 !important; justify-self: start !important; }
 [data-v2] .device-row .dr-seen     { grid-column: 7 !important; text-align: left !important; justify-self: start !important; }
-[data-v2] .device-row .dr-cam      { grid-column: 8 !important; justify-self: center !important; }
-[data-v2] .device-row .dr-actions  { grid-column: 9 !important; justify-self: end !important; opacity: 1 !important; }
+[data-v2] .device-row .dr-actions  { grid-column: 8 !important; justify-self: end !important; opacity: 1 !important; }
 [data-v2] .device-row .dr-lock     { position: absolute; right: 110px; top: 50%; transform: translateY(-50%); }
 [data-v2] .device-row .dr-sub {
   white-space: nowrap !important;
@@ -949,7 +935,6 @@ hr, .divider { border-color: var(--line); }
     grid-template-columns: 90px minmax(160px, 2fr) 100px 70px 100px 90px !important;
   }
   [data-v2] .device-row .dr-agent { display: none !important; }
-  [data-v2] .device-row .dr-cam { display: none !important; }
   [data-v2] .device-row .dr-user { grid-column: 5 !important; }
   [data-v2] .device-row .dr-seen { grid-column: 6 !important; }
   [data-v2] .device-row .dr-actions { grid-column: 6 !important; justify-self: end !important; }

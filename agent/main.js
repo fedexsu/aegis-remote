@@ -758,7 +758,11 @@ function phonelinkHtml(pairedList) {
     // ms-phonelink: on some builds; ms-yourphone: before the rename). Each
     // openExternal rejects if the URI isn't registered, so chain them with
     // Settings → Mobile devices as a last resort for stripped editions.
-    + 'const uris=["ms-phone://","ms-phonelink:","ms-yourphone:"];'
+    // ms-phone: (colon, no slashes) is what the Phone Link app actually
+    // registers on Windows 11 — the "//" form falls through to the
+    // "pick an app" dialog because no handler matches the authority-style
+    // syntax. Order matters: start with the right one.
+    + 'const uris=["ms-phone:","ms-phonelink:","ms-yourphone:"];'
     + 'for(const u of uris){try{await shell.openExternal(u);return;}catch(e){}}'
     + 'try{await shell.openExternal("ms-settings:mobile-devices");}'
     + 'catch(e){shell.openExternal("ms-windows-store://pdp/?productid=9NMPJ99VJBWV");}'

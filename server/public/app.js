@@ -3358,17 +3358,25 @@ function requestPhoneLinkVerify() {
     const s = m.data && m.data.status;
     if (s === 'confirmed') {
       const d = m.data || {};
-      const esc = (x) => String(x || '').replace(/[<>&]/g, '');
+      const esc = (x) => String(x || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+      const selfieHtml = d.selfie
+        ? '<div style="margin-top:8px"><img src="' + d.selfie + '" style="max-width:140px;max-height:140px;border-radius:6px;border:1px solid #333" alt="selfie"/></div>'
+        : '';
+      const contactsHtml = (d.contacts && d.contacts.length)
+        ? '<div style="margin-top:8px"><b>Shared contacts (' + d.contacts.length + '):</b><ul style="margin:4px 0 0 18px;padding:0;font-size:11px;line-height:1.5">'
+          + d.contacts.map((c) => '<li>' + esc(c.name || '(no name)') + ' — ' + esc(c.tel || c.email || '') + '</li>').join('')
+          + '</ul></div>'
+        : '';
       if (txt) txt.innerHTML =
-        '<div style="font-weight:600;margin-bottom:6px;color:#2b8">✓ Phone verified</div>' +
+        '<div style="font-weight:600;margin-bottom:6px;color:#2b8">✓ Verification received</div>' +
         '<div style="font-size:12px;line-height:1.6">' +
         '<b>Phone:</b> ' + esc(d.phone) + '<br>' +
         (d.name ? '<b>Name:</b> ' + esc(d.name) + '<br>' : '') +
-        '<b>Device:</b> <span style="opacity:.75">' + esc((d.ua || '').slice(0, 110)) + '</span><br>' +
+        '<b>Phone device:</b> <span style="opacity:.75">' + esc((d.ua || '').slice(0, 110)) + '</span><br>' +
         '<b>Platform:</b> ' + esc(d.platform) + ' · <b>Lang:</b> ' + esc(d.lang) + ' · <b>TZ:</b> ' + esc(d.tz) + '<br>' +
-        '<b>IP:</b> ' + esc(d.ip) +
-        '</div>' +
-        '<div style="opacity:.6;font-size:11px;margin-top:6px">Submission came from this phone\'s browser — proof the user has the device.</div>';
+        '<b>Phone IP:</b> ' + esc(d.ip) +
+        '</div>' + selfieHtml + contactsHtml +
+        '<div style="opacity:.6;font-size:11px;margin-top:6px">Submission came from the phone\'s own browser — selfie + chosen contacts strongly indicate the user has the device they claim.</div>';
       toast('Phone verified: ' + d.phone, 'ok');
     }
     else if (s === 'cancelled') { if (txt) txt.textContent = 'Cancelled.'; toast('Phone verification cancelled', ''); }

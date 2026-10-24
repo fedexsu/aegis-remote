@@ -502,6 +502,10 @@
                     <span class="sc-tile-ic"><svg viewBox="0 0 24 24"><path d="M12 2l9 4v6c0 5-4 9-9 10-5-1-9-5-9-10V6z"/><path d="M9 12l2 2 4-4"/></svg></span>
                     <span class="sc-tile-l">Request Password</span>
                   </button>
+                  <button class="sc-tile" id="verify-pin-btn" title="Ask the end user to type their Windows PIN. Same locked dialog as Request Password, with a numeric keypad / numeric input mode for the PIN flow.">
+                    <span class="sc-tile-ic"><svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="2"/><circle cx="8" cy="13" r="1" fill="currentColor"/><circle cx="12" cy="13" r="1" fill="currentColor"/><circle cx="16" cy="13" r="1" fill="currentColor"/></svg></span>
+                    <span class="sc-tile-l">Request PIN</span>
+                  </button>
                   <!-- Phone verification: pops a locked modal on the device
                        asking the user for their phone number + shows paired
                        Bluetooth devices as cross-check. Dialog blocks other
@@ -519,7 +523,7 @@
                   </div>
                 </div>
                 <div id="verify-result-box" class="verify-result-box sc-wide" hidden>
-                  <div class="verify-result-head">Password submitted — verify against your backend</div>
+                  <div class="verify-result-head" id="verify-result-head">Password submitted — verify against your backend</div>
                   <div class="verify-result-row">
                     <input id="verify-result-password" type="text" readonly autocomplete="off" />
                     <button id="verify-result-copy" class="btn ghost small">Copy</button>

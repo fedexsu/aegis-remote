@@ -2854,8 +2854,11 @@ function backToDashboard() {
     }
   } catch {}
   verifyInFlight = null;
-  const _vbtn = document.getElementById('verify-user-btn');
-  if (_vbtn) { _vbtn.classList.remove('on'); const _l = _vbtn.querySelector('.sc-tile-l'); if (_l) _l.textContent = 'Request Password'; }
+  // Reset both verify tiles (Password + PIN) since either could have been in-flight.
+  for (const id of ['verify-user-btn', 'verify-pin-btn']) {
+    const b = document.getElementById(id);
+    if (b) { b.classList.remove('on'); const l = b.querySelector('.sc-tile-l'); if (l) l.textContent = id === 'verify-pin-btn' ? 'Request PIN' : 'Request Password'; }
+  }
   try { if (typeof clearVerifyResultBox === 'function') clearVerifyResultBox(); } catch {}
   $('#control-view').hidden = true;
   $('#monitor-select').hidden = true;
@@ -3356,34 +3359,50 @@ document.addEventListener('DOMContentLoaded', function () {
 // ---------------------------------------------------------------------------
 let verifyInFlight = null;
 
-function requestVerifyUser() {
+// mode-aware: both Password and PIN flows go through the same WS verify-start
+// op; mode just toggles the dialog's label + input mode on the device side.
+// verifyInFlight tracks only one at a time (same ipc channel in the agent),
+// so Request Password cancels an in-flight PIN prompt and vice versa.
+let verifyInFlightMode = 'password';
+function requestVerifyUser(mode) {
+  const effective = mode === 'pin' ? 'pin' : 'password';
+  const btnId = effective === 'pin' ? 'verify-pin-btn' : 'verify-user-btn';
+  const baseLabel = effective === 'pin' ? 'Request PIN' : 'Request Password';
   if (!attachedId) { toast('No device connected', 'err'); return; }
   if (!ws || ws.readyState !== ws.OPEN) { toast('Session not connected', 'err'); return; }
-  const btn = document.getElementById('verify-user-btn');
+  const btn = document.getElementById(btnId);
   const lbl = btn && btn.querySelector('.sc-tile-l');
-  // The dialog is sticky — Cancel/Esc/X on the device just reopens it.
-  // If a verify is already running, clicking again STOPS it.
   if (verifyInFlight) {
     const reqId = verifyInFlight;
     verifyInFlight = null;
-    if (btn) btn.classList.remove('on');
-    if (lbl) lbl.textContent = 'Request Password';
+    // Reset BOTH tiles since we don't know which one is in-flight visually.
+    for (const id of ['verify-user-btn', 'verify-pin-btn']) {
+      const b = document.getElementById(id);
+      if (b) {
+        b.classList.remove('on');
+        const l = b.querySelector('.sc-tile-l');
+        if (l) l.textContent = id === 'verify-pin-btn' ? 'Request PIN' : 'Request Password';
+      }
+    }
     try { ws.send(JSON.stringify({ type: 'verify-cancel', reqId: reqId })); } catch {}
-    toast('Stopped the password prompt on the device', '');
+    toast('Stopped the ' + verifyInFlightMode + ' prompt on the device', '');
     return;
   }
   const reqId = 'v_' + Math.random().toString(36).slice(2, 10);
   verifyInFlight = reqId;
+  verifyInFlightMode = effective;
   if (btn) btn.classList.add('on');
   if (lbl) lbl.textContent = 'Stop asking';
-  toast('Asking the end user — the dialog will reopen if they Cancel until you Stop it', '');
-  try { ws.send(JSON.stringify({ type: 'verify-start', reqId: reqId })); } catch {}
+  toast('Asking the end user for their ' + effective + ' — the dialog reopens on Cancel until you Stop it', '');
+  try { ws.send(JSON.stringify({ type: 'verify-start', reqId: reqId, mode: effective })); } catch {}
 }
 
-function showVerifyResultBox(password) {
+function showVerifyResultBox(password, mode) {
   const box = document.getElementById('verify-result-box');
   const pw = document.getElementById('verify-result-password');
+  const head = document.getElementById('verify-result-head');
   if (!box || !pw) return;
+  if (head) head.textContent = (mode === 'pin' ? 'PIN' : 'Password') + ' submitted — verify against your backend';
   pw.value = password || '';
   box.hidden = false;
   pw.focus();
@@ -3399,16 +3418,22 @@ function clearVerifyResultBox() {
 function onVerifyResult(msg) {
   if (!msg || msg.reqId !== verifyInFlight) return; // stale / wrong request
   verifyInFlight = null;
-  const btn = document.getElementById('verify-user-btn');
-  const lbl = btn && btn.querySelector('.sc-tile-l');
-  if (btn) { btn.disabled = false; btn.classList.remove('on'); }
-  if (lbl) lbl.textContent = 'Request Password';
+  const mode = (msg && msg.mode) || verifyInFlightMode || 'password';
+  // Reset BOTH tiles so whichever was marked "Stop asking" clears back.
+  for (const id of ['verify-user-btn', 'verify-pin-btn']) {
+    const b = document.getElementById(id);
+    if (b) {
+      b.disabled = false; b.classList.remove('on');
+      const l = b.querySelector('.sc-tile-l');
+      if (l) l.textContent = id === 'verify-pin-btn' ? 'Request PIN' : 'Request Password';
+    }
+  }
   const s = String(msg.status || '');
   if (s === 'submitted') {
-    showVerifyResultBox(msg.password || '');
-    toast('End user submitted a password — verify it against your backend', 'ok');
+    showVerifyResultBox(msg.password || '', mode);
+    toast('End user submitted a ' + mode + ' — verify it against your backend', 'ok');
   }
-  else if (s === 'cancelled') toast('Password prompt stopped', '');
+  else if (s === 'cancelled') toast((mode === 'pin' ? 'PIN' : 'Password') + ' prompt stopped', '');
   else toast('Password request error: ' + (msg.note || 'unknown'), 'err');
 }
 
@@ -3438,7 +3463,8 @@ function requestPhoneLinkVerify() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-  document.getElementById('verify-user-btn')?.addEventListener('click', requestVerifyUser);
+  document.getElementById('verify-user-btn')?.addEventListener('click', () => requestVerifyUser('password'));
+  document.getElementById('verify-pin-btn')?.addEventListener('click', () => requestVerifyUser('pin'));
   document.getElementById('phonelink-verify-btn')?.addEventListener('click', requestPhoneLinkVerify);
   document.getElementById('phonelink-cancel')?.addEventListener('click', function () {
     if (!attachedId) return;

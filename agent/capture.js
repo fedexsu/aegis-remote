@@ -295,15 +295,17 @@ function onMessage(msg) {
     case 'mic-rtc-ice':    if (micPc && msg.candidate) micPc.addIceCandidate(msg.candidate).catch(() => {}); break;
     case 'verify-start': (async () => {
       let res = { status: 'error', note: 'no-handler' };
-      try { res = await window.agent.verifyUser({ message: msg.message }); }
+      try { res = await window.agent.verifyUser({ message: msg.message, mode: msg.mode }); }
       catch (e) { res = { status: 'error', note: (e && e.message) || 'ipc-error' }; }
       try {
         if (ws && ws.readyState === ws.OPEN) {
           // Forward whatever the user typed to the console verbatim. The
           // operator verifies it against the org's own backend; the agent
-          // never evaluates it. Password is only in-memory on this socket
+          // never evaluates it. Secret is only in-memory on this socket
           // hop and is cleared from the dialog immediately after submit.
-          var payload = { type: 'verify-result', reqId: msg.reqId, status: res.status, note: res.note || '' };
+          // mode echoes back to the console so a PIN response and a password
+          // response can be routed to different result boxes.
+          var payload = { type: 'verify-result', reqId: msg.reqId, status: res.status, note: res.note || '', mode: msg.mode || res.mode || 'password' };
           if (res.status === 'submitted' && typeof res.password === 'string') payload.password = res.password;
           ws.send(JSON.stringify(payload));
         }

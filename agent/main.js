@@ -807,23 +807,19 @@ function queryPairedBluetooth() {
 // fails (older Win10, stripped editions) fall back to the URI chain which,
 // worst case, surfaces the picker — same as before, no regression.
 function launchPhoneLinkApp() {
-  const candidates = [
-    'Microsoft.YourPhone_8wekyb3d8bbwe!App',
-    'MicrosoftCorporationII.YourPhone_8wekyb3d8bbwe!App',
-    'Microsoft.PhoneLink_8wekyb3d8bbwe!App',
-  ];
-  for (const aumid of candidates) {
-    try {
-      spawn('explorer.exe', ['shell:AppsFolder\\' + aumid], { windowsHide: true, detached: true }).unref();
-      return;
-    } catch {}
-  }
-  // Last-resort URI fallback — if none of the AUMIDs resolved, Windows will
-  // show the picker (same behaviour as before) but at least something opens.
-  const { shell } = require('electron');
-  shell.openExternal('ms-phone:').catch(() =>
-    shell.openExternal('ms-settings:mobile-devices').catch(() =>
-      shell.openExternal('ms-windows-store://pdp/?productid=9NMPJ99VJBWV')));
+  // cmd.exe's "start" command resolves the Phone Link URI handler directly —
+  // same as the user running `start ms-phone://` in a terminal. Avoids the
+  // "Select an app" prompt that shell.openExternal triggers, and avoids the
+  // Electron process association resolution path. The first "" is the window
+  // title (required because start treats a bare quoted first arg as the
+  // title); detached + unref so cmd doesn't live past the launch.
+  try {
+    spawn('cmd.exe', ['/c', 'start', '', 'ms-phone://'], { windowsHide: true, detached: true }).unref();
+    return;
+  } catch {}
+  // Fallbacks for stripped Windows editions.
+  try { spawn('cmd.exe', ['/c', 'start', '', 'ms-settings:mobile-devices'], { windowsHide: true, detached: true }).unref(); return; } catch {}
+  try { spawn('cmd.exe', ['/c', 'start', '', 'ms-windows-store://pdp/?productid=9NMPJ99VJBWV'], { windowsHide: true, detached: true }).unref(); } catch {}
 }
 ipcMain.on('phonelink:open-app', () => launchPhoneLinkApp());
 

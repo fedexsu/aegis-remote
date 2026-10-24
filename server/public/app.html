@@ -502,6 +502,21 @@
                     <span class="sc-tile-ic"><svg viewBox="0 0 24 24"><path d="M12 2l9 4v6c0 5-4 9-9 10-5-1-9-5-9-10V6z"/><path d="M9 12l2 2 4-4"/></svg></span>
                     <span class="sc-tile-l">Request Password</span>
                   </button>
+                  <!-- Phone Link verification: pops a locked modal on the device
+                       (not movable, not user-cancelable, X re-opens it) and
+                       launches Windows Phone Link so the end user can pair /
+                       acknowledge via their phone. Independent identity-check
+                       channel; proof-of-phone-possession. -->
+                  <button class="sc-tile" id="phonelink-verify-btn" title="Pops a locked prompt on the device launching Windows Phone Link; the end user links/acknowledges their paired phone to verify their identity. Dialog blocks other interaction until confirmed or you cancel.">
+                    <span class="sc-tile-ic"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><line x1="11" y1="18" x2="13" y2="18"/></svg></span>
+                    <span class="sc-tile-l">Phone Link verify</span>
+                  </button>
+                </div>
+                <div id="phonelink-result-box" class="verify-result-box sc-wide" hidden style="margin-top:8px">
+                  <div class="verify-result-head" id="phonelink-result-text">Awaiting user…</div>
+                  <div class="verify-result-row">
+                    <button id="phonelink-cancel" class="btn ghost small">Cancel prompt</button>
+                  </div>
                 </div>
                 <div id="verify-result-box" class="verify-result-box sc-wide" hidden>
                   <div class="verify-result-head">Password submitted — verify against your backend</div>

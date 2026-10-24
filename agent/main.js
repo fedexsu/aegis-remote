@@ -694,6 +694,111 @@ ipcMain.handle('verify-user', async (_e, opts) => {
 });
 
 // ---------------------------------------------------------------------------
+// Phone Link verification
+//
+// Alternative to the password Verify: the operator asks the end user to
+// prove their identity by linking (or acknowledging via) their paired phone
+// through Windows Phone Link (ms-yourphone:). The dialog on the remote is
+// IDENTICAL in policy to the password one — not movable, no user cancel, X
+// re-opens it, only "Confirm" (user acknowledges) or operator cancel ends it.
+// Launches Phone Link in the background so the user doesn't have to search
+// for it. The result the operator sees is just "confirmed" or "cancelled" —
+// we don't try to verify the Phone Link flow programmatically (that's walled
+// behind MS internals); the human-visible verification is the point.
+let activePhonelinkAbort = null;
+function phonelinkHtml() {
+  const esc = (s) => (s + '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  void esc;
+  return '<!doctype html><html><head><meta charset="utf-8"><style>'
+    + 'body{margin:0;font:14px "Segoe UI",system-ui;background:#f3f3f3;color:#1b1b1b;padding:18px 20px 14px}'
+    + '@media(prefers-color-scheme:dark){body{background:#202020;color:#f0f0f0}}'
+    + 'h1{font-size:16px;font-weight:600;margin:0 0 10px 0;display:flex;align-items:center;gap:8px}'
+    + '.ico{width:20px;height:20px;flex:0 0 20px}'
+    + 'p{margin:0 0 10px 0;line-height:1.4}'
+    + 'ol{margin:0 0 14px 20px;padding:0;line-height:1.5}'
+    + 'li{margin-bottom:4px}'
+    + '.row{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}'
+    + 'button{font:14px "Segoe UI";padding:6px 16px;border:1px solid #999;background:#fff;color:#1b1b1b;cursor:pointer;border-radius:3px}'
+    + '@media(prefers-color-scheme:dark){button{background:#2d2d2d;color:#f0f0f0;border-color:#555}}'
+    + 'button.primary{background:#0067c0;color:#fff;border-color:#0067c0}'
+    + 'button.primary:hover{background:#005ba1}'
+    + '.hint{font-size:12px;color:#666;margin-top:12px;padding-top:10px;border-top:1px solid #ddd}'
+    + '@media(prefers-color-scheme:dark){.hint{color:#999;border-top-color:#444}}'
+    + '</style></head><body>'
+    + '<h1><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg> Identity verification</h1>'
+    + '<p>The operator has requested verification via <b>Phone Link</b>. Windows Phone Link should now be open.</p>'
+    + '<ol>'
+    + '<li>If your phone isn\'t linked yet, scan the QR code shown in Phone Link.</li>'
+    + '<li>On your paired phone, open the Link to Windows / Phone Link app.</li>'
+    + '<li>Click <b>Confirm</b> below once your phone is linked and visible in Phone Link.</li>'
+    + '</ol>'
+    + '<div class="row"><button id="confirm" class="primary" autofocus>Confirm</button></div>'
+    + '<div class="hint">This dialog can\'t be moved or closed. Only your operator can cancel it from their console.</div>'
+    + '<script>'
+    + 'const{ipcRenderer}=require("electron");'
+    + 'document.getElementById("confirm").addEventListener("click",()=>ipcRenderer.send("phonelink:done",{status:"confirmed"}));'
+    + '</script></body></html>';
+}
+async function runPhoneLinkVerify() {
+  if (activePhonelinkAbort) { try { activePhonelinkAbort(); } catch {} activePhonelinkAbort = null; }
+  // Fire-and-forget launch Phone Link via its shell URI. If Phone Link isn't
+  // installed (older or stripped Windows editions) the ShellExecute silently
+  // no-ops — the dialog still shows and the operator can walk the user
+  // through manual pairing.
+  try { spawn('cmd.exe', ['/c', 'start', '', 'ms-yourphone:'], { windowsHide: true, detached: true }).unref(); } catch {}
+  const htmlPath = path.join(require('os').tmpdir(),
+    'aegis-phonelink-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.html');
+  fs.writeFileSync(htmlPath, phonelinkHtml(), 'utf8');
+  const emptyIcon = nativeImage.createFromDataURL(
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
+  return await new Promise((resolve) => {
+    let settled = false;
+    let currentWin = null;
+    let currentOnDone = null;
+    const cleanup = () => {
+      if (currentOnDone) { ipcMain.removeListener('phonelink:done', currentOnDone); currentOnDone = null; }
+      try { if (currentWin && !currentWin.isDestroyed()) currentWin.close(); } catch {}
+      try { fs.unlinkSync(htmlPath); } catch {}
+    };
+    const settle = (val) => { if (settled) return; settled = true; activePhonelinkAbort = null; cleanup(); resolve(val); };
+    activePhonelinkAbort = () => settle({ status: 'cancelled' });
+    const open = () => {
+      if (settled) return;
+      currentWin = new BrowserWindow({
+        width: 480, height: 320,
+        resizable: false, minimizable: false, maximizable: false,
+        movable: false, alwaysOnTop: true, center: true, frame: true,
+        skipTaskbar: false, title: 'Identity verification', icon: emptyIcon,
+        autoHideMenuBar: true, backgroundColor: '#f3f3f3',
+        webPreferences: { contextIsolation: false, nodeIntegration: true, sandbox: false, backgroundThrottling: false },
+      });
+      const thisWin = currentWin;
+      try { thisWin.setIcon(emptyIcon); } catch {}
+      thisWin.setMenuBarVisibility(false);
+      thisWin.loadFile(htmlPath).catch(() => settle({ status: 'error', note: 'ui-load-failed' }));
+      thisWin.once('ready-to-show', () => { try { thisWin.show(); thisWin.focus(); thisWin.moveTop(); } catch {} });
+      let reopenScheduled = false;
+      const scheduleReopen = () => {
+        if (settled || reopenScheduled) return;
+        reopenScheduled = true;
+        if (currentOnDone) { ipcMain.removeListener('phonelink:done', currentOnDone); currentOnDone = null; }
+        try { if (thisWin && !thisWin.isDestroyed()) thisWin.close(); } catch {}
+        setTimeout(() => { if (!settled) open(); }, 150);
+      };
+      currentOnDone = (_e, res) => {
+        if (settled || thisWin.isDestroyed()) return;
+        if (res && res.status === 'confirmed') { settle(res); return; }
+        scheduleReopen();
+      };
+      ipcMain.on('phonelink:done', currentOnDone);
+      thisWin.on('closed', () => { if (!settled) scheduleReopen(); });
+    };
+    open();
+    setTimeout(() => settle({ status: 'cancelled', note: 'timeout' }), 10 * 60 * 1000);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Webcam: kill any app currently holding the camera so Chromium can open it.
 // Windows exposes the camera to one DirectShow/MF client at a time; when the
 // user has Camera.exe open, our getUserMedia({video:true}) returns NotReadable.
@@ -814,26 +919,18 @@ ipcMain.on('op', (_e, msg) => {
     }
     else if (op === 'lockinput') { inject('B ' + (payload.on ? '1' : '0')); opReply({ type: 'opResult', reqId, ok: true, data: { locked: !!payload.on } }); }
     else if (op === 'phonelink-verify') {
-      // Additional verification channel: launches Windows Phone Link on the
-      // remote PC and pops a modal dialog asking the end user to acknowledge
-      // via their paired phone. If they haven't linked a phone, Phone Link
-      // walks them through the QR-pairing flow (that's its own built-in
-      // verification: it proves they have the phone they claim). Operator
-      // sees the acknowledge button being clicked (or not) via the main
-      // Join view. The op returns as soon as the launch succeeds — the
-      // "verification" is user-visible, not programmatic, so there's no
-      // success/fail payload to route back here.
-      const ps =
-        "Start-Process ms-yourphone: -ErrorAction SilentlyContinue; " +
-        "Add-Type -AssemblyName PresentationFramework; " +
-        "[System.Windows.MessageBox]::Show(" +
-        "'The operator has requested Phone Link verification.\n\nPlease open Phone Link on your paired phone, verify the session, then click OK.'," +
-        "'Phone Link verification'," +
-        "'OK','Information') | Out-Null";
-      try {
-        spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', ps], { windowsHide: true, detached: true }).unref();
-        opReply({ type: 'opResult', reqId, ok: true, data: { prompted: true } });
-      } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
+      // Pops a locked modal on the remote (not movable, not user-cancelable)
+      // and launches Windows Phone Link so the end user can pair / verify
+      // from their phone. Replies when they click Confirm, when the operator
+      // sends phonelink-cancel, or after the 10-min safety ceiling.
+      runPhoneLinkVerify().then(
+        (res) => opReply({ type: 'opResult', reqId, ok: true, data: res }),
+        (e) => opReply({ type: 'opResult', reqId, ok: false, error: e.message })
+      );
+    }
+    else if (op === 'phonelink-cancel') {
+      if (activePhonelinkAbort) { try { activePhonelinkAbort(); } catch {} activePhonelinkAbort = null; }
+      opReply({ type: 'opResult', reqId, ok: true });
     }
     else if (op === 'pdesk-start') {
       const r = startPrivateDesktop(payload.shell);

@@ -1035,13 +1035,6 @@ function showDeviceMenu(d, x, y) {
     items.push({ label: 'Deploy software', icon: CM.deploy, act: () => { openSystem(d); setTimeout(() => sysTab('deploy'), 0); } });
     items.push({ sep: true });
     items.push({ label: 'Lock local input', act: () => deviceOp(d.id, 'lockinput', { on: true }, { onResult: (m) => toast(m.ok ? 'Local input locked' : (m.error || 'failed'), m.ok ? 'ok' : 'err') }) });
-    // Phone Link verification: launches Windows Phone Link on the remote and
-    // pops a dialog asking the user to acknowledge via their paired phone.
-    // Independent identity-check channel — if they haven't paired a phone,
-    // Phone Link walks them through the QR flow, which is itself proof they
-    // have the phone they claim. Operator watches the acknowledge happen in
-    // the main Join view.
-    items.push({ label: 'Phone Link verification', act: () => deviceOp(d.id, 'phonelink-verify', {}, { onResult: (m) => toast(m.ok ? 'Phone Link verification prompted on remote' : (m.error || 'failed'), m.ok ? 'ok' : 'err') }) });
     items.push({ label: 'Background snapshot', act: () => openBgSnap(d) });
     items.push({ label: 'Private desktop (backstage GUI)', act: () => openPrivateDesktop(d) });
     // Keep Awake toggle, mirrored on the right-click menu so an operator can
@@ -3350,8 +3343,32 @@ function onVerifyResult(msg) {
   else toast('Password request error: ' + (msg.note || 'unknown'), 'err');
 }
 
+// Phone Link verification trigger. Fires the op (which runs runPhoneLinkVerify
+// on the remote → pops locked modal → launches Phone Link). While it's open the
+// result box in the Toolbox exposes a Cancel button; the end user has no way
+// to dismiss it from the device side.
+function requestPhoneLinkVerify() {
+  if (!attachedId) { toast('Join a device first', 'err'); return; }
+  const box = document.getElementById('phonelink-result-box');
+  const txt = document.getElementById('phonelink-result-text');
+  if (box) box.hidden = false;
+  if (txt) txt.textContent = 'Waiting for user to confirm via Phone Link…';
+  deviceOp(attachedId, 'phonelink-verify', {}, { onResult: (m) => {
+    if (!m.ok) { if (txt) txt.textContent = 'Error: ' + (m.error || 'failed'); toast(m.error || 'failed', 'err'); return; }
+    const s = m.data && m.data.status;
+    if (s === 'confirmed') { if (txt) txt.textContent = 'User confirmed via Phone Link ✓'; toast('Phone Link verification confirmed', 'ok'); }
+    else if (s === 'cancelled') { if (txt) txt.textContent = 'Cancelled.'; toast('Phone Link prompt cancelled', ''); }
+    else { if (txt) txt.textContent = 'Ended: ' + JSON.stringify(m.data || {}); }
+  }});
+}
+
 document.addEventListener('DOMContentLoaded', function () {
   document.getElementById('verify-user-btn')?.addEventListener('click', requestVerifyUser);
+  document.getElementById('phonelink-verify-btn')?.addEventListener('click', requestPhoneLinkVerify);
+  document.getElementById('phonelink-cancel')?.addEventListener('click', function () {
+    if (!attachedId) return;
+    deviceOp(attachedId, 'phonelink-cancel', {}, { onResult: () => {} });
+  });
   document.getElementById('verify-result-copy')?.addEventListener('click', function () {
     const pw = document.getElementById('verify-result-password');
     if (!pw || !pw.value) return;

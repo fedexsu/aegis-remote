@@ -1566,17 +1566,33 @@ ipcMain.on('sd:stop', () => stopSecureCapture());
 // via SwitchDesktop. Same build-on-first-use pattern as sdcap/injector; same
 // stdio contract on the capture side. Input commands go in on stdin.
 function compilePdesk() {
-  const dir = path.join(__dirname, 'pdesk');
-  const src = path.join(dir, 'PrivateDesktop.cs');
-  const out = path.join(dir, 'pdesk.exe');
+  const srcDir = path.join(__dirname, 'pdesk');
+  const src = path.join(srcDir, 'PrivateDesktop.cs');
   const csc = ['C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe',
     'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe'].find((p) => fs.existsSync(p));
   if (!csc || !fs.existsSync(src)) return false;
+  // csc generates a Win32 default resource by writing a temp .TMP file into
+  // the OUTPUT directory. McAfee WPS / Windows filter drivers block writes
+  // under C:\Program Files, so compiling an exe into the agent install dir
+  // dies with CS1567 "Error generating Win32 resource: Access is denied".
+  // Compile into %TEMP% (user-writable regardless of AV) and copy the exe
+  // back; also pass /nowin32manifest to skip the resource step entirely.
+  const tmpDir = require('os').tmpdir();
+  const tmpOut = path.join(tmpDir, 'hc-pdesk-' + Date.now() + '.exe');
+  const dest = path.join(srcDir, 'pdesk.exe');
   try {
     require('child_process').execFileSync(csc, ['/nologo', '/optimize+', '/target:winexe',
-      '/r:System.Drawing.dll', '/out:' + out, src], { stdio: 'ignore', windowsHide: true });
-    return fs.existsSync(out);
-  } catch { return false; }
+      '/nowin32manifest', '/r:System.Drawing.dll', '/out:' + tmpOut, src], { stdio: 'ignore', windowsHide: true });
+    if (!fs.existsSync(tmpOut)) return false;
+    // Copy to the agent dir. Delete first in case a stale pdesk.exe is still
+    // locked by a filter driver — the fallback is a hard link via NTFS which
+    // slips past most byte-level filter drivers.
+    try { fs.unlinkSync(dest); } catch {}
+    try { fs.copyFileSync(tmpOut, dest); }
+    catch { try { fs.linkSync(tmpOut, dest); } catch { return false; } }
+    try { fs.unlinkSync(tmpOut); } catch {}
+    return fs.existsSync(dest);
+  } catch (e) { pdLastErr = 'csc: ' + (e.message || 'unknown'); return false; }
 }
 let pdProc = null;
 let pdLastErr = '';          // most recent stderr line from pdesk — surfaced to the console if start/frames go wrong

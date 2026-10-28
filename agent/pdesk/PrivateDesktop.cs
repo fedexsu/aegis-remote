@@ -295,19 +295,52 @@ class PrivateDesktop {
       } catch { return null; }
     }
     // 2. Compute the bounding box so we only encode as big an area as needed.
-    //    A fresh desktop with just a cmd window produces a small frame; adding
-    //    a browser later grows the canvas. Clamp to 4K to avoid runaway.
+    //    Clamp final canvas to the primary display dimensions (default 1920×
+    //    1080) so a ghost window spawned at offset (0, 20000) doesn't stretch
+    //    the composite to invisibility when scaled by the dashboard. If the
+    //    bounding box is bigger than the screen, we snap it to origin so at
+    //    least the top-left content is visible.
+    int scrW = GetSystemMetrics(SM_CXSCREEN), scrH = GetSystemMetrics(SM_CYSCREEN);
+    if (scrW <= 0) scrW = 1920; if (scrH <= 0) scrH = 1080;
     int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
     var rects = new List<RECT>(hwnds.Count);
     foreach (var h in hwnds) {
       RECT r; if (!GetWindowRect(h, out r)) continue;
+      // Drop windows that extend past the physical screen — those are the
+      // ghosts that were blowing up the composite bounds and squashing real
+      // content to a few pixels.
+      if (r.right > scrW + 500 || r.bottom > scrH + 500) continue;
+      // Keep negative-coord windows (shells sometimes spawn with -8 title
+      // overlap), but don't let them drag minX past -200.
+      if (r.left < -200 || r.top < -200) continue;
       rects.Add(r);
       if (r.left < minX) minX = r.left; if (r.top < minY) minY = r.top;
       if (r.right > maxX) maxX = r.right; if (r.bottom > maxY) maxY = r.bottom;
     }
-    if (rects.Count == 0) return null;
-    if (minX < 0) minX = 0; if (minY < 0) minY = 0;
-    int totW = Math.Min(3840, maxX - minX), totH = Math.Min(2160, maxY - minY);
+    if (rects.Count == 0) {
+      // No in-bounds windows but we did have hwnds — all were off-screen
+      // ghosts. Draw a diagnostic placeholder so the operator doesn't just
+      // see pure black.
+      try {
+        using (var bmp = new Bitmap(scrW, scrH))
+        using (var g = Graphics.FromImage(bmp)) {
+          g.Clear(Color.FromArgb(20, 20, 24));
+          using (var fnt = new Font("Segoe UI", 18))
+          using (var br = new SolidBrush(Color.FromArgb(220, 220, 100))) {
+            g.DrawString("All " + hwnds.Count + " windows on this desktop are off-screen.", fnt, br, 40, 40);
+          }
+          using (var fnt = new Font("Segoe UI", 13))
+          using (var br = new SolidBrush(Color.FromArgb(170, 170, 180))) {
+            g.DrawString("Click Launch below with taskmgr.exe, charmap.exe, or winver.exe", fnt, br, 40, 80);
+          }
+          return EncodeJpeg(bmp, 70L);
+        }
+      } catch { return null; }
+    }
+    // Keep minX / minY as-is (don't clamp to 0 — that corrupted draw offsets
+    // and clipped real content outside the composite). The draw math uses
+    // (r.left - minX) which is >= 0 naturally.
+    int totW = Math.Min(scrW, maxX - minX), totH = Math.Min(scrH, maxY - minY);
     if (totW <= 0 || totH <= 0) return null;
     byte[] jpg = null;
     try {

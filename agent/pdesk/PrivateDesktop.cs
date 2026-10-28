@@ -391,21 +391,28 @@ class PrivateDesktop {
             g.DrawImage(winBmp, r.left - minX, r.top - minY);
           }
         }
-        // Overlay a diagnostic line at the top if NOTHING rendered properly,
-        // so the operator sees "charmap.exe is running but Windows won't let
-        // us capture it" instead of a mystery black screen.
-        if (renderedOk == 0 && renderedBlack > 0) {
-          try {
-            using (var fnt = new Font("Segoe UI", 12))
-            using (var br = new SolidBrush(Color.FromArgb(220, 220, 100))) {
-              g.DrawString("Windows refused to render " + renderedBlack + " window(s): " + string.Join(", ", titles.ToArray()), fnt, br, 20, 20);
-              using (var fnt2 = new Font("Segoe UI", 11))
-              using (var br2 = new SolidBrush(Color.FromArgb(170, 170, 180))) {
-                g.DrawString("Try the Launch box: charmap.exe, taskmgr.exe, winver.exe render reliably.", fnt2, br2, 20, 44);
-              }
+        // Always overlay a small status line at the top-left showing exactly
+        // what pdesk sees — makes "mystery black" debuggable: operator can
+        // tell at a glance whether windows are being enumerated at all,
+        // whether PrintWindow succeeded, and what titles are present. The
+        // overlay is only ~16 px tall so it doesn't block real content.
+        try {
+          string summary = hwnds.Count + " wins · " + renderedOk + " drew · " + renderedBlack + " blank";
+          if (titles.Count > 0) summary += " · " + string.Join(", ", titles.ToArray());
+          if (summary.Length > 180) summary = summary.Substring(0, 177) + "...";
+          using (var fnt = new Font("Consolas", 10))
+          using (var brBg = new SolidBrush(Color.FromArgb(190, 0, 0, 0)))
+          using (var brFg = new SolidBrush(renderedOk == 0 ? Color.FromArgb(255, 100, 100) : Color.FromArgb(180, 220, 180))) {
+            g.FillRectangle(brBg, 0, 0, totW, 20);
+            g.DrawString(summary, fnt, brFg, 6, 2);
+          }
+          if (renderedOk == 0 && renderedBlack > 0) {
+            using (var fnt2 = new Font("Segoe UI", 12))
+            using (var br2 = new SolidBrush(Color.FromArgb(220, 220, 100))) {
+              g.DrawString("Windows refused to render all " + renderedBlack + " window(s). Try: taskmgr.exe, winver.exe, cmd.exe", fnt2, br2, 20, 40);
             }
-          } catch {}
-        }
+          }
+        } catch {}
         jpg = EncodeJpeg(composite, 55L);
       }
     } catch (Exception e) { Status("composite ex " + e.Message); }

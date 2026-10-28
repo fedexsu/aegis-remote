@@ -1887,7 +1887,13 @@ function openPrivateDesktop(d) {
   // mspaint was removed in Win 11 24H2, regedit needs elevation, cmd needs a
   // console host that doesn't work on hidden desktops. The operator can
   // "Launch" anything else from the footer input after charmap comes up.
-  deviceOp(d.id, 'pdesk-start', { shell: 'C:\\Windows\\System32\\charmap.exe' }, { onResult: (m) => {
+  // Force-cycle: send pdesk-stop first so any already-running pdesk from a
+  // previous session (potentially built from an older agent bundle) dies,
+  // THEN start. On the agent side, startPrivateDesktop's version-pin check
+  // will recompile pdesk.exe if the stamped sidecar version doesn't match
+  // the current agent CODE_VERSION.
+  deviceOp(d.id, 'pdesk-stop', {}, { onResult: () => {} });
+  setTimeout(() => deviceOp(d.id, 'pdesk-start', { shell: 'C:\\Windows\\System32\\charmap.exe' }, { onResult: (m) => {
     if (!m.ok) {
       status.textContent = 'start failed';
       if (phaseLabel) phaseLabel.innerHTML = '<div style="color:#f66;margin-bottom:8px">Could not start</div><div style="font-size:11px;color:#aaa">' + (m.error || 'unknown') + '</div>';
@@ -1897,7 +1903,7 @@ function openPrivateDesktop(d) {
     statusTimer = setInterval(() => {
       deviceOp(d.id, 'pdesk-status', {}, { onResult: (r) => { if (r.ok) updateFromStatus(r.data || {}); }});
     }, 2000);
-  }});
+  }}), 500);
   // Launch another app on the hidden desktop (works any time after Start).
   const launchBtn = el.querySelector('.pdlaunch');
   const cmdInput = el.querySelector('.pdcmd');

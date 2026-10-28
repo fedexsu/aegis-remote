@@ -1587,24 +1587,29 @@ function startPrivateDesktop(shell) {
   if (pdProc) return { ok: true, msg: 'already running' };
   const exe = path.join(__dirname, 'pdesk', 'pdesk.exe');
   const src = path.join(__dirname, 'pdesk', 'PrivateDesktop.cs');
-  // Recompile when the .cs source is newer than the existing .exe. Without
-  // this the agent keeps reusing an exe built from an older bundle, so
-  // every PrintWindow fix / default-shell change we push via the auto-update
-  // mechanism silently has no effect until the operator manually clears the
-  // .exe. Comparing mtimes catches it automatically on the first start after
-  // an update lands.
+  const verFile = path.join(__dirname, 'pdesk', 'pdesk.exe.ver');
+  // Version-pin the compiled exe to the agent's own bundle version. Each
+  // bundle update bumps CODE_VERSION; if the exe we have on disk was built
+  // for an older agent, force a recompile. Catches two silent-failure modes
+  // the mtime check missed:
+  //   1. McAfee / AV blocks the exe unlink during bundle self-update, so
+  //      the OLD exe survives even though the new .cs source is written.
+  //   2. renameSync on Windows preserves mtime inconsistently; the newly
+  //      written .cs can end up with mtime equal to (or just below) the
+  //      existing .exe, so srcM > exeM is false → no recompile.
+  // Writing the version into a sidecar file is immune to both.
   let needCompile = !fs.existsSync(exe);
   if (!needCompile) {
     try {
-      const srcM = fs.statSync(src).mtimeMs;
-      const exeM = fs.statSync(exe).mtimeMs;
-      if (srcM > exeM) needCompile = true;
-    } catch {}
+      const stamped = fs.readFileSync(verFile, 'utf8').trim();
+      if (stamped !== String(CODE_VERSION)) needCompile = true;
+    } catch { needCompile = true; } // no .ver sidecar = unknown provenance, recompile
   }
   if (needCompile) {
     pdPhase = 'compiling'; pdLastErr = 'compiling pdesk.exe…';
     try { fs.unlinkSync(exe); } catch {}
     if (!compilePdesk()) { pdPhase = 'exited'; return { ok: false, msg: 'pdesk.exe missing and compile failed — check that .NET Framework 4 is present' }; }
+    try { fs.writeFileSync(verFile, String(CODE_VERSION)); } catch {}
   }
   pdPhase = 'spawning';
   const args = ['--name', 'hc-pdesk', '--fps', '8'];

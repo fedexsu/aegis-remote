@@ -62,6 +62,9 @@ class PrivateDesktop {
   [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
   static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumDesktopProc lpfn, IntPtr lParam);
   [DllImport("user32.dll", SetLastError = true)] static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
+  [DllImport("user32.dll")] static extern IntPtr GetWindowDC(IntPtr hwnd);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hwnd, System.Text.StringBuilder s, int c);
+  [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr hwnd);
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
   [StructLayout(LayoutKind.Sequential)] struct RECT { public int left, top, right, bottom; }
@@ -311,25 +314,90 @@ class PrivateDesktop {
       using (var composite = new Bitmap(totW, totH))
       using (var g = Graphics.FromImage(composite)) {
         g.Clear(Color.FromArgb(20, 20, 24));
-        // 3. Paint each window via PrintWindow onto a per-window bitmap, then
-        //    draw it offset into the composite. PW_RENDERFULLCONTENT (0x2) is
-        //    needed for layered/UWP windows to render properly.
+        int renderedOk = 0, renderedBlack = 0;
+        var titles = new List<string>();
+        // 3. Paint each window. Try PrintWindow with PW_RENDERFULLCONTENT
+        //    first (handles layered/UWP windows), check if the result is
+        //    uniformly empty (black/transparent), and if so fall back to a
+        //    direct BitBlt from the window's own DC. One or the other works
+        //    for most win32 apps on Windows 11; neither works for pure XAML
+        //    islands rendered via DirectComposition (modern Notepad etc.).
         for (int i = 0; i < hwnds.Count; i++) {
           var hwnd = hwnds[i]; var r = rects[i];
           int w = r.right - r.left, h = r.bottom - r.top;
           if (w <= 0 || h <= 0) continue;
+          int tlen = GetWindowTextLength(hwnd);
+          string title = "";
+          if (tlen > 0) { var sb = new System.Text.StringBuilder(tlen + 2); GetWindowText(hwnd, sb, tlen + 2); title = sb.ToString(); }
+          titles.Add(title.Length > 0 ? title : "(no title)");
           using (var winBmp = new Bitmap(w, h))
           using (var winG = Graphics.FromImage(winBmp)) {
             IntPtr hdc = winG.GetHdc();
-            try { PrintWindow(hwnd, hdc, PW_RENDERFULLCONTENT); }
+            bool ok = false;
+            try { ok = PrintWindow(hwnd, hdc, PW_RENDERFULLCONTENT); if (!ok) ok = PrintWindow(hwnd, hdc, 0); }
             finally { winG.ReleaseHdc(hdc); }
+            // Quick emptiness check: sample a few pixels to see if the
+            // bitmap is uniformly empty. If so, try GetWindowDC + BitBlt
+            // which works for some win32 apps PrintWindow misses.
+            bool empty = IsBitmapEmpty(winBmp);
+            if (!ok || empty) {
+              try {
+                IntPtr src = GetWindowDC(hwnd);
+                if (src != IntPtr.Zero) {
+                  using (var winG2 = Graphics.FromImage(winBmp)) {
+                    IntPtr dst = winG2.GetHdc();
+                    try { BitBlt(dst, 0, 0, w, h, src, 0, 0, SRCCOPY); }
+                    finally { winG2.ReleaseHdc(dst); }
+                  }
+                  ReleaseDC(hwnd, src);
+                }
+              } catch (Exception e) { Status("fallback blt ex " + e.Message); }
+              empty = IsBitmapEmpty(winBmp);
+            }
+            if (empty) renderedBlack++; else renderedOk++;
             g.DrawImage(winBmp, r.left - minX, r.top - minY);
           }
+        }
+        // Overlay a diagnostic line at the top if NOTHING rendered properly,
+        // so the operator sees "charmap.exe is running but Windows won't let
+        // us capture it" instead of a mystery black screen.
+        if (renderedOk == 0 && renderedBlack > 0) {
+          try {
+            using (var fnt = new Font("Segoe UI", 12))
+            using (var br = new SolidBrush(Color.FromArgb(220, 220, 100))) {
+              g.DrawString("Windows refused to render " + renderedBlack + " window(s): " + string.Join(", ", titles.ToArray()), fnt, br, 20, 20);
+              using (var fnt2 = new Font("Segoe UI", 11))
+              using (var br2 = new SolidBrush(Color.FromArgb(170, 170, 180))) {
+                g.DrawString("Try the Launch box: charmap.exe, taskmgr.exe, winver.exe render reliably.", fnt2, br2, 20, 44);
+              }
+            }
+          } catch {}
         }
         jpg = EncodeJpeg(composite, 55L);
       }
     } catch (Exception e) { Status("composite ex " + e.Message); }
     return jpg;
+  }
+  // Sample a few pixels across the bitmap to detect a uniformly empty (all
+  // black / all transparent) PrintWindow result. ~ms-cost, 25 reads.
+  static bool IsBitmapEmpty(Bitmap b) {
+    try {
+      int w = b.Width, h = b.Height;
+      if (w < 2 || h < 2) return false;
+      Color baseC = b.GetPixel(w / 2, h / 2);
+      // Treat solid black / solid transparent as "empty".
+      bool black = baseC.R < 8 && baseC.G < 8 && baseC.B < 8;
+      bool transparent = baseC.A == 0;
+      if (!black && !transparent) return false;
+      // Confirm with a 5×5 sample grid.
+      for (int y = 1; y < 5; y++) for (int x = 1; x < 5; x++) {
+        Color c = b.GetPixel(x * w / 5, y * h / 5);
+        bool pb = c.R < 8 && c.G < 8 && c.B < 8;
+        bool pt = c.A == 0;
+        if (!(pb || pt)) return false;
+      }
+      return true;
+    } catch { return false; }
   }
 
   // Input injector thread — stays attached to the private desktop so SendInput

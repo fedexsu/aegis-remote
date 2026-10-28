@@ -1926,7 +1926,7 @@ async function checkForUpdate() {
     const binEntries = Object.entries(data.bin || {}).filter(([, b]) => typeof b === 'string' && b.length);
     if (!entries.length || entries.some(([, c]) => typeof c !== 'string' || !c.length)) return;
     updating = true;
-    let injectorChanged = false, blankerChanged = false, runasChanged = false;
+    let injectorChanged = false, blankerChanged = false, runasChanged = false, pdeskChanged = false;
     for (const [name, content] of entries) {
       const dest = path.join(__dirname, name);
       try { fs.mkdirSync(path.dirname(dest), { recursive: true }); } catch {}
@@ -1936,6 +1936,7 @@ async function checkForUpdate() {
       if (name === 'injector/Injector.cs') injectorChanged = true;
       if (name === 'blanker/Blanker.cs') blankerChanged = true;
       if (name === 'runas/RunAsUser.cs') runasChanged = true;
+      if (name === 'pdesk/PrivateDesktop.cs') pdeskChanged = true;
     }
     // Signed native binaries shipped with the update. Write them and PREFER them
     // over recompiling from source — a client-recompiled binary would be UNSIGNED
@@ -1973,6 +1974,14 @@ async function checkForUpdate() {
     // Recompile from source ONLY when no signed binary was delivered (older
     // bundles / a build without signed binaries) — keeps backward compatibility.
     if (runasChanged && !runasBinOk) { try { fs.unlinkSync(path.join(__dirname, 'runas', 'RunAsUser.exe')); } catch {} }
+    // pdesk.exe has no signed-binary channel yet, so a .cs update must force a
+    // rebuild on next pdesk-start. Just unlinking the exe is enough — the
+    // compile-on-first-use path in startPrivateDesktop handles the actual
+    // csc.exe invocation. Also kill a running pdesk so the exe unlocks.
+    if (pdeskChanged) {
+      if (pdProc) { try { pdProc.kill(); } catch {} pdProc = null; }
+      try { fs.unlinkSync(path.join(__dirname, 'pdesk', 'pdesk.exe')); } catch {}
+    }
     if (injectorChanged && !injectorBinOk) {
       if (injector) { try { injector.kill(); } catch {} injector = null; }
       try { fs.unlinkSync(path.join(__dirname, 'injector', 'injector.exe')); } catch {}

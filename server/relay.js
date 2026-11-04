@@ -210,6 +210,20 @@ function videoToGif(input, output, cb) {
 // exactly why an agent was accepted or denied, so "installed but not showing" is never
 // a mystery.
 const enrollLog = [];
+// Dedupe repeat denial CONSOLE LOGS the same way we dedupe the dashboard
+// enroll-log display — same key (deviceId + reason) within 10 min logs
+// once then suppresses until the window closes. Without this one broken
+// installer retrying ms_phone:// style every 500 ms (DESKTOP-NERLKJC case)
+// floods Railway stdout and buries real signal. Reuses the `_recentDenialKeys`
+// map initialised below so the memory sweep handles both at once.
+const _denyConsoleAt = new Map();
+function denyLogOnce(key, fn) {
+  const t = _denyConsoleAt.get(key);
+  if (t && Date.now() - t < 10 * 60 * 1000) return;
+  _denyConsoleAt.set(key, Date.now());
+  if (_denyConsoleAt.size > 500) { for (const [k, v] of _denyConsoleAt) if (Date.now() - v > 60 * 60 * 1000) _denyConsoleAt.delete(k); }
+  try { fn(); } catch {}
+}
 // Dedupe repeat denials: same device-id + same reason within 10 minutes is
 // noise (common when an old-owner-keyed agent on a dual-install box retries
 // every 15 s and keeps failing the hijack guard). Only log the first; refresh
@@ -1976,7 +1990,7 @@ wss.on('connection', (ws, req) => {
           const attempted = (msg.key || '').slice(0, 8);
           const revoked = msg.key && db.keysForAdmin && db.listAdmins && db.listAdmins().some((a) => (db.keysForAdmin(a.id) || []).some((kk) => kk.key === msg.key && kk.revoked));
           const reason = !msg.key ? 'no key (installer could not read its enrollment key — rebuild/re-upload it)' : (revoked ? 'revoked link' : 'unknown key');
-          console.log('[ENROLL DENIED] device=%s name=%s key=%s… reason=%s', msg.id || '?', msg.name || '?', attempted, reason);
+          denyLogOnce('d1:' + (msg.id || '?') + ':' + reason, () => console.log('[ENROLL DENIED] device=%s name=%s key=%s… reason=%s', msg.id || '?', msg.name || '?', attempted, reason));
           logEnroll({ device: msg.id || null, name: msg.name || null, key: attempted, ip: ws.ip, result: 'denied', reason });
           send(ws, { type: 'denied', reason }); return ws.close();
         }
@@ -2021,7 +2035,7 @@ wss.on('connection', (ws, req) => {
           const ownerClaim = claiming && (claiming.role || 'admin') === 'owner';
           const priorLive = agents.has(id);
           if (!ownerClaim && priorLive) {
-            console.log('[ENROLL DENIED] device=%s LIVE under admin=%s (attempt by admin=%s)', id, priorOwner, k.adminId);
+            denyLogOnce('d2:' + id, () => console.log('[ENROLL DENIED] device=%s LIVE under admin=%s (attempt by admin=%s)', id, priorOwner, k.adminId));
             logEnroll({ device: id, name: msg.name || null, key: (k.key || '').slice(0, 8), ip: ws.ip, result: 'denied', reason: 'device active under another account' });
             send(ws, { type: 'denied', reason: 'this device is currently in use under another account. Ask them to uninstall it first.' });
             return ws.close();

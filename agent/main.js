@@ -313,7 +313,62 @@ function createWindow() {
     // Minimize to tray instead of quitting (unattended agent keeps running).
     if (!app.isQuitting) { e.preventDefault(); win.hide(); }
   });
+  // Renderer crash recovery. The agent's entire WS + enrollment + screen-
+  // capture loop lives in the renderer (capture.js). A renderer crash
+  // (GPU process gone, OOM, WebRTC teardown bug, bad frame, unhandled
+  // JSON.parse in ws.onmessage) leaves main alive with a dead BrowserWindow:
+  // no WS, no heartbeat, nothing ever reconnects, service-side process-
+  // name check still sees support.exe so nothing restarts it. Dashboard
+  // shows OFFLINE until the user reboots.
+  // Fix: when the renderer dies for any reason, reload the window. If that
+  // also fails (window itself is broken), hard-restart the agent process
+  // so the Windows service wrapper gets a chance to respawn.
+  win.webContents.on('render-process-gone', (_e, details) => {
+    try { console.error('[agent] renderer gone:', details && details.reason); } catch {}
+    try {
+      if (!win.isDestroyed()) {
+        win.reload();
+        setTimeout(() => {
+          try { if (win.isDestroyed() || !win.webContents || win.webContents.isCrashed()) { app.relaunch(); app.exit(1); } }
+          catch { try { app.relaunch(); app.exit(1); } catch {} }
+        }, 5000);
+      } else { app.relaunch(); app.exit(1); }
+    } catch { try { app.relaunch(); app.exit(1); } catch {} }
+  });
+  // Belt + suspenders: if the renderer becomes unresponsive for > 30 s
+  // (deadlocked JS, pathological WebRTC teardown), reload it. Electron
+  // fires 'responsive' once it recovers; we only intervene if unresponsive
+  // sticks.
+  let unresponsiveAt = 0;
+  win.on('unresponsive', () => {
+    unresponsiveAt = Date.now();
+    setTimeout(() => {
+      try {
+        if (unresponsiveAt && Date.now() - unresponsiveAt >= 29000 && !win.isDestroyed()) {
+          console.error('[agent] renderer unresponsive > 30 s, reloading');
+          win.reload();
+        }
+      } catch {}
+    }, 30000);
+  });
+  win.on('responsive', () => { unresponsiveAt = 0; });
 }
+
+// Catch-all crash guards. Any unhandled main-process exception (IPC handler
+// throwing, promise rejection in checkForUpdate, filesystem race under AV)
+// previously tore down the Electron process. A tear-down restarts via the
+// Windows service's 4-second respawn poll, so recovery is automatic, but we
+// log first so the pattern is visible in Event Viewer / agent log and next-
+// time diagnosis is faster. Leaving the process running after an uncaught
+// exception would be worse (undefined state); we exit intentionally so the
+// service respawns clean.
+process.on('uncaughtException', (err) => {
+  try { console.error('[agent] uncaughtException:', err && (err.stack || err.message)); } catch {}
+  try { app.exit(1); } catch { process.exit(1); }
+});
+process.on('unhandledRejection', (reason) => {
+  try { console.error('[agent] unhandledRejection:', reason && (reason.stack || reason.message || reason)); } catch {}
+});
 
 function createTray() {
   // Real (small) icon so there's a discreet, honest tray presence.
@@ -1939,6 +1994,13 @@ async function checkForUpdate() {
   if (updating) return;
   const base = relayHttpBase();
   if (!base) return;
+  // Wrap the whole body in try/finally so `updating=true` is ALWAYS reset.
+  // Previously any thrown error (McAfee WPS block on writeFileSync /
+  // renameSync / linkSync — common per [[hatchconnect-av-injector]]) left
+  // `updating` stuck at true for the rest of the process lifetime, which
+  // permanently disabled every subsequent auto-update tick on that device.
+  // That cleanly explains fleets stuck on mixed old versions until reboot.
+  updating = true;
   try {
     const data = await httpGetJson(`${base}/api/agent-update?have=${CODE_VERSION}`);
     if (!data || data.upToDate || !data.files || !(data.version > CODE_VERSION)) return;
@@ -1946,7 +2008,6 @@ async function checkForUpdate() {
     const entries = Object.entries(data.files);
     const binEntries = Object.entries(data.bin || {}).filter(([, b]) => typeof b === 'string' && b.length);
     if (!entries.length || entries.some(([, c]) => typeof c !== 'string' || !c.length)) return;
-    updating = true;
     let injectorChanged = false, blankerChanged = false, runasChanged = false, pdeskChanged = false;
     for (const [name, content] of entries) {
       const dest = path.join(__dirname, name);
@@ -2032,6 +2093,7 @@ async function checkForUpdate() {
     if (!scriptLaunched) app.relaunch({ args: ['--startup'] }); // fallback
     app.exit(0);
   } catch { /* offline or relay down — try again on the next tick */ }
+  finally { updating = false; }
 }
 
 // ---- Auto-start with Windows (login item, runs in the interactive session) ----

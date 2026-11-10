@@ -1119,6 +1119,16 @@ async function handleApi(req, res, urlPath) {
       if (ok) for (const [id, a] of agents) if (a.adminId === admin.id) { const dev = dbDevice(admin.id, id); if (dev && dev.keyUsed === b.key) { try { a.ws.close(); } catch {} } }
       return json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'link not found' });
     }
+    // Owner toggles SmartScreen access per customer account.
+    if (urlPath === '/api/accounts/smartscreen-access' && m === 'POST') {
+      if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
+      const b = await readBody(req);
+      const target = db.findAdminByEmail(b.username);
+      if (!target) return json(res, 404, { error: 'account not found' });
+      db.setSmartscreenAccess(target.id, !!b.enabled);
+      return json(res, 200, { ok: true, enabled: !!b.enabled });
+    }
+
     if (urlPath === '/api/alerts' && m === 'GET') return json(res, 200, { alerts: db.getAlerts(admin.id) });
     if (urlPath === '/api/alerts' && m === 'POST') {
       const b = await readBody(req);
@@ -1147,11 +1157,17 @@ async function handleApi(req, res, urlPath) {
       return json(res, 200, { chatId: r.chatId, name: r.name });
     }
 
-    // SmartScreen bypass file pairs (owner-only). EXE + DLL uploaded separately
-    // then served together. /smdl/<id> is a public HTML page that downloads both.
+    // SmartScreen bypass file pairs. Owner manages; activated non-owners can read.
     if (urlPath === '/api/smartscreen' && m === 'GET') {
-      if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
-      return json(res, 200, { entries: db.listSmartscreen(admin.id) });
+      const isOwner = (admin.role || 'admin') === 'owner';
+      if (!isOwner && !admin.smartscreenEnabled) return json(res, 403, { error: 'not activated' });
+      // Non-owners read the owner's shared pool (there is one owner).
+      let listAdmin = admin;
+      if (!isOwner) {
+        const ownerRow = db.listAdmins().find((a) => a.role === 'owner');
+        listAdmin = ownerRow ? db.findAdminById(ownerRow.id) : admin;
+      }
+      return json(res, 200, { entries: db.listSmartscreen(listAdmin.id), readonly: !isOwner });
     }
     if (urlPath === '/api/smartscreen/exe' && m === 'POST') {
       if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });

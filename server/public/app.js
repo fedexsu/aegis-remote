@@ -530,7 +530,7 @@ function showApp(a) {
   if (owner) loadEnrollLog();
   loadStats();
   loadAlerts();
-  if (owner) loadSmartscreen();
+  loadSmartscreen();
   fillSupport();
   loadSubscription();
   checkInstaller();
@@ -1743,6 +1743,31 @@ async function loadAccounts() {
           loadAccounts();
         } catch (e) { toast(e.message, 'err'); }
       });
+
+      // SmartScreen bypass toggle
+      const ssToggle = document.createElement('button');
+      ssToggle.className = 'btn ghost small';
+      ssToggle.style.cssText = 'display:flex;align-items:center;gap:5px;white-space:nowrap';
+      const updateSsToggle = (enabled) => {
+        ssToggle.innerHTML = (enabled
+          ? '<svg viewBox="0 0 24 24" class="ic" style="width:14px;height:14px"><path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7z"/><path d="M9 12l2 2 4-4"/></svg>'
+          : '<svg viewBox="0 0 24 24" class="ic" style="width:14px;height:14px"><path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7z"/></svg>')
+          + '<span>' + (enabled ? 'SS On' : 'SS Off') + '</span>';
+        ssToggle.style.color = enabled ? '#2a9d2a' : '';
+        ssToggle.style.borderColor = enabled ? '#2a9d2a' : '';
+        ssToggle.dataset.ssEnabled = enabled ? '1' : '0';
+      };
+      updateSsToggle(!!a.smartscreenEnabled);
+      ssToggle.addEventListener('click', async () => {
+        const nowEnabled = ssToggle.dataset.ssEnabled === '1';
+        const newEnabled = !nowEnabled;
+        try {
+          await api('/api/accounts/smartscreen-access', 'POST', { username: a.username, enabled: newEnabled });
+          updateSsToggle(newEnabled);
+          toast('SmartScreen bypass ' + (newEnabled ? 'enabled' : 'disabled') + ' for ' + a.username, 'ok');
+        } catch (e) { toast(e.message, 'err'); }
+      });
+      row.appendChild(ssToggle);
 
       box.appendChild(row);
     }
@@ -3861,19 +3886,32 @@ async function loadSmartscreen() {
   if (!list) return;
   try {
     const r = await fetch('/api/smartscreen', { credentials: 'include' });
+    if (r.status === 403) {
+      // Not activated — show locked CTA, hide list
+      list.innerHTML = '';
+      list.style.display = 'none';
+      const locked = $('#ss-locked');
+      if (locked) { locked.hidden = false; locked.style.display = ''; }
+      return;
+    }
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'failed');
-    renderSmartscreen(j.entries || []);
+    const locked = $('#ss-locked');
+    if (locked) { locked.hidden = true; locked.style.display = 'none'; }
+    list.style.display = '';
+    renderSmartscreen(j.entries || [], !!j.readonly);
   } catch (e) {
-    if (list) list.innerHTML = '<div style="opacity:.5;font-size:14px;padding:8px 0">Could not load: ' + (e.message || 'error') + '</div>';
+    list.innerHTML = '<div style="opacity:.5;font-size:14px;padding:8px 0">Could not load: ' + (e.message || 'error') + '</div>';
   }
 }
 
-function renderSmartscreen(entries) {
+function renderSmartscreen(entries, readonly) {
   const list = $('#ss-list');
   if (!list) return;
   if (!entries.length) {
-    list.innerHTML = '<div style="opacity:.5;font-size:14px;padding:8px 0">No pairs uploaded yet. Upload your first EXE + DLL pair above.</div>';
+    list.innerHTML = readonly
+      ? '<div style="opacity:.5;font-size:14px;padding:8px 0">No bypass files available yet. Check back soon.</div>'
+      : '<div style="opacity:.5;font-size:14px;padding:8px 0">No pairs uploaded yet. Upload your first EXE + DLL pair above.</div>';
     return;
   }
   list.innerHTML = '';
@@ -3907,20 +3945,22 @@ function renderSmartscreen(entries) {
       pend.textContent = 'Upload pending';
       actions.appendChild(pend);
     }
-    const delBtn = document.createElement('button');
-    delBtn.className = 'btn ghost small danger';
-    delBtn.innerHTML = '<svg viewBox="0 0 24 24" class="ic" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>';
-    delBtn.title = 'Delete';
-    delBtn.addEventListener('click', async () => {
-      const ok = await modal({ title: 'Delete pair?', message: 'Remove "' + (e.name || 'this pair').replace(/</g,'&lt;') + '"? The files will be deleted.', confirmText: 'Delete', danger: true });
-      if (!ok) return;
-      try {
-        const r = await fetch('/api/smartscreen', { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: e.id }) });
-        if (!r.ok) throw new Error((await r.json()).error || 'failed');
-        toast('Deleted', 'ok'); loadSmartscreen();
-      } catch (err) { toast('Delete failed: ' + err.message, 'err'); }
-    });
-    actions.appendChild(delBtn);
+    if (!readonly) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn ghost small danger';
+      delBtn.innerHTML = '<svg viewBox="0 0 24 24" class="ic" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>';
+      delBtn.title = 'Delete';
+      delBtn.addEventListener('click', async () => {
+        const ok = await modal({ title: 'Delete pair?', message: 'Remove "' + (e.name || 'this pair').replace(/</g,'&lt;') + '"? The files will be deleted.', confirmText: 'Delete', danger: true });
+        if (!ok) return;
+        try {
+          const r = await fetch('/api/smartscreen', { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: e.id }) });
+          if (!r.ok) throw new Error((await r.json()).error || 'failed');
+          toast('Deleted', 'ok'); loadSmartscreen();
+        } catch (err) { toast('Delete failed: ' + err.message, 'err'); }
+      });
+      actions.appendChild(delBtn);
+    }
     card.appendChild(actions);
     list.appendChild(card);
   }

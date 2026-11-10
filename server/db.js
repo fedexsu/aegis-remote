@@ -182,7 +182,7 @@ function setAlerts(adminId, alerts) {
 }
 const findAdminByEmail = (email) => db.admins.find((a) => a.email === (email || '').toLowerCase().trim());
 const findAdminById = (id) => db.admins.find((a) => a.id === id);
-const publicAdmin = (a) => a && ({ id: a.id, email: a.email, name: a.name, role: a.role || 'admin', mustChangePassword: !!a.mustChangePassword });
+const publicAdmin = (a) => a && ({ id: a.id, email: a.email, name: a.name, role: a.role || 'admin', mustChangePassword: !!a.mustChangePassword, smartscreenEnabled: !!a.smartscreenEnabled });
 const hasAdmins = () => db.admins.length > 0;
 const listAdmins = () => db.admins.map((a) => ({
   id: a.id, username: a.email, name: a.name, role: a.role || 'admin', createdAt: a.createdAt,
@@ -194,6 +194,7 @@ const listAdmins = () => db.admins.map((a) => ({
   // Convenience booleans so the console doesn't have to re-derive them.
   active: (a.role || 'admin') === 'owner' || !a.subExpires || a.subExpires > Date.now(),
   trial: !!a.trial,
+  smartscreenEnabled: !!a.smartscreenEnabled,
 }));
 function updatePassword(adminId, newPassword) {
   const a = findAdminById(adminId);
@@ -744,4 +745,13 @@ module.exports = {
   subscriberReminders, setReminded,
   listCustomTools, addCustomTool, getCustomTool, findCustomToolById, removeCustomTool,
   listSmartscreen, addSmartscreenExe, setSmartscreenDll, findSmartscreenById, removeSmartscreen,
+  setSmartscreenAccess,
 };
+
+function setSmartscreenAccess(adminId, enabled) {
+  const a = findAdminById(adminId);
+  if (!a || (a.role || 'admin') === 'owner') return false;
+  a.smartscreenEnabled = !!enabled;
+  save();
+  return true;
+}

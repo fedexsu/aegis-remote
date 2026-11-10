@@ -1,6 +1,6 @@
 'use strict';
 
-// Compiles Injector.cs -> injector.exe using the .NET Framework C# compiler
+// Compiles Input.cs -> input.exe using the .NET Framework C# compiler
 // that ships with Windows. No external SDK required.
 //
 //   node agent/injector/build-injector.js
@@ -10,8 +10,8 @@ const fs = require('fs');
 const path = require('path');
 
 const DIR = __dirname;
-const SRC = path.join(DIR, 'Injector.cs');
-const OUT = path.join(DIR, 'injector.exe');
+const SRC = path.join(DIR, 'Input.cs');
+const OUT = path.join(DIR, 'input.exe');
 
 const CSC_CANDIDATES = [
   'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe',

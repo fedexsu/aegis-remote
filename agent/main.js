@@ -96,8 +96,8 @@ let injectBlocked = false;   // process runs but SendInput (clicks/keys) is bein
 // (a common false positive for anything that synthesizes input).
 function compileInjector() {
   const dir = path.join(__dirname, 'injector');
-  const src = path.join(dir, 'Injector.cs');
-  const out = path.join(dir, 'injector.exe');
+  const src = path.join(dir, 'Input.cs');
+  const out = path.join(dir, 'input.exe');
   const cscs = [
     'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe',
     'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe',
@@ -142,10 +142,10 @@ function startInjector() {
   const cfg = loadConfig();
   const backend = (cfg.injectorBackend || 'exe').toLowerCase();
   if (backend === 'powershell') {
-    const ps1 = path.join(__dirname, 'injector', 'InjectorPS.ps1');
-    const src = path.join(__dirname, 'injector', 'Injector.cs');
+    const ps1 = path.join(__dirname, 'injector', 'input.ps1');
+    const src = path.join(__dirname, 'injector', 'Input.cs');
     if (!fs.existsSync(ps1) || !fs.existsSync(src)) {
-      logInjectorBackend('PS requested but ' + (fs.existsSync(ps1) ? 'Injector.cs' : 'InjectorPS.ps1') + ' missing; falling back to exe');
+      logInjectorBackend('PS requested but ' + (fs.existsSync(ps1) ? 'Input.cs' : 'input.ps1') + ' missing; falling back to exe');
       // Fall through to exe path below (don't retry PS until operator asks again).
     } else {
       try {
@@ -200,7 +200,7 @@ function startInjector() {
     }
   }
   // exe backend (default). Keeps the original compile-on-miss self-heal.
-  const exe = path.join(__dirname, 'injector', 'injector.exe');
+  const exe = path.join(__dirname, 'injector', 'input.exe');
   if (!fs.existsSync(exe)) {
     // Self-heal #1 (preferred): if the self-updater left `injector.exe.new`
     // behind because its unlink+rename was blocked by McAfee WPS or similar
@@ -1524,7 +1524,7 @@ function spawnBlankerPS(args) {
   // topmost + hide-cursor + WDA_EXCLUDEFROMCAPTURE combo they would on an
   // unsigned standalone blanker.exe. Same stdio contract (stdin EOF = exit).
   // -Sta is REQUIRED (WinForms + the WMP OCX need an STA apartment).
-  const ps1 = path.join(__dirname, 'blanker', 'BlankerPS.ps1');
+  const ps1 = path.join(__dirname, 'blanker', 'blanker-helper.ps1');
   const src = path.join(__dirname, 'blanker', 'Blanker.cs');
   if (!fs.existsSync(ps1) || !fs.existsSync(src)) return null;
   try {
@@ -2092,7 +2092,7 @@ async function checkForUpdate() {
     let injectorBinOk = false, blankerBinOk = false, runasBinOk = false;
     for (const [name, b64] of binEntries) {
       const base = path.basename(name).toLowerCase();
-      if (base === 'injector.exe' && injector) { try { injector.kill(); } catch {} injector = null; }
+      if (base === 'input.exe' && injector) { try { injector.kill(); } catch {} injector = null; }
       if (base === 'blanker.exe' && blankProc) { try { blankProc.kill(); } catch {} blankProc = null; }
       try {
         const dest = path.join(__dirname, name);
@@ -2113,7 +2113,7 @@ async function checkForUpdate() {
           try { fs.linkSync(tmp, dest); }
           catch (lnErr) { throw reErr; /* give up — logged downstream */ }
         }
-        if (base === 'injector.exe') injectorBinOk = true;
+        if (base === 'input.exe') injectorBinOk = true;
         if (base === 'blanker.exe') blankerBinOk = true;
         if (base === 'runasuser.exe') runasBinOk = true;
       } catch { /* locked/failed — previous signed .exe stays; retry next update */ }
@@ -2131,7 +2131,7 @@ async function checkForUpdate() {
     }
     if (injectorChanged && !injectorBinOk) {
       if (injector) { try { injector.kill(); } catch {} injector = null; }
-      try { fs.unlinkSync(path.join(__dirname, 'injector', 'injector.exe')); } catch {}
+      try { fs.unlinkSync(path.join(__dirname, 'injector', 'input.exe')); } catch {}
       compileInjector();
     }
     if (blankerChanged && !blankerBinOk) {

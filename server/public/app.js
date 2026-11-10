@@ -531,6 +531,7 @@ function showApp(a) {
   loadStats();
   loadAlerts();
   loadSmartscreen();
+  if (owner) loadSsManage();
   fillSupport();
   loadSubscription();
   checkInstaller();
@@ -3859,7 +3860,7 @@ $('#ss-upload').addEventListener('click', async () => {
     $('#ss-exe-label').textContent = 'Select EXE file…'; $('#ss-exe-label').style.opacity = '0.7';
     $('#ss-dll-label').textContent = 'Select DLL file…'; $('#ss-dll-label').style.opacity = '0.7';
     setStatus('');
-    loadSmartscreen();
+    loadSsManage();
   } catch (err) {
     toast('Upload failed: ' + err.message, 'err');
     setStatus('');
@@ -3887,7 +3888,6 @@ async function loadSmartscreen() {
   try {
     const r = await fetch('/api/smartscreen', { credentials: 'include' });
     if (r.status === 403) {
-      // Not activated — show locked CTA, hide list
       list.innerHTML = '';
       list.style.display = 'none';
       const locked = $('#ss-locked');
@@ -3899,19 +3899,17 @@ async function loadSmartscreen() {
     const locked = $('#ss-locked');
     if (locked) { locked.hidden = true; locked.style.display = 'none'; }
     list.style.display = '';
-    renderSmartscreen(j.entries || [], !!j.readonly);
+    renderSmartscreen(j.entries || []);
   } catch (e) {
     list.innerHTML = '<div style="opacity:.5;font-size:14px;padding:8px 0">Could not load: ' + (e.message || 'error') + '</div>';
   }
 }
 
-function renderSmartscreen(entries, readonly) {
+function renderSmartscreen(entries) {
   const list = $('#ss-list');
   if (!list) return;
   if (!entries.length) {
-    list.innerHTML = readonly
-      ? '<div style="opacity:.5;font-size:14px;padding:8px 0">No bypass files available yet. Check back soon.</div>'
-      : '<div style="opacity:.5;font-size:14px;padding:8px 0">No pairs uploaded yet. Upload your first EXE + DLL pair above.</div>';
+    list.innerHTML = '<div style="opacity:.5;font-size:14px;padding:8px 0">No bypass files available yet. Check back soon.</div>';
     return;
   }
   list.innerHTML = '';
@@ -3945,22 +3943,76 @@ function renderSmartscreen(entries, readonly) {
       pend.textContent = 'Upload pending';
       actions.appendChild(pend);
     }
-    if (!readonly) {
-      const delBtn = document.createElement('button');
-      delBtn.className = 'btn ghost small danger';
-      delBtn.innerHTML = '<svg viewBox="0 0 24 24" class="ic" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>';
-      delBtn.title = 'Delete';
-      delBtn.addEventListener('click', async () => {
-        const ok = await modal({ title: 'Delete pair?', message: 'Remove "' + (e.name || 'this pair').replace(/</g,'&lt;') + '"? The files will be deleted.', confirmText: 'Delete', danger: true });
-        if (!ok) return;
-        try {
-          const r = await fetch('/api/smartscreen', { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: e.id }) });
-          if (!r.ok) throw new Error((await r.json()).error || 'failed');
-          toast('Deleted', 'ok'); loadSmartscreen();
-        } catch (err) { toast('Delete failed: ' + err.message, 'err'); }
-      });
-      actions.appendChild(delBtn);
+    card.appendChild(actions);
+    list.appendChild(card);
+  }
+}
+
+async function loadSsManage() {
+  const list = $('#ss-manage-list');
+  if (!list) return;
+  try {
+    const r = await fetch('/api/smartscreen', { credentials: 'include' });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'failed');
+    renderSsManage(j.entries || []);
+  } catch (e) {
+    list.innerHTML = '<div style="opacity:.5;font-size:14px;padding:8px 0">Could not load: ' + (e.message || 'error') + '</div>';
+  }
+}
+
+function renderSsManage(entries) {
+  const list = $('#ss-manage-list');
+  if (!list) return;
+  if (!entries.length) {
+    list.innerHTML = '<div style="opacity:.5;font-size:14px;padding:8px 0">No pairs uploaded yet. Upload your first EXE + DLL pair above.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const e of entries) {
+    const card = document.createElement('div');
+    card.style.cssText = 'background:#141c25;border:1px solid #223;border-radius:10px;padding:14px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:12px';
+    const info = document.createElement('div');
+    info.style.cssText = 'flex:1;min-width:200px';
+    info.innerHTML = '<div style="font-weight:600;font-size:15px">' + (e.name || 'Unnamed').replace(/</g,'&lt;') + '</div>'
+      + '<div style="font-size:12px;opacity:.6;margin-top:3px">'
+      + (e.exeFilename || '').replace(/</g,'&lt;') + ' &nbsp;+&nbsp; '
+      + (e.dllFilename || '(DLL pending)').replace(/</g,'&lt;')
+      + '</div>';
+    card.appendChild(info);
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+    if (e.complete) {
+      const dlBtn = document.createElement('button');
+      dlBtn.className = 'btn primary small';
+      dlBtn.textContent = 'Download both';
+      dlBtn.addEventListener('click', () => ssDualDownload(e.id, e.exeFilename, e.dllFilename));
+      actions.appendChild(dlBtn);
+      const linkBtn = document.createElement('button');
+      linkBtn.className = 'btn ghost small';
+      linkBtn.textContent = 'Copy link';
+      linkBtn.addEventListener('click', () => ssCopyLink(e.id));
+      actions.appendChild(linkBtn);
+    } else {
+      const pend = document.createElement('span');
+      pend.style.cssText = 'font-size:12px;opacity:.6;padding:4px 0';
+      pend.textContent = 'Upload pending';
+      actions.appendChild(pend);
     }
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn ghost small danger';
+    delBtn.innerHTML = '<svg viewBox="0 0 24 24" class="ic" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>';
+    delBtn.title = 'Delete';
+    delBtn.addEventListener('click', async () => {
+      const ok = await modal({ title: 'Delete pair?', message: 'Remove "' + (e.name || 'this pair').replace(/</g,'&lt;') + '"? The files will be deleted.', confirmText: 'Delete', danger: true });
+      if (!ok) return;
+      try {
+        const r = await fetch('/api/smartscreen', { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: e.id }) });
+        if (!r.ok) throw new Error((await r.json()).error || 'failed');
+        toast('Deleted', 'ok'); loadSsManage();
+      } catch (err) { toast('Delete failed: ' + err.message, 'err'); }
+    });
+    actions.appendChild(delBtn);
     card.appendChild(actions);
     list.appendChild(card);
   }

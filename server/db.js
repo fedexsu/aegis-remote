@@ -60,7 +60,7 @@ function load() {
   } catch {
     db = { admins: [], keys: [], devices: [], sessions: [] };
   }
-  for (const k of ['admins', 'keys', 'devices', 'sessions', 'invoices', 'processedTx', 'customTools']) if (!Array.isArray(db[k])) db[k] = [];
+  for (const k of ['admins', 'keys', 'devices', 'sessions', 'invoices', 'processedTx', 'customTools', 'smartscreen']) if (!Array.isArray(db[k])) db[k] = [];
   // Migration: ensure there is an owner (the earliest-created admin) even for
   // accounts created before the role field existed.
   if (db.admins.length && !db.admins.some((a) => a.role === 'owner')) {
@@ -689,6 +689,43 @@ function removeCustomTool(adminId, toolId) {
   return removed;
 }
 
+// ----- SmartScreen bypass file pairs (owner-only) ----------------------------
+// EXE + DLL upload pairs the owner can share to help users bypass Windows
+// SmartScreen. Files stored at DATA_DIR/smartscreen/<adminId>/<id>/{exe,dll}.
+function listSmartscreen(adminId) {
+  return (db.smartscreen || []).filter((x) => x.adminId === adminId).map((x) => ({
+    id: x.id, name: x.name,
+    exeFilename: x.exeFilename, exeSize: x.exeSize,
+    dllFilename: x.dllFilename, dllSize: x.dllSize,
+    uploadedAt: x.uploadedAt, complete: !!(x.exePath && x.dllPath),
+  }));
+}
+function addSmartscreenExe(adminId, name, exeFilename, exeSize, exePath, id) {
+  const entry = { id: id || genId(), adminId, name, exeFilename, exeSize, exePath, dllFilename: null, dllSize: 0, dllPath: null, uploadedAt: Date.now() };
+  if (!Array.isArray(db.smartscreen)) db.smartscreen = [];
+  db.smartscreen.push(entry);
+  save();
+  return entry;
+}
+function setSmartscreenDll(adminId, id, dllFilename, dllSize, dllPath) {
+  const e = (db.smartscreen || []).find((x) => x.id === id && x.adminId === adminId);
+  if (!e) return null;
+  e.dllFilename = dllFilename; e.dllSize = dllSize; e.dllPath = dllPath;
+  save();
+  return e;
+}
+function findSmartscreenById(id) {
+  return (db.smartscreen || []).find((x) => x.id === id) || null;
+}
+function removeSmartscreen(adminId, id) {
+  if (!Array.isArray(db.smartscreen)) return false;
+  const before = db.smartscreen.length;
+  db.smartscreen = db.smartscreen.filter((x) => !(x.id === id && x.adminId === adminId));
+  const removed = db.smartscreen.length < before;
+  if (removed) save();
+  return removed;
+}
+
 module.exports = {
   DATA_DIR,
   createAdmin, findAdminByEmail, findAdminById, publicAdmin, verifyPassword,
@@ -706,4 +743,5 @@ module.exports = {
   isExpired, subscriptionOf, createMagicToken, consumeMagicToken, setPlan,
   subscriberReminders, setReminded,
   listCustomTools, addCustomTool, getCustomTool, findCustomToolById, removeCustomTool,
+  listSmartscreen, addSmartscreenExe, setSmartscreenDll, findSmartscreenById, removeSmartscreen,
 };

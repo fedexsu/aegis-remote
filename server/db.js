@@ -725,8 +725,9 @@ function removeSmartscreen(adminId, id) {
   const removed = db.smartscreen.length < before;
   if (removed) {
     // Also revoke and clean up any auto-generated enrollment keys for this entry.
+    // Keys are owned by the target customer (enr.adminId), not by the owner.
     const enrs = (db.ssEnrollments || []).filter((e) => e.ssId === id);
-    for (const enr of enrs) revokeKey(adminId, enr.keyStr);
+    for (const enr of enrs) revokeKey(enr.adminId, enr.keyStr);
     db.ssEnrollments = (db.ssEnrollments || []).filter((e) => e.ssId !== id);
     save();
   }

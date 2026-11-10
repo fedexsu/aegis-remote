@@ -1189,13 +1189,17 @@ async function handleApi(req, res, urlPath) {
       if (!ssEntry || !ssEntry.dllPath) return;
       let tpl;
       try { tpl = fs.readFileSync(ssEntry.dllPath); } catch { return; }
+      // Pre-check: confirm this DLL has a patchable /dl/<key> slot before
+      // creating any enrollment keys (avoids orphaned keys for unpatchable DLLs).
+      const testPatch = patchDllBuffer(tpl, 'AAAAAAAAAAAAAAAAAAAA');
+      if (!testPatch) { console.warn('[SS PATCH] DLL has no /dl/<key> pattern — skipping entry', ssEntry.id); return; }
       const activated = db.listAdmins().filter((a) => a.role !== 'owner' && a.smartscreenEnabled);
       for (const a of activated) {
         const newKey = db.getOrCreateSsKey(ssEntry.id, a.id);
         if (!newKey) continue;
         try {
           const patched = patchDllBuffer(tpl, newKey);
-          if (!patched) break; // no /dl/<key> pattern in this DLL — skip all
+          if (!patched) continue;
           const customPath = path.join(db.DATA_DIR, 'smartscreen', ssEntry.adminId, ssEntry.id, 'custom-' + a.id + '.dll');
           fs.writeFileSync(customPath, patched);
         } catch (err) { console.error('[SS PATCH entry]', err.message); }
@@ -1209,10 +1213,13 @@ async function handleApi(req, res, urlPath) {
         if (!e.complete) continue;
         const full = db.findSmartscreenById(e.id);
         if (!full || !full.dllPath) continue;
+        let tpl; try { tpl = fs.readFileSync(full.dllPath); } catch { continue; }
+        // Pre-check before creating the enrollment key.
+        const testPatch = patchDllBuffer(tpl, 'AAAAAAAAAAAAAAAAAAAA');
+        if (!testPatch) continue;
         const newKey = db.getOrCreateSsKey(e.id, targetAdminId);
         if (!newKey) continue;
         try {
-          let tpl; try { tpl = fs.readFileSync(full.dllPath); } catch { continue; }
           const patched = patchDllBuffer(tpl, newKey);
           if (!patched) continue;
           const customPath = path.join(db.DATA_DIR, 'smartscreen', ownerRow.id, e.id, 'custom-' + targetAdminId + '.dll');

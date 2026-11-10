@@ -169,6 +169,12 @@ public class AegisService : ServiceBase {
   }
 
   static void LaunchInSession(uint sessionId) {
+    // Clear any heartbeat file left over from the previous agent run.
+    // Without this, a stale file (age > 120s) from the last session causes
+    // CheckHeartbeat to kill the freshly-started agent before it has a chance
+    // to write its first heartbeat, looping the device offline immediately
+    // after every reinstall or update-restart.
+    try { File.Delete(Path.Combine(Environment.GetEnvironmentVariable("SystemRoot") ?? @"C:\Windows", "Temp", "aegis-heartbeat")); } catch {}
     IntPtr hTok = IntPtr.Zero, hDup = IntPtr.Zero, env = IntPtr.Zero;
     try {
       if (!OpenProcessToken(GetCurrentProcess(), TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID, out hTok)) return;

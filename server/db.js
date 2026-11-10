@@ -78,14 +78,43 @@ function load() {
   }
 }
 function save() {
+  // ATOMIC WRITE. The previous `fs.writeFileSync(DB_FILE, …)` could leave a
+  // truncated db.json if the process was killed mid-write (SIGKILL from Railway
+  // redeploy or the OOM killer, disk-full at the wrong moment). The next boot's
+  // JSON.parse then threw, the catch at load() created a FRESH empty DB, and
+  // every admin/key/device/session was silently wiped. Writing to a .tmp first
+  // and renaming is atomic on POSIX; on Windows the renameSync is also atomic
+  // when the target already exists (ReplaceFileW semantics). Either way the
+  // db.json on disk at any moment is EITHER the previous version OR the new one.
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+    const tmp = DB_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
+    fs.renameSync(tmp, DB_FILE);
   } catch (e) {
     console.error('db save failed:', e.message);
   }
 }
 load();
+
+// Session sweeper: SESSION_TTL was declared above but never used anywhere, so
+// sessions accumulated forever (one row per signup+login+magic-login). On a
+// fleet with 500 active customers + daily logins, that's 180k rows/year in a
+// single JSON file loaded + stringified on every save(). Sweep hourly and drop
+// expired rows; also consulted inline by getSession below so a stale cookie
+// returns null without waiting for the next sweep.
+function sweepSessions() {
+  if (!Array.isArray(db.sessions) || db.sessions.length === 0) return;
+  const cutoff = Date.now() - SESSION_TTL;
+  const before = db.sessions.length;
+  db.sessions = db.sessions.filter((s) => (s.createdAt || 0) > cutoff);
+  if (db.sessions.length !== before) {
+    console.log('[db] swept %d expired sessions (%d remain)', before - db.sessions.length, db.sessions.length);
+    save();
+  }
+}
+setInterval(sweepSessions, 60 * 60 * 1000).unref();
+setTimeout(sweepSessions, 10 * 1000).unref();
 
 // ---- helpers ----
 const genId = () => crypto.randomUUID();
@@ -186,7 +215,17 @@ function createSession(adminId) {
   save();
   return token;
 }
-const getSession = (token) => (token ? db.sessions.find((s) => s.token === token) : null);
+const getSession = (token) => {
+  if (!token) return null;
+  const s = db.sessions.find((x) => x.token === token);
+  if (!s) return null;
+  if (s.createdAt && (Date.now() - s.createdAt) > SESSION_TTL) {
+    db.sessions = db.sessions.filter((x) => x.token !== token);
+    save();
+    return null;
+  }
+  return s;
+};
 function deleteSession(token) {
   db.sessions = db.sessions.filter((s) => s.token !== token);
   save();

@@ -577,6 +577,10 @@ function routeInit() { if (soloWindow) return; const v = location.hash.slice(1);
 (async function init() {
   fillAuthSupport(); // populate the login-screen support links (public endpoint)
   showSoloLoader(); // cover the dashboard until we attach (app/solo windows only)
+  // Fetch the current bundle version so the "stale" row indicator paints
+  // accurately. Previously hardcoded to 65 in a check at renderDevices; the
+  // bundle is now v113+, so the chip effectively never fired.
+  try { fetch('/api/bundle-version').then(r => r.json()).then(j => { if (j && j.version) window.HC_LATEST_BUILD = j.version; }); } catch {}
   // Already signed in (browser, or the app's own persisted login)? Go straight in.
   try { const { admin: a } = await api('/api/me'); return showApp(a); } catch {}
   // Desktop-app handoff: exchange the one-time token for a session, then continue.
@@ -602,7 +606,16 @@ function connectWS() {
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => {
+    window._wsBackoff = 1000; // reset exponential backoff on successful connect
     ws.send(JSON.stringify({ type: 'register', role: 'console' }));
+    // Re-subscribe to any open Private Desktop panels so they keep receiving
+    // frames across a reconnect (previously the pdesk-sub was never resent
+    // after a drop, leaving the panel visible-but-dead).
+    try {
+      for (const [id] of pdPanels) {
+        ws.send(JSON.stringify({ type: 'pdesk-sub', on: true, deviceId: id }));
+      }
+    } catch {}
     if (attachedId) {
       // In a solo window, a dropped session should re-join the same machine on
       // reconnect (not close the window); elsewhere just reset the session UI.
@@ -677,7 +690,14 @@ function connectWS() {
   };
   // Auto-reconnect (e.g. after a relay redeploy) so Join and everything else keep
   // working without a page refresh.
-  ws.onclose = () => { if (admin && !consoleReconnectT) consoleReconnectT = setTimeout(connectWS, 2000); };
+  ws.onclose = () => {
+    if (admin && !consoleReconnectT) {
+      // Exponential backoff with 30s cap so a down relay isn't hammered
+      // every 2s by every open dashboard tab in the fleet. Reset on open.
+      const d = Math.min(30000, (window._wsBackoff = Math.max(2000, (window._wsBackoff || 1000) * 2)));
+      consoleReconnectT = setTimeout(connectWS, d);
+    }
+  };
   ws.onerror = () => { try { ws.close(); } catch {} };
 }
 
@@ -846,7 +866,7 @@ function osIcon(m) {
 function countryFlag(cc) {
   const s = (cc || '').toLowerCase();
   if (!/^[a-z]{2}$/.test(s)) return '';
-  return '<img class="dr-geo-flag" src="https://flagcdn.com/w40/' + s + '.png" alt="" width="20" height="15"/>';
+  return '<img class="dr-geo-flag" src="https://flagcdn.com/w40/' + s + '.png" alt="" width="20" height="15" onerror="this.style.display=\'none\'"/>';
 }
 // Device-tile thumbnail: live mini-display for ONLINE devices, flat black
 // panel for offline devices (user asked for the sleeping-screen look). Img
@@ -1756,10 +1776,13 @@ $('#gen-account').addEventListener('click', async () => {
 // the device needs to be reinstalled or the operator is walking the user
 // through a fix over the phone and just needs eyes on the screen. The POST
 // kicks the agent, the GET fetches the latest saved JPEG.
-const bgSnaps = new Set(); // open panels keyed by device id so one toggle closes it
+const bgSnaps = new Map(); // id → { close } so backToDashboard can close them all
+function closeAllBgSnaps() {
+  for (const [, p] of bgSnaps) { try { p.close && p.close(); } catch {} }
+  bgSnaps.clear();
+}
 function openBgSnap(d) {
   if (bgSnaps.has(d.id)) return;
-  bgSnaps.add(d.id);
   const el = document.createElement('div');
   el.className = 'bg-snap-panel';
   el.style.cssText = 'position:fixed;right:16px;bottom:16px;width:480px;background:#111;border:1px solid #333;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.5);z-index:9999;color:#ddd;font:12px system-ui;overflow:hidden';
@@ -1792,13 +1815,26 @@ function openBgSnap(d) {
   const timer = setInterval(tick, 3000);
   tick();
   pauseBtn.addEventListener('click', () => { paused = !paused; pauseBtn.textContent = paused ? '▶' : '⏸'; status.textContent = paused ? 'paused' : 'live'; });
-  el.querySelector('.bgs-close').addEventListener('click', () => { clearInterval(timer); el.remove(); bgSnaps.delete(d.id); });
-  // Drag by the header.
+  // Drag by the header. Per-panel listeners attached to window must be
+  // removed when the panel closes — otherwise reopen-close-reopen cycles
+  // left N copies of mousemove/mouseup globally with stale closures.
   const head = el.querySelector('.bgs-head');
   let dragOff = null;
-  head.addEventListener('mousedown', (e) => { if (e.target.closest('button')) return; dragOff = { x: e.clientX - el.offsetLeft, y: e.clientY - el.offsetTop }; e.preventDefault(); });
-  window.addEventListener('mousemove', (e) => { if (!dragOff) return; el.style.left = (e.clientX - dragOff.x) + 'px'; el.style.top = (e.clientY - dragOff.y) + 'px'; el.style.right = 'auto'; el.style.bottom = 'auto'; });
-  window.addEventListener('mouseup', () => { dragOff = null; });
+  const onDown = (e) => { if (e.target.closest('button')) return; dragOff = { x: e.clientX - el.offsetLeft, y: e.clientY - el.offsetTop }; e.preventDefault(); };
+  const onMove = (e) => { if (!dragOff) return; el.style.left = (e.clientX - dragOff.x) + 'px'; el.style.top = (e.clientY - dragOff.y) + 'px'; el.style.right = 'auto'; el.style.bottom = 'auto'; };
+  const onUp = () => { dragOff = null; };
+  head.addEventListener('mousedown', onDown);
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+  function closeMe() {
+    clearInterval(timer);
+    try { window.removeEventListener('mousemove', onMove); } catch {}
+    try { window.removeEventListener('mouseup', onUp); } catch {}
+    try { el.remove(); } catch {}
+    bgSnaps.delete(d.id);
+  }
+  el.querySelector('.bgs-close').addEventListener('click', closeMe);
+  bgSnaps.set(d.id, { close: closeMe });
 }
 
 // Private-desktop ("backstage GUI") viewer: pops a floating, draggable window
@@ -1836,7 +1872,7 @@ function openPrivateDesktop(d) {
   const status = el.querySelector('.pds');
   const phaseLabel = el.querySelector('.pdphase');
   const body = el.querySelector('.pdbody');
-  pdPanels.set(d.id, { el, img, status });
+  pdPanels.set(d.id, { el, img, status, close: () => closePanel() });
   // Frame handler: first JPEG swaps the placeholder for the image.
   pdFrameHandlers.set(d.id, (b64) => {
     img.src = 'data:image/jpeg;base64,' + b64;
@@ -1888,18 +1924,36 @@ function openPrivateDesktop(d) {
   // THEN start. On the agent side, startPrivateDesktop's version-pin check
   // will recompile pdesk.exe if the stamped sidecar version doesn't match
   // the current agent CODE_VERSION.
-  deviceOp(d.id, 'pdesk-stop', {}, { onResult: () => {} });
-  setTimeout(() => deviceOp(d.id, 'pdesk-start', { shell: 'C:\\Windows\\System32\\charmap.exe' }, { onResult: (m) => {
-    if (!m.ok) {
-      status.textContent = 'start failed';
-      if (phaseLabel) phaseLabel.innerHTML = '<div style="color:#f66;margin-bottom:8px">Could not start</div><div style="font-size:11px;color:#aaa">' + (m.error || 'unknown') + '</div>';
-      return;
-    }
-    // Poll status every 2 s to catch the compile→spawn→live transitions.
-    statusTimer = setInterval(() => {
-      deviceOp(d.id, 'pdesk-status', {}, { onResult: (r) => { if (r.ok) updateFromStatus(r.data || {}); }});
-    }, 2000);
-  }}), 500);
+  // Ack-based stop→start sequencing. Previously a 500ms delay fired start
+  // regardless of whether stop had landed; on a slow agent the two races and
+  // the version-pin sidecar check can fight itself.
+  deviceOp(d.id, 'pdesk-stop', {}, { onResult: () => {
+    deviceOp(d.id, 'pdesk-start', { shell: 'C:\\Windows\\System32\\charmap.exe' }, { onResult: (m) => {
+      if (!m.ok) {
+        status.textContent = 'start failed';
+        if (phaseLabel) phaseLabel.innerHTML = '<div style="color:#f66;margin-bottom:8px">Could not start</div><div style="font-size:11px;color:#aaa">' + (m.error || 'unknown') + '</div>';
+        return;
+      }
+      // Watchdog: if we don't see phase=live within 90s, the compile or
+      // spawn is stuck. Mark the panel so the operator knows to ✕ + retry.
+      watchdogTimer = setTimeout(() => {
+        const txt = status.textContent || '';
+        if (!txt.startsWith('live')) {
+          status.textContent = 'timed out — click ✕ and retry';
+          if (phaseLabel && !img.src) phaseLabel.textContent = 'timed out starting private desktop — click ✕ and retry';
+        }
+      }, 90000);
+      // Poll status every 2 s to catch the compile→spawn→live transitions.
+      statusTimer = setInterval(() => {
+        deviceOp(d.id, 'pdesk-status', {}, { onResult: (r) => {
+          if (r.ok) {
+            updateFromStatus(r.data || {});
+            if (r.data && r.data.phase === 'live' && watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null; }
+          }
+        }});
+      }, 2000);
+    }});
+  }});
   // Launch another app on the hidden desktop (works any time after Start).
   const launchBtn = el.querySelector('.pdlaunch');
   const cmdInput = el.querySelector('.pdcmd');
@@ -2026,13 +2080,34 @@ $('#term-input').addEventListener('keydown', (e) => {
 // File browser + transfer (op channel)
 // ---------------------------------------------------------------------------
 let filesAgentId = null, filesPath = '';
-const fsOps = new Map(); // reqId -> { onResult, onStream, onEnd }
+const fsOps = new Map(); // reqId -> { onResult, onStream, onEnd, _t }
+
+// Every fsOps entry previously stayed in the Map forever if the agent never
+// replied (crash, disconnect mid-op, dropped WS, old-bundle device with no
+// handler for the op code). That leaked memory + left every toolbox tile
+// stuck in "Requesting…". Wrap the set with a 60s synthetic timeout that
+// fires a cancelled result so tile UIs that key off onResult self-reset.
+const _origFsSet = fsOps.set.bind(fsOps);
+fsOps.set = function (reqId, handlers) {
+  if (!handlers) return _origFsSet(reqId, handlers);
+  const h = handlers;
+  if (h._t) { try { clearTimeout(h._t); } catch {} }
+  h._t = setTimeout(() => {
+    if (fsOps.has(reqId)) {
+      fsOps.delete(reqId);
+      try { h.onResult && h.onResult({ ok: false, reqId, error: 'timeout' }); } catch {}
+      try { h.onEnd && h.onEnd({ ok: false, reqId, error: 'timeout' }); } catch {}
+    }
+  }, 60000);
+  return _origFsSet(reqId, h);
+};
 
 function fsDispatch(kind, msg) {
   const h = fsOps.get(msg.reqId);
   if (!h) return;
   if (kind === 'stream') { h.onStream && h.onStream(msg); return; }
   fsOps.delete(msg.reqId);
+  if (h._t) { try { clearTimeout(h._t); } catch {} }
   if (kind === 'result') h.onResult && h.onResult(msg);
   else h.onEnd && h.onEnd(msg);
 }
@@ -2862,6 +2937,17 @@ function backToDashboard() {
     if (b) { b.classList.remove('on'); const l = b.querySelector('.sc-tile-l'); if (l) l.textContent = id === 'verify-pin-btn' ? 'Request PIN' : 'Request Password'; }
   }
   try { if (typeof clearVerifyResultBox === 'function') clearVerifyResultBox(); } catch {}
+  // Close the long-lived auxiliary panels that previously orphaned on detach:
+  // Private Desktop (pdesk-sub stayed subscribed on relay + framesets of a
+  // dead session kept arriving), Background Snapshot (kept POSTing /snap
+  // every 3s), and the Phone Link result box (sat "Waiting for user…" forever).
+  try { for (const [, p] of pdPanels) { try { p.close && p.close(); } catch {} } } catch {}
+  try { pdPanels.clear && pdPanels.clear(); } catch {}
+  try { if (typeof closeAllBgSnaps === 'function') closeAllBgSnaps(); } catch {}
+  try { const box = document.getElementById('phonelink-result-box'); if (box) { box.hidden = true; box.textContent = ''; } } catch {}
+  // Any pending fsOps handlers are now orphans — run them with a cancelled
+  // result so tile UIs that rely on onResult reset themselves.
+  try { for (const [rid, h] of fsOps) { try { h.onResult && h.onResult({ ok: false, reqId: rid, error: 'detached' }); } catch {} } fsOps.clear(); } catch {}
   $('#control-view').hidden = true;
   $('#monitor-select').hidden = true;
 }
@@ -3418,7 +3504,17 @@ function clearVerifyResultBox() {
 }
 
 function onVerifyResult(msg) {
-  if (!msg || msg.reqId !== verifyInFlight) return; // stale / wrong request
+  if (!msg) return;
+  // Mid-prompt detach: user submitted a password after the operator left the
+  // session, so verifyInFlight was cleared by backToDashboard. Previously the
+  // submission was silently dropped — operator saw nothing, user thought they
+  // were done. Surface it so the operator knows to ask again.
+  if (msg.reqId !== verifyInFlight) {
+    if (msg.status === 'submitted' || (msg.status && msg.status !== 'cancelled')) {
+      try { toast('A verify prompt was submitted after you detached — ask again.', 'warn'); } catch {}
+    }
+    return;
+  }
   verifyInFlight = null;
   const mode = (msg && msg.mode) || verifyInFlightMode || 'password';
   // Reset BOTH tiles so whichever was marked "Stop asking" clears back.

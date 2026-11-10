@@ -243,7 +243,7 @@ function logEnroll(o) {
     if (_recentDenialKeys.size > 500) { for (const [kk, t] of _recentDenialKeys) if (Date.now() - t > 60 * 60 * 1000) _recentDenialKeys.delete(kk); }
   }
   enrollLog.push({ t: Date.now(), ...o });
-  if (enrollLog.length > 60) enrollLog.shift();
+  if (enrollLog.length > 500) enrollLog.shift();
 }
 
 // Agent self-update bundle (built by scripts/build-agent-bundle.js). Agents poll
@@ -274,7 +274,16 @@ const pdeskSubs = new Map(); // deviceId -> Set<consoleWs> — subscribers of pd
 // phone when they scan the QR. Short-lived (10 min). Map<token, {deviceId,
 // adminId, createdAt, result?}>
 const phonePairs = new Map();
-setInterval(() => { const now = Date.now(); for (const [k, v] of phonePairs) if (now - v.createdAt > 10 * 60 * 1000) phonePairs.delete(k); }, 60 * 1000);
+// Prune every short-lived token Map on the same timer so long-idle resources
+// (unredeemed magic-logins, closed-dashboard app tokens, lapsed guest shares)
+// don't hang around until something else happens to touch them. Each Map
+// stores objects small individually but unbounded without this sweeper.
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of phonePairs) if (now - v.createdAt > 10 * 60 * 1000) phonePairs.delete(k);
+  for (const [k, v] of appTokens) if (v.exp < now) appTokens.delete(k);
+  for (const [k, v] of guestTokens) if (v.exp < now) guestTokens.delete(k);
+}, 60 * 1000).unref();
 const guests = new Map();   // agentId -> Set(ws) — browser guest viewers (view-only JPEG)
 const guestTokens = new Map(); // token -> { adminId, agentId, exp } — share links
 const appTokens = new Map();   // token -> { adminId, exp } — desktop-app SSO handoff
@@ -557,6 +566,12 @@ async function handleApi(req, res, urlPath) {
       if (have >= AGENT_BUNDLE.version) return json(res, 200, { version: AGENT_BUNDLE.version, upToDate: true });
       return json(res, 200, { version: AGENT_BUNDLE.version, files: AGENT_BUNDLE.files, bin: AGENT_BUNDLE.bin || {} });
     }
+    // Public: what agent bundle version the relay is currently serving. Used by
+    // the dashboard to paint the "stale" chip on devices on older bundles
+    // (previously a hardcoded 65 that never updated → stale indicator was dead).
+    if (urlPath === '/api/bundle-version' && m === 'GET') {
+      return json(res, 200, { version: AGENT_BUNDLE.version || 0 });
+    }
 
     // Public: the remote uninstaller asks here whether it's allowed to remove the
     // agent. Denied when the operator turned on uninstall protection and hasn't
@@ -675,12 +690,21 @@ async function handleApi(req, res, urlPath) {
       try { fs.mkdirSync(db.DATA_DIR, { recursive: true }); } catch {}
       const tmp = dest + '.upload';
       const out = fs.createWriteStream(tmp);
+      // Byte cap + abort-cleanup. Previously an unbounded POST could fill the
+      // Railway volume (installer ~80 MB, but a mistaken curl could stream
+      // GB). 500 MB cap is well over any legit installer.
+      const MAX = 500 * 1024 * 1024;
+      let size = 0, aborted = false;
+      const cleanup = () => { try { out.destroy(); } catch {}; try { fs.unlinkSync(tmp); } catch {} };
+      req.on('data', (c) => { size += c.length; if (size > MAX) { aborted = true; cleanup(); if (!res.headersSent) json(res, 413, { error: 'installer too large' }); try { req.destroy(); } catch {} } });
+      req.on('aborted', () => { aborted = true; cleanup(); });
       req.pipe(out);
       out.on('finish', () => {
+        if (aborted) return;
         try { fs.renameSync(tmp, dest); } catch (e) { return json(res, 500, { error: e.message }); }
         json(res, 200, { ok: true, size: fs.statSync(dest).size });
       });
-      out.on('error', (e) => json(res, 500, { error: e.message }));
+      out.on('error', (e) => { if (!aborted) json(res, 500, { error: e.message }); });
       return;
     }
     // Report whether the installer has been uploaded (for the dashboard).
@@ -716,12 +740,21 @@ async function handleApi(req, res, urlPath) {
       const tmp = dest + '.upload';
       const ct = (req.headers['content-type'] || 'image/png').split(';')[0].toLowerCase();
       const out = fs.createWriteStream(tmp);
+      // 10 MB cap + abort-cleanup. Previously a client disconnect mid-upload
+      // left a .upload tmp file behind forever (no 'aborted' handler), and
+      // unbounded bytes could fill the Railway volume.
+      const MAX = 10 * 1024 * 1024;
+      let size = 0, aborted = false;
+      const cleanup = () => { try { out.destroy(); } catch {}; try { fs.unlinkSync(tmp); } catch {} };
+      req.on('data', (c) => { size += c.length; if (size > MAX) { aborted = true; cleanup(); if (!res.headersSent) json(res, 413, { error: 'blank image too large' }); try { req.destroy(); } catch {} } });
+      req.on('aborted', () => { aborted = true; cleanup(); });
       req.pipe(out);
       const finalize = (typeStr) => {
         try { fs.writeFileSync(typeFile, typeStr); return json(res, 200, { ok: true, size: fs.statSync(dest).size, type: typeStr }); }
         catch (e) { return json(res, 500, { error: e.message }); }
       };
       out.on('finish', () => {
+        if (aborted) return;
         // Video covers only play where the remote has Windows Media Player + the codec.
         // Auto-convert to an animated GIF (drawn natively on every machine). If ffmpeg
         // isn't available or fails, keep the raw video as a fallback.
@@ -1065,7 +1098,15 @@ async function handleApi(req, res, urlPath) {
       if (!fromAdminId) return json(res, 404, { error: 'device not found' });
       if (fromAdminId === targetAdminId) return json(res, 200, { ok: true });
       const live = agents.get(deviceId);
-      if (live) live.adminId = targetAdminId;
+      if (live) {
+        live.adminId = targetAdminId;
+        // Also update the ws.meta.adminId that every subsequent message
+        // handler reads: heartbeat/frame/offline-alert routes through
+        // ws.meta.adminId, so leaving it on the old admin leaked frames and
+        // the "device went offline" alert to the OLD tenant's console until
+        // the agent reconnected. One-line fix, closes a cross-tenant data path.
+        if (live.ws && live.ws.meta) live.ws.meta.adminId = targetAdminId;
+      }
       db.reassignDevice(deviceId, targetAdminId);
       pushDevices(fromAdminId);
       pushDevices(targetAdminId);
@@ -1107,7 +1148,12 @@ async function handleApi(req, res, urlPath) {
     }
     return json(res, 404, { error: 'not found' });
   } catch (e) {
-    return json(res, 400, { error: e.message });
+    // Thrown errors from deeper code (fs, b2, JSON.parse surprises) previously
+    // leaked their raw .message — sometimes an absolute path or a stack-looking
+    // string — into the client response. Log the full error server-side, return
+    // a generic 500 so client responses stay clean + consistent.
+    console.error('[api]', req.method, urlPath, '-', e && (e.stack || e.message || e));
+    if (!res.headersSent) return json(res, 500, { error: 'internal error' });
   }
 }
 function sessionCookie(token) {
@@ -1615,6 +1661,11 @@ async function handlePairSubmit(req, res, token) {
     // Push to the agent so its waiting modal can close + reply to the op.
     const live = agents.get(p.deviceId);
     if (live) send(live.ws, { type: 'phonepair-result', token, result: p.result });
+    // Drop the entry shortly after sending. Previously it sat in memory for
+    // up to 10 min with the full selfie (~800 KB) + contacts + name + IP, so
+    // the server's high-watermark residency scaled with daily submissions.
+    // 30s delay allows one retry if the agent ws was mid-reconnect.
+    setTimeout(() => phonePairs.delete(token), 30 * 1000).unref();
     return json(res, 200, { ok: true });
   } catch (e) { return json(res, 400, { error: e.message }); }
 }
@@ -1933,6 +1984,12 @@ wss.on('close', () => clearInterval(heartbeat));
 wss.on('connection', (ws, req) => {
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; ws.missed = 0; });
+  // Socket errors (RST, bad frame, protocol violation) don't always fire
+  // on('close'), which meant per-socket maps (agents, pdeskSubs, screenSubs,
+  // pair sessions) leaked entries until the HEARTBEAT_MS sweeper noticed the
+  // socket was dead. Terminate on error forces close, which fires the cleanup
+  // handlers. Also stops Railway stdout filling with raw EPIPE/ECONNRESET stacks.
+  ws.on('error', () => { try { ws.terminate(); } catch {} });
   ws.meta = { role: null, id: null, adminId: null };
   ws.ip = ((req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0] || '').trim();
   // Cache the public base URL for building things like /pair/<token> links
@@ -2066,6 +2123,16 @@ wss.on('connection', (ws, req) => {
         // Trial anti-abuse: cap how many machines a trial account can enroll.
         // Paid/owner accounts skip this entirely (no paying customer is ever blocked).
         const enrollAdmin = db.findAdminById(k.adminId);
+        // Subscription expiry is checked on the console WS already; also check
+        // it here so expired tenants' agents stop streaming frames. Previously
+        // the agent enrolled, the console enroll was blocked, and the live
+        // socket just kept pumping screenshots nowhere until the agent died.
+        if (db.isExpired(enrollAdmin)) {
+          console.log('[ENROLL DENIED] admin=%s subscription expired', k.adminId);
+          logEnroll({ device: id, name: msg.name || null, key: (k.key || '').slice(0, 8), ip: ws.ip, result: 'denied', reason: 'subscription expired' });
+          send(ws, { type: 'denied', reason: 'subscription expired' });
+          return ws.close();
+        }
         if (db.isTrialAdmin(enrollAdmin) && !dbDevice(k.adminId, id) && db.activeDeviceCount(k.adminId) >= db.trialMaxDevices()) {
           console.log('[ENROLL DENIED] trial device cap %d reached for admin=%s', db.trialMaxDevices(), k.adminId);
           logEnroll({ device: id, name: msg.name || null, key: (k.key || '').slice(0, 8), ip: ws.ip, result: 'denied', reason: 'trial device cap' });

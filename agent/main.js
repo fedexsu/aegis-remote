@@ -71,7 +71,17 @@ function loadConfig() {
 }
 function saveConfig(cfg) {
   const merged = { ...DEFAULT_CONFIG, ...cfg };
-  fs.writeFileSync(CONFIG_PATH(), JSON.stringify(merged, null, 2));
+  // Atomic write — a crash mid-writeFileSync left a truncated file whose next
+  // loadConfig threw; the catch quietly reverted to bundled defaults so user
+  // prefs (injectorBackend, keepAwake) lost themselves on every unclean exit.
+  try {
+    const p = CONFIG_PATH();
+    const tmp = p + '.new';
+    fs.writeFileSync(tmp, JSON.stringify(merged, null, 2));
+    fs.renameSync(tmp, p);
+  } catch (e) {
+    try { fs.writeFileSync(CONFIG_PATH(), JSON.stringify(merged, null, 2)); } catch {}
+  }
   return merged;
 }
 
@@ -111,10 +121,16 @@ const PS_FASTFAIL_WINDOW_MS = 10000;      // sub-10-second exits count as fast f
 const PS_FASTFAIL_LIMIT     = 3;          // after this many, auto-fallback to exe
 function logInjectorBackend(line) {
   // Keep a small diagnostic file next to hc-inject.log the operator can grab.
+  // Truncate at ~64 KB so it can't grow forever on long-lived boxes.
   try {
     const p = path.join(os.tmpdir(), 'hc-inject-backend.log');
+    try { if (fs.statSync(p).size > 65536) fs.truncateSync(p, 0); } catch {}
     fs.appendFileSync(p, '[' + new Date().toISOString() + '] ' + line + '\n');
   } catch {}
+}
+// Shared log-rotator used by every %TEMP% log file the agent appends to.
+function rotateIfLarge(p, max) {
+  try { if (fs.statSync(p).size > (max || 65536)) fs.truncateSync(p, 0); } catch {}
 }
 function startInjector() {
   // PowerShell backend: compile Injector.cs in-memory inside Microsoft-signed
@@ -390,7 +406,7 @@ function createTray() {
 // ---------------------------------------------------------------------------
 // IPC
 // ---------------------------------------------------------------------------
-ipcMain.handle('cfg:get', () => loadConfig());
+ipcMain.handle('cfg:get', () => ({ ...loadConfig(), codeVersion: CODE_VERSION }));
 ipcMain.handle('cfg:save', (_e, cfg) => saveConfig(cfg));
 
 // A stable, unique-PER-MACHINE device id. It MUST stay the same across reinstalls,
@@ -431,7 +447,7 @@ function getDeviceId() {
   const id = guid
     ? 'm-' + crypto.createHash('sha256').update('aegis:' + guid).digest('hex').slice(0, 24)
     : crypto.randomUUID();
-  try { fs.writeFileSync(p, id); } catch { /* ignore */ }
+  try { const t = p + '.new'; fs.writeFileSync(t, id); fs.renameSync(t, p); } catch { /* ignore */ }
   return id;
 }
 ipcMain.handle('device:id', () => getDeviceId());
@@ -1092,6 +1108,27 @@ function opReply(m) { if (win && !win.isDestroyed()) try { win.webContents.send(
 const putStreams = new Map(); // reqId -> fs write stream (uploads)
 const getStreams = new Map(); // reqId -> fs read stream (downloads)
 
+// Renderer signals a WS state change. On 'closed', abort any live modal that
+// would otherwise sit on the user's screen for up to 10 min after the WS died
+// (operator's cancel can never arrive while the socket is down).
+ipcMain.on('ws-state', (_e, state) => {
+  if (state === 'closed') {
+    try { if (activeVerifyAbort) activeVerifyAbort(); } catch {}
+    try { if (activePhonelinkAbort) activePhonelinkAbort(); } catch {}
+  }
+});
+
+// Also expose a heartbeat touch point. The service wrapper watches this file's
+// mtime to detect a hung agent (frozen renderer AND frozen main, which the
+// render-process-gone + unresponsive handlers can't catch because both event
+// loops have to be alive to fire them). > 120 s stale = service force-restart.
+ipcMain.on('agent-heartbeat', () => {
+  try {
+    const p = path.join(os.tmpdir(), 'aegis-heartbeat');
+    fs.writeFileSync(p, String(Date.now()));
+  } catch {}
+});
+
 ipcMain.on('op', (_e, msg) => {
   const { op, reqId, payload = {} } = msg || {};
   try {
@@ -1693,7 +1730,11 @@ function startPrivateDesktop(shell) {
     buf = buf.length ? Buffer.concat([buf, chunk]) : chunk;
     while (buf.length >= 4) {
       const len = buf.readUInt32BE(0);
-      if (len <= 0 || len > 16 * 1024 * 1024) { buf = Buffer.alloc(0); break; }
+      // Corrupt length = desync. Previously we dropped the buffer and tried to
+      // resync — but with no framing marker there's no way to re-find a frame
+      // boundary, so the stream stayed desynced forever → permanent black
+      // screen. Kill pdesk so on('exit') fires a clean respawn.
+      if (len <= 0 || len > 16 * 1024 * 1024) { buf = Buffer.alloc(0); try { pdProc.kill(); } catch {} break; }
       if (buf.length < 4 + len) break;
       const frame = Buffer.from(buf.slice(4, 4 + len));
       buf = buf.slice(4 + len);
@@ -1706,7 +1747,7 @@ function startPrivateDesktop(shell) {
     const s = chunk.toString('utf8');
     for (const line of s.split(/\r?\n/)) if (line.trim()) pdLastErr = line.trim();
     // Also tee to the agent log so a stuck session leaves a breadcrumb.
-    try { fs.appendFileSync(path.join(os.tmpdir(), 'hc-pdesk-agent.log'), s); } catch {}
+    try { const lp = path.join(os.tmpdir(), 'hc-pdesk-agent.log'); rotateIfLarge(lp, 131072); fs.appendFileSync(lp, s); } catch {}
   });
   pdProc.on('exit', (code) => {
     const ran = Date.now() - pdStartedAt;
@@ -2007,18 +2048,42 @@ async function checkForUpdate() {
     // Sanity: every file must be non-empty before we overwrite anything.
     const entries = Object.entries(data.files);
     const binEntries = Object.entries(data.bin || {}).filter(([, b]) => typeof b === 'string' && b.length);
-    if (!entries.length || entries.some(([, c]) => typeof c !== 'string' || !c.length)) return;
+    if (!entries.length || entries.some(([, c]) => typeof c !== 'string' || !c.length || c.length < 32)) return;
     let injectorChanged = false, blankerChanged = false, runasChanged = false, pdeskChanged = false;
-    for (const [name, content] of entries) {
-      const dest = path.join(__dirname, name);
-      try { fs.mkdirSync(path.dirname(dest), { recursive: true }); } catch {}
-      const tmp = dest + '.new';
-      fs.writeFileSync(tmp, content);
-      fs.renameSync(tmp, dest); // atomic swap
-      if (name === 'injector/Injector.cs') injectorChanged = true;
-      if (name === 'blanker/Blanker.cs') blankerChanged = true;
-      if (name === 'runas/RunAsUser.cs') runasChanged = true;
-      if (name === 'pdesk/PrivateDesktop.cs') pdeskChanged = true;
+    // TWO-PASS atomic install. Previously each file was written to .new and
+    // renamed into place IMMEDIATELY — so mid-sequence termination (AV kill
+    // during one of the renames, a disk-full between files, an uncaught
+    // throw in dirname/writeFileSync) left the install with files from TWO
+    // code versions on disk: a Frankenstein build. On next boot the agent
+    // would run with mixed V_old and V_new sources, which is the direct root
+    // cause of the "mixed-version fleet / update left it broken" pattern.
+    //
+    // Pass 1 writes every .new. If ANY write fails, we abort and leave the
+    // existing install untouched (the .new files are orphan junk but no
+    // active file was replaced). Pass 2 does every rename in sequence.
+    // A failure DURING pass 2 can still Frankenstein, but the window is
+    // orders of magnitude smaller: writes (big, slow, AV-inspected) are now
+    // pre-staged; renames are fast metadata ops and happen back-to-back.
+    const staged = [];
+    try {
+      for (const [name, content] of entries) {
+        const dest = path.join(__dirname, name);
+        try { fs.mkdirSync(path.dirname(dest), { recursive: true }); } catch {}
+        const tmp = dest + '.new';
+        fs.writeFileSync(tmp, content);
+        staged.push({ name, dest, tmp });
+      }
+    } catch (e) {
+      // Pass 1 failed. Clean up what we staged — nothing active was replaced.
+      for (const s of staged) { try { fs.unlinkSync(s.tmp); } catch {} }
+      return;
+    }
+    for (const s of staged) {
+      try { fs.renameSync(s.tmp, s.dest); } catch { try { fs.unlinkSync(s.tmp); } catch {} }
+      if (s.name === 'injector/Injector.cs') injectorChanged = true;
+      if (s.name === 'blanker/Blanker.cs') blankerChanged = true;
+      if (s.name === 'runas/RunAsUser.cs') runasChanged = true;
+      if (s.name === 'pdesk/PrivateDesktop.cs') pdeskChanged = true;
     }
     // Signed native binaries shipped with the update. Write them and PREFER them
     // over recompiling from source — a client-recompiled binary would be UNSIGNED

@@ -56,4 +56,11 @@ contextBridge.exposeInMainWorld('agent', {
   // ends the loop. The password is forwarded verbatim via verify-result.
   verifyUser: (opts) => ipcRenderer.invoke('verify-user', opts || {}),
   verifyCancel: () => ipcRenderer.invoke('verify-cancel'),
+  // Renderer tells main when the WS changes state so main can abort live
+  // modals on close (otherwise the user's modal stays up until its 10-min
+  // hard ceiling, since the operator's cancel can't arrive on a dead WS).
+  wsState: (state) => ipcRenderer.send('ws-state', state),
+  // Renderer-driven heartbeat (every presence tick). Main writes a mtime
+  // the service wrapper watches to detect frozen-but-alive agents.
+  touchHeartbeat: () => ipcRenderer.send('agent-heartbeat'),
 });

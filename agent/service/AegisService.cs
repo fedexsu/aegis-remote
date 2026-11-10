@@ -64,25 +64,105 @@ public class AegisService : ServiceBase {
   static string SVC_NAME = DEFAULT_SVC_NAME;
   public AegisService() { ServiceName = SVC_NAME; CanShutdown = true; }
   protected override void OnStart(string[] args) { running = true; worker = new Thread(Loop) { IsBackground = true }; worker.Start(); }
-  protected override void OnStop() { running = false; }
+  protected override void OnStop() {
+    running = false;
+    // Previously OnStop returned immediately with running=false, but the
+    // worker thread could still be inside Loop() mid-LaunchInSession — the
+    // SCM thought we'd stopped while CreateProcessAsUser ran on, producing
+    // a zombie agent after an uninstall or restart. Join bounds the wait.
+    try { if (worker != null) worker.Join(5000); } catch {}
+  }
   protected override void OnShutdown() { running = false; }
 
   static string InstallDir() { return Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location); }
 
-  // Keep the agent alive in whichever session the user is on.
+  // Agent process name — derived from the actual exe sitting in the install
+  // folder so a future rename doesn't leave the service respawning a binary
+  // that no longer exists. Falls back to the historical "support" if the
+  // folder is somehow empty (service survives the rename window).
+  static string AgentProcessName() {
+    try {
+      foreach (string candidate in new string[] { "support.exe" }) {
+        if (File.Exists(Path.Combine(InstallDir(), candidate)))
+          return Path.GetFileNameWithoutExtension(candidate);
+      }
+    } catch {}
+    return "support";
+  }
+
+  // Crash-loop detector. Previously a bad bundle that crashed on startup
+  // triggered 15 respawns/min (4s unconditional sleep) — AV flagged the
+  // pattern + Railway stdout filled with [enroll] denied lines. If we see
+  // 5 exits in under 2 min, back off to 60s for a cycle.
+  static System.Collections.Generic.Queue<long> _exitTimestamps = new System.Collections.Generic.Queue<long>();
+  static int _backoffUntilTick = 0;
+
+  // Keep the agent alive in whichever session the user is on. Two guards
+  // now: (1) crash-loop backoff, (2) liveness heartbeat — if the agent's
+  // mtime on %TEMP%\aegis-heartbeat is stale beyond 120s we kill the hung
+  // process so the next tick respawns a clean one.
   static void Loop() {
     while (running) {
       try {
+        if (Environment.TickCount < _backoffUntilTick) { Thread.Sleep(4000); continue; }
         uint sid = WTSGetActiveConsoleSessionId();
-        if (sid != INVALID_SESSION && sid != 0 && !AgentInSession(sid))
-          LaunchInSession(sid);
+        if (sid != INVALID_SESSION && sid != 0) {
+          if (!AgentInSession(sid)) {
+            // Respawn. Record the exit timestamp for crash-loop detection.
+            long now = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+            _exitTimestamps.Enqueue(now);
+            while (_exitTimestamps.Count > 10) _exitTimestamps.Dequeue();
+            int recent = 0; foreach (long t in _exitTimestamps) if (now - t < 120000) recent++;
+            if (recent >= 5) {
+              _backoffUntilTick = Environment.TickCount + 60000;
+              try { EventLog.WriteEntry("AegisService", "Crash-loop detected (" + recent + " exits in 2min) — backing off 60s", EventLogEntryType.Warning); } catch {}
+            } else {
+              LaunchInSession(sid);
+            }
+          } else {
+            // Liveness check: agent process exists but may be frozen. The
+            // agent writes %TEMP%\aegis-heartbeat (actually the active user's
+            // TEMP, since the agent runs in that session) every ~5s. If it's
+            // stale, the agent's main loop is stuck — kill and respawn.
+            CheckHeartbeat(sid);
+          }
+        }
       } catch { }
       Thread.Sleep(4000);
     }
   }
 
+  static void CheckHeartbeat(uint sid) {
+    try {
+      // Service runs as SYSTEM so %TEMP% is C:\Windows\Temp. The agent runs
+      // in the user's session so its os.tmpdir() is the user's. Probe both.
+      string[] candidates = new string[] {
+        Path.Combine(Environment.GetEnvironmentVariable("SystemRoot") ?? @"C:\Windows", "Temp", "aegis-heartbeat"),
+      };
+      foreach (Process p in Process.GetProcessesByName(AgentProcessName())) {
+        try {
+          if ((uint)p.SessionId != sid) continue;
+          // Best-effort: the user's TEMP is harder to find from SYSTEM; the
+          // SystemRoot\Temp path works when the agent runs AS SYSTEM (which
+          // this service launches it to be). Agent writes to os.tmpdir()
+          // which under SYSTEM resolves to SystemRoot\Temp.
+          long newest = 0;
+          foreach (string hb in candidates) {
+            try { if (File.Exists(hb)) { long m = File.GetLastWriteTimeUtc(hb).Ticks; if (m > newest) newest = m; } } catch {}
+          }
+          if (newest == 0) return; // no heartbeat yet — agent too new or just starting
+          TimeSpan age = DateTime.UtcNow - new DateTime(newest);
+          if (age.TotalSeconds > 120) {
+            try { EventLog.WriteEntry("AegisService", "Agent heartbeat stale " + (int)age.TotalSeconds + "s — force-killing pid=" + p.Id, EventLogEntryType.Warning); } catch {}
+            try { p.Kill(); } catch {}
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+
   static bool AgentInSession(uint sid) {
-    foreach (Process p in Process.GetProcessesByName("support")) {
+    foreach (Process p in Process.GetProcessesByName(AgentProcessName())) {
       try { if ((uint)p.SessionId == sid) return true; } catch { }
     }
     return false;
@@ -103,8 +183,16 @@ public class AegisService : ServiceBase {
       PROCESS_INFORMATION pi;
       if (CreateProcessAsUser(hDup, null, cmd, IntPtr.Zero, IntPtr.Zero, false, CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW, env, InstallDir(), ref si, out pi)) {
         CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
+      } else {
+        int err = Marshal.GetLastWin32Error();
+        try { EventLog.WriteEntry("AegisService", "CreateProcessAsUser failed err=" + err + " session=" + sessionId, EventLogEntryType.Error); } catch {}
       }
-    } catch { }
+    } catch (Exception ex) {
+      // Silently swallowing every exception here meant zero diagnostics when
+      // launch failed (wrong token access, Winstation lockdown, session-0
+      // isolation). Write to the Application EventLog so operators can see why.
+      try { EventLog.WriteEntry("AegisService", "LaunchInSession: " + ex.ToString(), EventLogEntryType.Error); } catch {}
+    }
     finally { if (env != IntPtr.Zero) DestroyEnvironmentBlock(env); if (hDup != IntPtr.Zero) CloseHandle(hDup); if (hTok != IntPtr.Zero) CloseHandle(hTok); }
   }
 

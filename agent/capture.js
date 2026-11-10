@@ -163,17 +163,26 @@ async function connect() {
     // appName goes in meta so the console can label each copy in the dropdown.
     if (CFG.appName) meta.appName = CFG.appName;
     if (CFG.instance) meta.instance = CFG.instance;
+    // Bake the code version into meta so the relay/dashboard can gate
+    // operations on newer agent features (downgrade protection + "stale"
+    // marker). CFG.codeVersion is wired up by main.js at loadConfig time.
+    if (CFG.codeVersion) meta.codeVersion = CFG.codeVersion;
     ws.send(JSON.stringify({
       type: 'register', role: 'agent',
       id: DEVICE_ID, name: CFG.name, key: CFG.key,
       instance: CFG.instance || 1,
       screen: scr, meta,
     }));
+    try { window.agent.wsState && window.agent.wsState('open'); } catch {}
     sendPresence(true);
     startPresenceHeartbeat();
   };
   ws.onclose = () => {
     connected = false; stopStreaming(); stopPresenceHeartbeat();
+    // Tell main.js the socket is down so it can abort any live modal (verify,
+    // phonelink) that would otherwise stay on the user's screen until its
+    // 10-min hard ceiling — the operator's cancel can't arrive on a dead WS.
+    try { window.agent.wsState && window.agent.wsState('closed'); } catch {}
     if (enabled) scheduleReconnect(); else setStatus(false, 'offline');
   };
   ws.onerror = () => { /* onclose handles reconnect */ };
@@ -228,7 +237,7 @@ async function sendPresence(force) {
     try { ws.send(JSON.stringify({ type: 'presence', idle: p.idle, state: p.state })); } catch {}
   }
 }
-function startPresenceHeartbeat() { if (!presenceTimer) presenceTimer = setInterval(() => sendPresence(false), 5000); }
+function startPresenceHeartbeat() { if (!presenceTimer) presenceTimer = setInterval(() => { sendPresence(false); try { window.agent.touchHeartbeat && window.agent.touchHeartbeat(); } catch {} }, 5000); }
 function stopPresenceHeartbeat() { if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; } lastPresenceState = null; lastPresenceSent = 0; }
 
 function onMessage(msg) {

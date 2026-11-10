@@ -1999,7 +1999,7 @@ wss.on('connection', (ws, req) => {
         // MachineGuid, so a malicious tenant could register with a VICTIM's device id
         // under their own valid key and re-parent that device. Refuse an id already
         // owned by a DIFFERENT admin.
-        const priorOwner = db.ownerOfDevice(id);
+        let priorOwner = db.ownerOfDevice(id);
         // Resolve which admin this enroll belongs to. Normally it's the key's
         // owner (k.adminId). But after an owner-triggered reassignDevice, the
         // device's d.adminId is sticky under its new owner while the agent
@@ -2012,6 +2012,24 @@ wss.on('connection', (ws, req) => {
         // still falls through to the block below.
         const priorDev = db.devicesForAdmin(priorOwner || '').find((x) => x.id === id);
         const pinnedKeyMatch = priorDev && priorDev.keyUsed && priorDev.keyUsed === msg.key;
+        // Legitimate reinstall-under-different-admin (reseller cutover, rebrand,
+        // or operator rebuilding the installer against a new tenant). If the
+        // device was reported uninstalled >5 min ago, no live agent is holding
+        // the slot, AND the agent now presents a DIFFERENT valid key than the
+        // one it last enrolled with, treat it as an operator-driven ownership
+        // transfer: reassign the device to the new key's admin so the
+        // enrollment settles under the new dashboard. 5-min grace prevents a
+        // takeover attempt that races an uninstall notification. Pinned-key
+        // reinstalls (same key as before) remain sticky under the old owner.
+        if (priorOwner && priorOwner !== k.adminId && !admit && !pinnedKeyMatch
+            && priorDev && priorDev.uninstalledAt
+            && (Date.now() - priorDev.uninstalledAt) > 5 * 60 * 1000
+            && !agents.has(id)) {
+          db.reassignDevice(id, k.adminId);
+          console.log('[ENROLL REPARENT] device=%s moved from admin=%s -> admin=%s (reinstall after uninstall)', id, priorOwner, k.adminId);
+          logEnroll({ device: id, name: msg.name || null, key: (k.key || '').slice(0, 8), ip: ws.ip, result: 'reparent', reason: 'reinstall under different admin after uninstall' });
+          priorOwner = k.adminId;
+        }
         // Sticky owner wins. If this device already has a settled owner in the
         // DB (priorOwner), route the enroll to THAT admin even when the agent
         // is presenting a key belonging to someone else. Rationale: db.adminId

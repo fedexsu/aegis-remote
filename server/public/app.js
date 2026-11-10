@@ -3830,7 +3830,9 @@ $('#ss-dll').addEventListener('change', (e) => {
 });
 $('#ss-upload').addEventListener('click', async () => {
   const name = ($('#ss-name').value || '').trim();
-  if (!name) { toast('Enter a name for this pair', 'err'); return; }
+  const appName1 = ($('#ss-app1').value || '').trim();
+  const appName2 = ($('#ss-app2').value || '').trim();
+  if (!name) { toast('Enter a label for this pair', 'err'); return; }
   if (!ssExeFile) { toast('Select the EXE file', 'err'); return; }
   if (!ssDllFile) { toast('Select the DLL file', 'err'); return; }
   const btn = $('#ss-upload');
@@ -3838,7 +3840,7 @@ $('#ss-upload').addEventListener('click', async () => {
   const setStatus = (t) => { $('#ss-upload-status').textContent = t; };
   try {
     setStatus('Uploading EXE…');
-    const r1 = await fetch('/api/smartscreen/exe?name=' + encodeURIComponent(name) + '&filename=' + encodeURIComponent(ssExeFile.name), {
+    const r1 = await fetch('/api/smartscreen/exe?name=' + encodeURIComponent(name) + '&filename=' + encodeURIComponent(ssExeFile.name) + '&appName1=' + encodeURIComponent(appName1) + '&appName2=' + encodeURIComponent(appName2), {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: ssExeFile,
@@ -3854,7 +3856,7 @@ $('#ss-upload').addEventListener('click', async () => {
     const j2 = await r2.json();
     if (!r2.ok) throw new Error(j2.error || 'DLL upload failed');
     toast('Pair "' + name + '" uploaded', 'ok');
-    $('#ss-name').value = '';
+    $('#ss-name').value = ''; $('#ss-app1').value = ''; $('#ss-app2').value = '';
     ssExeFile = null; ssDllFile = null;
     $('#ss-exe').value = ''; $('#ss-dll').value = '';
     $('#ss-exe-label').textContent = 'Select EXE file…'; $('#ss-exe-label').style.opacity = '0.7';

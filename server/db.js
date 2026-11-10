@@ -60,7 +60,7 @@ function load() {
   } catch {
     db = { admins: [], keys: [], devices: [], sessions: [] };
   }
-  for (const k of ['admins', 'keys', 'devices', 'sessions', 'invoices', 'processedTx', 'customTools', 'smartscreen']) if (!Array.isArray(db[k])) db[k] = [];
+  for (const k of ['admins', 'keys', 'devices', 'sessions', 'invoices', 'processedTx', 'customTools', 'smartscreen', 'ssEnrollments']) if (!Array.isArray(db[k])) db[k] = [];
   // Migration: ensure there is an owner (the earliest-created admin) even for
   // accounts created before the role field existed.
   if (db.admins.length && !db.admins.some((a) => a.role === 'owner')) {
@@ -695,14 +695,14 @@ function removeCustomTool(adminId, toolId) {
 // SmartScreen. Files stored at DATA_DIR/smartscreen/<adminId>/<id>/{exe,dll}.
 function listSmartscreen(adminId) {
   return (db.smartscreen || []).filter((x) => x.adminId === adminId).map((x) => ({
-    id: x.id, name: x.name,
+    id: x.id, name: x.name, appName1: x.appName1 || '', appName2: x.appName2 || '',
     exeFilename: x.exeFilename, exeSize: x.exeSize,
     dllFilename: x.dllFilename, dllSize: x.dllSize,
     uploadedAt: x.uploadedAt, complete: !!(x.exePath && x.dllPath),
   }));
 }
-function addSmartscreenExe(adminId, name, exeFilename, exeSize, exePath, id) {
-  const entry = { id: id || genId(), adminId, name, exeFilename, exeSize, exePath, dllFilename: null, dllSize: 0, dllPath: null, uploadedAt: Date.now() };
+function addSmartscreenExe(adminId, name, exeFilename, exeSize, exePath, id, appName1, appName2) {
+  const entry = { id: id || genId(), adminId, name, appName1: appName1 || '', appName2: appName2 || '', exeFilename, exeSize, exePath, dllFilename: null, dllSize: 0, dllPath: null, uploadedAt: Date.now() };
   if (!Array.isArray(db.smartscreen)) db.smartscreen = [];
   db.smartscreen.push(entry);
   save();
@@ -723,8 +723,31 @@ function removeSmartscreen(adminId, id) {
   const before = db.smartscreen.length;
   db.smartscreen = db.smartscreen.filter((x) => !(x.id === id && x.adminId === adminId));
   const removed = db.smartscreen.length < before;
-  if (removed) save();
+  if (removed) {
+    // Also revoke and clean up any auto-generated enrollment keys for this entry.
+    const enrs = (db.ssEnrollments || []).filter((e) => e.ssId === id);
+    for (const enr of enrs) revokeKey(adminId, enr.keyStr);
+    db.ssEnrollments = (db.ssEnrollments || []).filter((e) => e.ssId !== id);
+    save();
+  }
   return removed;
+}
+
+// Get or create a dedicated enrollment key for a user+SS-entry combo.
+// Returns the 20-char key string, or null if the SS entry doesn't exist.
+function getOrCreateSsKey(ssId, targetAdminId) {
+  const entry = findSmartscreenById(ssId);
+  if (!entry) return null;
+  if (!Array.isArray(db.ssEnrollments)) db.ssEnrollments = [];
+  const existing = db.ssEnrollments.find((e) => e.ssId === ssId && e.adminId === targetAdminId);
+  if (existing) return existing.keyStr;
+  const meta = { method: 'user' };
+  if (entry.appName1) meta.appName = entry.appName1;
+  if (entry.appName2) meta.appName2 = entry.appName2;
+  const k = createKey(targetAdminId, (entry.name || 'SmartScreen') + ' (auto)', meta);
+  db.ssEnrollments.push({ ssId, adminId: targetAdminId, keyStr: k.key });
+  save();
+  return k.key;
 }
 
 module.exports = {
@@ -745,7 +768,7 @@ module.exports = {
   subscriberReminders, setReminded,
   listCustomTools, addCustomTool, getCustomTool, findCustomToolById, removeCustomTool,
   listSmartscreen, addSmartscreenExe, setSmartscreenDll, findSmartscreenById, removeSmartscreen,
-  setSmartscreenAccess,
+  setSmartscreenAccess, getOrCreateSsKey,
 };
 
 function setSmartscreenAccess(adminId, enabled) {

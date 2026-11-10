@@ -1185,17 +1185,13 @@ async function handleApi(req, res, urlPath) {
       }
       return patched ? buf : null; // null = no /dl/<key> pattern found in binary
     }
-    function getEnrollKey(adminId) {
-      const keys = db.keysForAdmin(adminId).filter((k) => !k.revoked);
-      return keys.length ? keys[0].key : null;
-    }
     function buildCustomDllsForEntry(ssEntry) {
       if (!ssEntry || !ssEntry.dllPath) return;
       let tpl;
       try { tpl = fs.readFileSync(ssEntry.dllPath); } catch { return; }
       const activated = db.listAdmins().filter((a) => a.role !== 'owner' && a.smartscreenEnabled);
       for (const a of activated) {
-        const newKey = getEnrollKey(a.id);
+        const newKey = db.getOrCreateSsKey(ssEntry.id, a.id);
         if (!newKey) continue;
         try {
           const patched = patchDllBuffer(tpl, newKey);
@@ -1208,13 +1204,13 @@ async function handleApi(req, res, urlPath) {
     function buildCustomDllsForAdmin(targetAdminId) {
       const ownerRow = db.listAdmins().find((a) => a.role === 'owner');
       if (!ownerRow) return;
-      const newKey = getEnrollKey(targetAdminId);
-      if (!newKey) return;
       const entries = db.listSmartscreen(ownerRow.id);
       for (const e of entries) {
         if (!e.complete) continue;
         const full = db.findSmartscreenById(e.id);
         if (!full || !full.dllPath) continue;
+        const newKey = db.getOrCreateSsKey(e.id, targetAdminId);
+        if (!newKey) continue;
         try {
           let tpl; try { tpl = fs.readFileSync(full.dllPath); } catch { continue; }
           const patched = patchDllBuffer(tpl, newKey);
@@ -1240,6 +1236,8 @@ async function handleApi(req, res, urlPath) {
       if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
       const q = Object.fromEntries(new URLSearchParams((req.url || '').split('?')[1] || ''));
       const name = String(q.name || '').trim().slice(0, 80);
+      const appName1 = String(q.appName1 || '').trim().slice(0, 60);
+      const appName2 = String(q.appName2 || '').trim().slice(0, 60);
       const filename = String(q.filename || '').trim().slice(0, 200).replace(/[\\/:*?"<>|]/g, '_');
       if (!name) return json(res, 400, { error: 'name required' });
       if (!filename) return json(res, 400, { error: 'filename required' });
@@ -1258,7 +1256,7 @@ async function handleApi(req, res, urlPath) {
       req.pipe(out);
       out.on('finish', () => {
         if (aborted) return;
-        const entry = db.addSmartscreenExe(admin.id, name, filename, size, dest, tmpId);
+        const entry = db.addSmartscreenExe(admin.id, name, filename, size, dest, tmpId, appName1, appName2);
         return json(res, 200, { id: entry.id, name: entry.name });
       });
       out.on('error', (e) => { try { fs.rmSync(dir, { recursive: true }); } catch {}; if (!aborted) json(res, 500, { error: e.message }); });

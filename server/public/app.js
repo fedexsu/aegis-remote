@@ -1537,7 +1537,7 @@ function openBuild() {
   ['#b-company', '#b-site', '#b-dept', '#b-devtype'].forEach((s) => ($(s).value = ''));
   // Reset icon pickers
   ['#b-icon1', '#b-icon2'].forEach((s) => { const el = $(s); if (el) el.value = ''; });
-  ['#b-icon1-name', '#b-icon2-name'].forEach((s) => { const el = $(s); if (el) el.textContent = 'Choose .ico…'; });
+  ['#b-icon1-name', '#b-icon2-name'].forEach((s) => { const el = $(s); if (el) el.textContent = 'Choose icon…'; });
   ['#b-icon1-label', '#b-icon2-label'].forEach((s) => { const el = $(s); if (el) el.classList.remove('has-file'); });
   const icon2Row = $('#b-icon2-row'), icon2Lbl = $('#b-icon2-label');
   if (icon2Row) icon2Row.style.display = 'none';

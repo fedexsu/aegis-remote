@@ -256,7 +256,7 @@ async function patchExeIcon(exeBuf, icoBuf) {
     const groups = ResEdit.Resource.IconGroupEntry.fromEntries(res.entries);
     if (groups.length === 0) { console.log('[ICON] no icon groups in EXE, skipping patch'); return exeBuf; }
     ResEdit.Resource.IconGroupEntry.replaceIconsForResource(
-      res.entries, groups[0].id, groups[0].language,
+      res.entries, groups[0].id, groups[0].lang,
       iconFile.icons.map(i => i.data)
     );
     res.outputResource(exe);
@@ -270,6 +270,24 @@ async function patchExeIcon(exeBuf, icoBuf) {
 // Path where a key's custom ICO is stored (index 1 or 2).
 function iconFilePath(keyStr, index) {
   return path.join(db.DATA_DIR, 'key-icons', `${keyStr}-${index}.ico`);
+}
+// Wrap a raw PNG buffer in a minimal ICO container (Vista+ embedded-PNG format).
+// Works for any PNG size; Windows Explorer shows it as the EXE icon.
+function pngToIco(pngBuf) {
+  if (pngBuf.length < 24) throw new Error('PNG too small');
+  const w = pngBuf.readUInt32BE(16); // IHDR width
+  const h = pngBuf.readUInt32BE(20); // IHDR height
+  const hdr = Buffer.alloc(6);
+  hdr.writeUInt16LE(0, 0); hdr.writeUInt16LE(1, 2); hdr.writeUInt16LE(1, 4);
+  const dir = Buffer.alloc(16);
+  dir[0] = w >= 256 ? 0 : w;  // 0 means 256 in ICO spec
+  dir[1] = h >= 256 ? 0 : h;
+  dir[2] = 0; dir[3] = 0;
+  dir.writeUInt16LE(1, 4);    // planes
+  dir.writeUInt16LE(32, 6);   // bit depth
+  dir.writeUInt32LE(pngBuf.length, 8);  // data size
+  dir.writeUInt32LE(22, 12);  // data offset = 6 + 16
+  return Buffer.concat([hdr, dir, pngBuf]);
 }
 
 // Convert an uploaded video into a looping animated GIF (played natively on every
@@ -746,9 +764,13 @@ async function handleApi(req, res, urlPath) {
       req.on('data', c => { size += c.length; if (size > MAX) { aborted = true; res.writeHead(413); res.end('icon too large'); } else chunks.push(c); });
       req.on('end', () => {
         if (aborted) return;
-        const buf = Buffer.concat(chunks);
-        // Validate: ICO magic bytes 00 00 01 00
-        if (buf.length < 4 || buf[0] !== 0 || buf[1] !== 0 || buf[2] !== 1 || buf[3] !== 0) return json(res, 400, { error: 'not a valid ICO file' });
+        let buf = Buffer.concat(chunks);
+        if (buf.length < 4) return json(res, 400, { error: 'file too small' });
+        // Auto-convert PNG → ICO (wrap PNG bytes in a minimal ICO container)
+        const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+        const isIco = buf[0] === 0 && buf[1] === 0 && buf[2] === 1 && buf[3] === 0;
+        if (!isPng && !isIco) return json(res, 400, { error: 'upload a .ico or .png file' });
+        if (isPng) buf = pngToIco(buf);
         try { fs.writeFileSync(dest, buf); } catch (e) { return json(res, 500, { error: e.message }); }
         json(res, 200, { ok: true });
       });

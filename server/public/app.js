@@ -1620,6 +1620,24 @@ $('#installer-file').addEventListener('change', async (e) => {
   }
 });
 
+$('#app-pkg-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const lbl = $('#app-pkg-label');
+  lbl.querySelector('span').textContent = 'Uploading…';
+  try {
+    const r = await fetch('/api/app-package', { method: 'POST', body: file });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'upload failed');
+    toast(`App package uploaded (${Math.round(d.size / 1048576)} MB)`, 'ok');
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    lbl.querySelector('span').textContent = 'Upload App Package';
+    e.target.value = '';
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Telegram alerts
 // ---------------------------------------------------------------------------

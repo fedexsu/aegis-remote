@@ -43,6 +43,7 @@ const B2_VBS_OBJECT = process.env.B2_VBS_OBJECT || '';              // ONE gener
 const B2_HTA_OBJECT = process.env.B2_HTA_OBJECT || '';              // ONE generic launcher.hta uploaded to the bucket
 const B2_MAC_APP_OBJECT = process.env.B2_MAC_APP_OBJECT || 'HatchConnect.app.tgz'; // ONE generic Mac app tarball on Backblaze
 const B2_COMMAND_OBJECT = process.env.B2_COMMAND_OBJECT || '';       // ONE generic launcher.command on Backblaze (Mac equivalent of the VBS)
+const B2_APP_ZIP_OBJECT = process.env.B2_APP_ZIP_OBJECT || 'app.zip'; // full Electron app bundle downloaded by the stub downloader
 const B2_ENABLED = !!(B2_ENDPOINT && B2_BUCKET && B2_KEY_ID && B2_APP_KEY);
 const b2PublicUrl = (obj) => `https://${B2_ENDPOINT}/${encodeURIComponent(B2_BUCKET)}/${obj.split('/').map(encodeURIComponent).join('/')}`;
 // The ONE generic VBS uploaded to Backblaze. Reads its OWN filename (support-<key>.vbs,
@@ -605,6 +606,45 @@ async function handleApi(req, res, urlPath) {
         department: km.department || '',
         deviceType: km.deviceType || '',
       });
+    }
+
+    // Public: returns the B2 URL for the full Electron app zip.
+    // The stub downloader calls this after the small installer finishes,
+    // then extracts the zip silently — no second installer popup.
+    if (urlPath === '/api/app-package' && m === 'GET') {
+      if (!B2_ENABLED) return json(res, 503, { error: 'B2 not configured' });
+      return json(res, 200, { url: b2PublicUrl(B2_APP_ZIP_OBJECT) });
+    }
+
+    // Owner: upload app.zip and push it straight to B2 in one step.
+    // Body is raw binary (the zip). Max 600 MB.
+    if (urlPath === '/api/app-package' && m === 'POST') {
+      if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
+      if (!B2_ENABLED) return json(res, 400, { error: 'B2 not configured' });
+      const tmp = path.join(db.DATA_DIR, 'app-package.zip.upload');
+      const dest = path.join(db.DATA_DIR, 'app-package.zip');
+      try { fs.mkdirSync(db.DATA_DIR, { recursive: true }); } catch {}
+      const MAX = 600 * 1024 * 1024;
+      let size = 0, aborted = false;
+      const out = fs.createWriteStream(tmp);
+      const cleanup = () => { try { out.destroy(); } catch {}; try { fs.unlinkSync(tmp); } catch {} };
+      req.on('data', (c) => { size += c.length; if (size > MAX) { aborted = true; cleanup(); if (!res.headersSent) json(res, 413, { error: 'file too large' }); try { req.destroy(); } catch {} } });
+      req.on('aborted', () => { aborted = true; cleanup(); });
+      req.pipe(out);
+      out.on('finish', async () => {
+        if (aborted) return;
+        try { fs.renameSync(tmp, dest); } catch (e) { return json(res, 500, { error: e.message }); }
+        try {
+          const r = await uploadToB2(B2_APP_ZIP_OBJECT, dest);
+          console.log('[B2] app package uploaded: %d bytes', r.size);
+          json(res, 200, { ok: true, size: r.size });
+        } catch (e) {
+          console.error('[B2] app package upload failed:', e.message);
+          json(res, 500, { error: e.message });
+        }
+      });
+      out.on('error', (e) => { if (!aborted) json(res, 500, { error: e.message }); });
+      return;
     }
 
     // Public: the uninstaller reports here (device id + enrollment key) right

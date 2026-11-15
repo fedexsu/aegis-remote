@@ -2079,12 +2079,34 @@ async function checkForUpdate() {
       return;
     }
     for (const s of staged) {
-      try { fs.renameSync(s.tmp, s.dest); } catch { try { fs.unlinkSync(s.tmp); } catch {} }
+      try {
+        fs.renameSync(s.tmp, s.dest);
+      } catch (reErr) {
+        // Same McAfee WPS fallback the signed-bin section uses below: filter
+        // drivers refuse the rename-over-existing but let an NTFS hard-link
+        // through because it's a metadata-only op. Without this, a silently
+        // dropped rename of version.json leaves CODE_VERSION stuck at the old
+        // value, so the next update tick re-downloads v+1 and restarts
+        // forever — dashboard flaps OFFLINE/ONLINE on every cycle.
+        try { fs.unlinkSync(s.dest); } catch {}
+        try { fs.linkSync(s.tmp, s.dest); }
+        catch { try { fs.unlinkSync(s.tmp); } catch {} }
+      }
       if (s.name === 'injector/Injector.cs') injectorChanged = true;
       if (s.name === 'blanker/Blanker.cs') blankerChanged = true;
       if (s.name === 'runas/RunAsUser.cs') runasChanged = true;
       if (s.name === 'pdesk/PrivateDesktop.cs') pdeskChanged = true;
     }
+    // Guard against the restart loop: if version.json on disk does NOT reflect
+    // the new version after the rename pass (any reason — AV, locked file,
+    // disk full), do NOT relaunch. The current process keeps running at the
+    // old version, which beats flapping offline on every update tick.
+    try {
+      const vp = path.join(__dirname, 'version.json');
+      try { fs.writeFileSync(vp, JSON.stringify({ codeVersion: data.version })); } catch {}
+      const onDisk = JSON.parse(fs.readFileSync(vp, 'utf8'));
+      if (!onDisk || !(onDisk.codeVersion >= data.version)) return;
+    } catch { return; }
     // Signed native binaries shipped with the update. Write them and PREFER them
     // over recompiling from source — a client-recompiled binary would be UNSIGNED
     // and antivirus flags it (the "Control blocked - removed the input helper"

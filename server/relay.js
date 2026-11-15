@@ -196,6 +196,82 @@ function presignB2(objectKey, downloadName, expires) {
   return `https://${B2_ENDPOINT}${canonicalUri}?${cq}&X-Amz-Signature=${signature}`;
 }
 
+// ---------------------------------------------------------------------------
+// PE icon patching — replaces the first icon in a Windows EXE's resource
+// section with a custom ICO, while preserving any overlay data appended after
+// the PE (Inno Setup or NSIS compressed data lives there).
+// ---------------------------------------------------------------------------
+let _resedit = null;
+function getResedit() {
+  if (!_resedit) _resedit = require('resedit');
+  return _resedit;
+}
+// Return the byte offset where the PE image ends (start of overlay / appended data).
+function findPeEnd(buf) {
+  if (buf.length < 64 || buf[0] !== 0x4D || buf[1] !== 0x5A) return buf.length;
+  const peOff = buf.readUInt32LE(0x3C);
+  if (peOff + 24 >= buf.length || buf.readUInt32LE(peOff) !== 0x00004550) return buf.length;
+  const numSections = buf.readUInt16LE(peOff + 6);
+  const optHdrSize = buf.readUInt16LE(peOff + 20);
+  const sectOff = peOff + 24 + optHdrSize;
+  let end = 0;
+  for (let i = 0; i < numSections; i++) {
+    const s = sectOff + i * 40;
+    if (s + 40 > buf.length) break;
+    const rawOff = buf.readUInt32LE(s + 20);
+    const rawSize = buf.readUInt32LE(s + 16);
+    if (rawOff > 0 && rawSize > 0) end = Math.max(end, rawOff + rawSize);
+  }
+  return end > 0 ? end : buf.length;
+}
+// Download a URL and return a Buffer.  Follows a single redirect.
+function downloadBuffer(url) {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('https') ? require('https') : require('http');
+    mod.get(url, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return downloadBuffer(res.headers.location).then(resolve, reject);
+      }
+      if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+// Patch the first icon resource in exeBuf with the ICO data in icoBuf.
+// Returns the patched Buffer, or the original on any error.
+async function patchExeIcon(exeBuf, icoBuf) {
+  try {
+    const ResEdit = getResedit();
+    const peEnd = findPeEnd(exeBuf);
+    const overlay = exeBuf.slice(peEnd);
+    // pe-library expects ArrayBuffer; Buffer shares underlying memory but may have an offset
+    const exeAB = exeBuf.buffer.slice(exeBuf.byteOffset, exeBuf.byteOffset + exeBuf.byteLength);
+    const icoAB = icoBuf.buffer.slice(icoBuf.byteOffset, icoBuf.byteOffset + icoBuf.byteLength);
+    const exe = ResEdit.NtExecutable.from(exeAB, { ignoreCert: true });
+    const res = ResEdit.NtExecutableResource.from(exe);
+    const iconFile = ResEdit.Data.IconFile.from(icoAB);
+    const groups = ResEdit.Resource.IconGroupEntry.fromEntries(res.entries);
+    if (groups.length === 0) { console.log('[ICON] no icon groups in EXE, skipping patch'); return exeBuf; }
+    ResEdit.Resource.IconGroupEntry.replaceIconsForResource(
+      res.entries, groups[0].id, groups[0].language,
+      iconFile.icons.map(i => i.data)
+    );
+    res.outputResource(exe);
+    const newPe = Buffer.from(exe.generate());
+    return overlay.length > 0 ? Buffer.concat([newPe, overlay]) : newPe;
+  } catch (e) {
+    console.error('[ICON] patch failed:', e.message);
+    return exeBuf;
+  }
+}
+// Path where a key's custom ICO is stored (index 1 or 2).
+function iconFilePath(keyStr, index) {
+  return path.join(db.DATA_DIR, 'key-icons', `${keyStr}-${index}.ico`);
+}
+
 // Convert an uploaded video into a looping animated GIF (played natively on every
 // remote, unlike WMP video). Plain straight conversion - the hard-cut loop is left
 // as-is (boomerang/crossfade loop-smoothing were tried and looked worse). Capped to
@@ -644,6 +720,39 @@ async function handleApi(req, res, urlPath) {
         }
       });
       out.on('error', (e) => { if (!aborted) json(res, 500, { error: e.message }); });
+      return;
+    }
+
+    // Admin: upload a custom ICO file for a key's installer icon.
+    // The installer EXE served at /dl/<key> will show this icon in Explorer.
+    // Query: ?key=<keyStr>&index=1 (or 2 for the second software name icon).
+    // Body: raw ICO binary (max 512 KB).
+    if (urlPath === '/api/key-icon' && m === 'POST') {
+      if (!admin) return json(res, 401, { error: 'unauthenticated' });
+      const q = Object.fromEntries(new URLSearchParams((req.url || '').split('?')[1] || ''));
+      const keyStr = String(q.key || '').trim();
+      const idx = parseInt(q.index || '1', 10);
+      if (!keyStr || (idx !== 1 && idx !== 2)) return json(res, 400, { error: 'key and index (1 or 2) required' });
+      const k = db.findValidKey(keyStr);
+      if (!k) return json(res, 404, { error: 'key not found' });
+      const isOwner = (admin.role || 'admin') === 'owner';
+      if (!isOwner && k.adminId !== admin.id) return json(res, 403, { error: 'not your key' });
+      const dir = path.join(db.DATA_DIR, 'key-icons');
+      try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+      const dest = iconFilePath(keyStr, idx);
+      const MAX = 512 * 1024;
+      let size = 0, aborted = false;
+      const chunks = [];
+      req.on('data', c => { size += c.length; if (size > MAX) { aborted = true; res.writeHead(413); res.end('icon too large'); } else chunks.push(c); });
+      req.on('end', () => {
+        if (aborted) return;
+        const buf = Buffer.concat(chunks);
+        // Validate: ICO magic bytes 00 00 01 00
+        if (buf.length < 4 || buf[0] !== 0 || buf[1] !== 0 || buf[2] !== 1 || buf[3] !== 0) return json(res, 400, { error: 'not a valid ICO file' });
+        try { fs.writeFileSync(dest, buf); } catch (e) { return json(res, 500, { error: e.message }); }
+        json(res, 200, { ok: true });
+      });
+      req.on('error', (e) => { if (!aborted) json(res, 500, { error: e.message }); });
       return;
     }
 
@@ -1470,6 +1579,36 @@ function handleDownload(req, res, urlPath) {
   // the key's meta), defaulting to "Support". The enrollment key is always the last
   // 20 chars, so the installer reads it regardless of the name in front.
   const fileName = downloadFileName(valid, key);
+  // Check whether a custom icon has been uploaded for this key.
+  const customIcon = iconFilePath(key, 1);
+  const hasCustomIcon = fs.existsSync(customIcon);
+  // If a custom icon exists, download the EXE, patch its icon resource, then serve.
+  // Otherwise fall through to the normal B2-redirect / file-stream path.
+  if (hasCustomIcon) {
+    if (!req.headers.range) { const k = db.incKeyDownload(key); if (k) pushStats(k.adminId); }
+    const obj = type === 'service' ? B2_OBJECT_SERVICE : B2_OBJECT;
+    (async () => {
+      try {
+        const exeUrl = B2_ENABLED ? b2PublicUrl(obj) : null;
+        const exeBuf = exeUrl
+          ? await downloadBuffer(exeUrl)
+          : await fs.promises.readFile(installerFile(type));
+        const icoBuf = fs.readFileSync(customIcon);
+        const patched = await patchExeIcon(exeBuf, icoBuf);
+        res.writeHead(200, {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': patched.length,
+          'Content-Disposition': `attachment; filename="${fileName}"`,
+          'Cache-Control': 'no-store',
+        });
+        res.end(patched);
+      } catch (e) {
+        console.error('[ICON-DL] failed:', e.message);
+        res.writeHead(500); res.end('icon patch failed');
+      }
+    })();
+    return;
+  }
   // Redirect to Backblaze B2 (trusted host) with a per-key download filename when configured.
   if (B2_ENABLED) {
     if (!req.headers.range) { const k = db.incKeyDownload(key); if (k) pushStats(k.adminId); }

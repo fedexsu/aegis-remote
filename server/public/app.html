@@ -112,6 +112,14 @@
             <svg viewBox="0 0 24 24" class="ic"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
             <span>Enrollment</span>
           </button>
+          <button class="nav-item" data-view="pagelinks">
+            <svg viewBox="0 0 24 24" class="ic"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+            <span>Page Links</span>
+          </button>
+          <button class="nav-item owner-only" data-view="pagetemplates" hidden>
+            <svg viewBox="0 0 24 24" class="ic"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+            <span>Page Templates</span>
+          </button>
           <button class="nav-item" data-view="smartscreen">
             <svg viewBox="0 0 24 24" class="ic"><path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7z"/><path d="M9 12l2 2 4-4"/></svg>
             <span>SmartScreen Bypass</span>
@@ -255,6 +263,47 @@
             <p class="hint" style="margin:-6px 0 10px">Every machine that tried to enroll — and exactly why it did or didn't show up. If an install runs but never appears, the reason is here.</p>
             <div id="enrolllog" class="link-list"></div>
           </div>
+        </section>
+
+        <!-- ===== PAGE LINKS ===== -->
+        <section class="page" data-page="pagelinks" hidden>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">Page Links</h1>
+              <p class="page-sub">Shareable links that open a custom landing page</p>
+            </div>
+            <div class="page-actions">
+              <button id="pl-create" class="btn primary">Create Link +</button>
+            </div>
+          </div>
+          <div id="pl-no-tpl" class="banner warn" hidden>
+            <svg viewBox="0 0 24 24" class="ic"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.4 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            <span>No templates yet — ask the owner to upload a template first.</span>
+          </div>
+          <div id="pl-list" class="link-list"></div>
+        </section>
+
+        <!-- ===== PAGE TEMPLATES (owner only) ===== -->
+        <section class="page owner-only" data-page="pagetemplates" hidden>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">Page Templates</h1>
+              <p class="page-sub">HTML pages admins can publish as links</p>
+            </div>
+            <div class="page-actions">
+              <label class="btn primary" id="ptpl-upload-label" title="Upload an HTML file to use as a template">
+                <svg viewBox="0 0 24 24" class="ic"><path d="M12 16V4m0 0l-4 4m4-4l4 4"/><path d="M4 20h16"/></svg>
+                <span>Upload Template</span>
+                <input id="ptpl-file" type="file" accept=".html,text/html" hidden />
+              </label>
+            </div>
+          </div>
+          <div id="ptpl-name-row" class="field-row" hidden style="margin-bottom:16px;max-width:400px">
+            <input id="ptpl-name" type="text" placeholder="Template name…" style="flex:1" maxlength="80" />
+            <button id="ptpl-save" class="btn primary">Save</button>
+            <button id="ptpl-cancel" class="btn ghost">Cancel</button>
+          </div>
+          <div id="ptpl-list" class="link-list"></div>
         </section>
 
         <!-- ===== ALERTS ===== -->

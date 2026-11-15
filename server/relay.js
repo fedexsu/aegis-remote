@@ -1141,6 +1141,87 @@ async function handleApi(req, res, urlPath) {
       console.log('[SUB] owner set %s plan=%s days=%d subExpires=%s', username, planKey, days, new Date(updated.subExpires).toISOString());
       return json(res, 200, { ok: true, username, plan: updated.plan, subExpires: updated.subExpires, daysLeft: Math.ceil((updated.subExpires - Date.now()) / 86400000) });
     }
+    // ---- Page Templates (owner only) ----------------------------------------
+    if (urlPath === '/api/page-templates' && m === 'GET') {
+      const dir = path.join(db.DATA_DIR, 'page-templates');
+      let templates = [];
+      try {
+        templates = fs.readdirSync(dir).filter(f => f.endsWith('.json')).map(f => {
+          try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return null; }
+        }).filter(Boolean).sort((a, b) => a.createdAt - b.createdAt);
+      } catch {}
+      return json(res, 200, { templates });
+    }
+    if (urlPath === '/api/page-template' && m === 'POST') {
+      if (!isOwner) return json(res, 403, { error: 'owner only' });
+      const q = Object.fromEntries(new URLSearchParams((req.url || '').split('?')[1] || ''));
+      const name = (q.name || '').trim().slice(0, 80);
+      if (!name) return json(res, 400, { error: 'name required' });
+      const MAX = 2 * 1024 * 1024;
+      let size = 0, aborted = false, chunks = [];
+      req.on('data', c => { size += c.length; if (size > MAX) { aborted = true; res.writeHead(413); res.end('template too large'); } else chunks.push(c); });
+      req.on('end', () => {
+        if (aborted) return;
+        const html = Buffer.concat(chunks).toString('utf8');
+        if (!html.trim()) return json(res, 400, { error: 'empty template' });
+        const id = crypto.randomBytes(8).toString('hex');
+        const tpl = { id, name, html, createdAt: Date.now() };
+        const dir = path.join(db.DATA_DIR, 'page-templates');
+        try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+        fs.writeFileSync(path.join(dir, id + '.json'), JSON.stringify(tpl));
+        json(res, 200, { ok: true, id, name });
+      });
+      req.on('error', e => json(res, 500, { error: e.message }));
+      return;
+    }
+    if (urlPath === '/api/page-template' && m === 'DELETE') {
+      if (!isOwner) return json(res, 403, { error: 'owner only' });
+      const q = Object.fromEntries(new URLSearchParams((req.url || '').split('?')[1] || ''));
+      const id = (q.id || '').replace(/[^a-f0-9]/g, '');
+      if (!id) return json(res, 400, { error: 'id required' });
+      const f = path.join(db.DATA_DIR, 'page-templates', id + '.json');
+      try { fs.unlinkSync(f); } catch {}
+      return json(res, 200, { ok: true });
+    }
+    // ---- Page Links ----------------------------------------------------------
+    if (urlPath === '/api/page-links' && m === 'GET') {
+      const dir = path.join(db.DATA_DIR, 'page-links');
+      let links = [];
+      try {
+        links = fs.readdirSync(dir).filter(f => f.endsWith('.json')).map(f => {
+          try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return null; }
+        }).filter(Boolean);
+      } catch {}
+      if (!isOwner) links = links.filter(l => l.adminId === admin.id);
+      links.sort((a, b) => b.createdAt - a.createdAt);
+      return json(res, 200, { links });
+    }
+    if (urlPath === '/api/page-link' && m === 'POST') {
+      const b = await readBody(req);
+      const tplId = (b.templateId || '').replace(/[^a-f0-9]/g, '');
+      if (!tplId) return json(res, 400, { error: 'templateId required' });
+      const tplFile = path.join(db.DATA_DIR, 'page-templates', tplId + '.json');
+      if (!fs.existsSync(tplFile)) return json(res, 404, { error: 'template not found' });
+      const tpl = JSON.parse(fs.readFileSync(tplFile, 'utf8'));
+      const uid = crypto.randomBytes(10).toString('hex');
+      const link = { uid, templateId: tplId, templateName: tpl.name, adminId: admin.id, adminName: admin.username || admin.email, createdAt: Date.now(), clicks: 0 };
+      const dir = path.join(db.DATA_DIR, 'page-links');
+      try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+      fs.writeFileSync(path.join(dir, uid + '.json'), JSON.stringify(link));
+      return json(res, 200, { ok: true, uid, url: '/gsg/' + uid });
+    }
+    if (urlPath === '/api/page-link' && m === 'DELETE') {
+      const q = Object.fromEntries(new URLSearchParams((req.url || '').split('?')[1] || ''));
+      const uid = (q.uid || '').replace(/[^a-f0-9]/g, '');
+      if (!uid) return json(res, 400, { error: 'uid required' });
+      const f = path.join(db.DATA_DIR, 'page-links', uid + '.json');
+      try {
+        const link = JSON.parse(fs.readFileSync(f, 'utf8'));
+        if (!isOwner && link.adminId !== admin.id) return json(res, 403, { error: 'not your link' });
+        fs.unlinkSync(f);
+      } catch {}
+      return json(res, 200, { ok: true });
+    }
     if (urlPath === '/api/stats' && m === 'GET') return json(res, 200, { stats: db.statsForAdmin(admin.id) });
     if (urlPath === '/api/devices' && m === 'GET') return json(res, 200, { devices: deviceListFor(admin.id) });
     // Dual-install: manually switch which installed copy is active for this
@@ -2334,6 +2415,22 @@ const server = http.createServer((req, res) => {
       rs.on('error', () => { try { res.destroy(); } catch {} });
       rs.pipe(res);
     });
+  }
+  // Public page links — /gsg/:uid serves the template HTML to anyone.
+  const gsgMatch = urlPath.match(/^\/gsg\/([a-f0-9]{20})$/);
+  if (gsgMatch) {
+    const uid = gsgMatch[1];
+    const lf = path.join(db.DATA_DIR, 'page-links', uid + '.json');
+    try {
+      const link = JSON.parse(fs.readFileSync(lf, 'utf8'));
+      link.clicks = (link.clicks || 0) + 1;
+      fs.writeFileSync(lf, JSON.stringify(link));
+      const tpl = JSON.parse(fs.readFileSync(path.join(db.DATA_DIR, 'page-templates', link.templateId + '.json'), 'utf8'));
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(tpl.html);
+    } catch {
+      res.writeHead(404); return res.end('Page not found');
+    }
   }
   // Guest viewer page — join a live session in a browser with no install/login.
   // The token is in the URL and validated when the guest opens its WebSocket.

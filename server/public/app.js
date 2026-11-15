@@ -524,6 +524,7 @@ function showApp(a) {
   $('#set-user').textContent = a.email;
   $('#set-role').textContent = a.role || 'admin';
   $$('.owner-only').forEach((el) => (el.hidden = !owner));
+  window._adminRole = a.role;
   deviceCards.clear(); $('#devices').innerHTML = ''; // fresh card set for this account
   if (owner) loadAccounts();
   loadKeys();
@@ -562,6 +563,8 @@ function validView(v) { return !!v && $$('.nav-item').some((n) => n.dataset.view
 function applyView(view) {
   $$('.nav-item').forEach((n) => n.classList.toggle('active', n.dataset.view === view));
   $$('.page').forEach((p) => (p.hidden = p.dataset.page !== view));
+  if (view === 'pagelinks') loadPageLinks();
+  if (view === 'pagetemplates') loadPageTemplates();
 }
 // Hash-based routing: each section has its own URL (#enrollment, #alerts, ...) so a
 // reload, back/forward, or bookmark stays on that section instead of resetting to Devices.
@@ -4079,3 +4082,187 @@ function renderSsManage(entries) {
     list.appendChild(card);
   }
 }
+
+// ===========================================================================
+// PAGE LINKS
+// ===========================================================================
+const PL_DOMAIN = 'https://BRIEFINSECTION.CLICK';
+
+async function loadPageLinks() {
+  const list = $('#pl-list');
+  const noBanner = $('#pl-no-tpl');
+  if (!list) return;
+  list.innerHTML = '<p class="hint" style="padding:16px 0">Loading...</p>';
+  try {
+    const [{ links }, { templates }] = await Promise.all([
+      api('/api/page-links'),
+      api('/api/page-templates'),
+    ]);
+    noBanner.hidden = templates.length > 0;
+    list.innerHTML = '';
+    if (!links.length) {
+      list.innerHTML = '<p class="hint" style="padding:16px 0">No links yet — click <b>Create Link +</b> to generate one.</p>';
+      return;
+    }
+    for (const l of links) {
+      const card = document.createElement('div');
+      card.className = 'link-row';
+      const url = PL_DOMAIN + '/gsg/' + l.uid;
+      const isOwnerView = window._adminRole === 'owner';
+      card.innerHTML = '<div class="lr-info">'
+        + '<span class="lr-name">' + esc(l.templateName || 'Unnamed') + '</span>'
+        + '<span class="lr-url" style="font-size:11px;color:var(--txt3);font-family:monospace">' + esc(url) + '</span>'
+        + '<span class="lr-meta" style="font-size:11px;color:var(--txt3)">' + relTime(l.createdAt) + ' · ' + (l.clicks||0) + ' click' + (l.clicks===1?'':'s') + (isOwnerView ? ' · ' + esc(l.adminName||'') : '') + '</span>'
+        + '</div>';
+      const actions = document.createElement('div');
+      actions.className = 'lr-actions';
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'btn ghost small';
+      copyBtn.textContent = 'Copy link';
+      copyBtn.addEventListener('click', (function(u){ return function() {
+        navigator.clipboard.writeText(u).then(function(){ toast('Copied!', 'ok'); }).catch(function(){ toast('Copy failed', 'err'); });
+      }; }(url)));
+      actions.appendChild(copyBtn);
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn ghost small danger';
+      delBtn.innerHTML = '<svg viewBox="0 0 24 24" class="ic" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>';
+      delBtn.title = 'Delete link';
+      delBtn.addEventListener('click', (function(uid){ return async function() {
+        const ok = await modal({ title: 'Delete link?', message: 'Remove this page link permanently?', confirmText: 'Delete', danger: true });
+        if (!ok) return;
+        try {
+          await api('/api/page-link?uid=' + uid, 'DELETE');
+          toast('Deleted', 'ok'); loadPageLinks();
+        } catch (err) { toast('Delete failed: ' + err.message, 'err'); }
+      }; }(l.uid)));
+      actions.appendChild(delBtn);
+      card.appendChild(actions);
+      list.appendChild(card);
+    }
+  } catch (err) { list.innerHTML = '<p class="hint err" style="padding:16px 0">' + esc(err.message) + '</p>'; }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var plCreate = $('#pl-create');
+  if (plCreate) {
+    plCreate.addEventListener('click', async function() {
+      var templates = [];
+      try { templates = (await api('/api/page-templates')).templates; } catch {}
+      if (!templates.length) { toast('No templates yet — owner must upload one first.', 'err'); return; }
+      var result = await modal({
+        title: 'Create Page Link',
+        message: 'Choose a template for this link:',
+        fields: [{ label: 'Template', type: 'select', options: templates.map(function(t){ return { label: t.name, value: t.id }; }) }],
+        confirmText: 'Create Link',
+      });
+      if (!result) return;
+      var tpl = templates[parseInt(result[0], 10)];
+      if (!tpl) return;
+      try {
+        var r = await api('/api/page-link', 'POST', { templateId: tpl.id });
+        var url = PL_DOMAIN + '/gsg/' + r.uid;
+        navigator.clipboard.writeText(url).catch(function(){});
+        await modal({ title: 'Link created!', message: url + '\n\nCopied to clipboard.', confirmText: 'Done', cancelText: '' });
+        loadPageLinks();
+      } catch (err) { toast('Failed: ' + err.message, 'err'); }
+    });
+  }
+});
+
+// ===========================================================================
+// PAGE TEMPLATES (owner only)
+// ===========================================================================
+var _ptplPendingFile = null;
+
+async function loadPageTemplates() {
+  var list = $('#ptpl-list');
+  if (!list) return;
+  list.innerHTML = '<p class="hint" style="padding:16px 0">Loading...</p>';
+  try {
+    var data = await api('/api/page-templates');
+    var templates = data.templates;
+    list.innerHTML = '';
+    if (!templates.length) {
+      list.innerHTML = '<p class="hint" style="padding:16px 0">No templates yet — click <b>Upload Template</b> to add one.</p>';
+      return;
+    }
+    for (var i = 0; i < templates.length; i++) {
+      (function(t) {
+        var card = document.createElement('div');
+        card.className = 'link-row';
+        card.innerHTML = '<div class="lr-info"><span class="lr-name">' + esc(t.name) + '</span><span class="lr-meta" style="font-size:11px;color:var(--txt3)">Uploaded ' + relTime(t.createdAt) + '</span></div>';
+        var actions = document.createElement('div');
+        actions.className = 'lr-actions';
+        var delBtn = document.createElement('button');
+        delBtn.className = 'btn ghost small danger';
+        delBtn.innerHTML = '<svg viewBox="0 0 24 24" class="ic" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>';
+        delBtn.title = 'Delete template';
+        delBtn.addEventListener('click', async function() {
+          var ok = await modal({ title: 'Delete template?', message: 'Delete "' + t.name + '"? Existing links using it will stop working.', confirmText: 'Delete', danger: true });
+          if (!ok) return;
+          try {
+            await api('/api/page-template?id=' + t.id, 'DELETE');
+            toast('Deleted', 'ok'); loadPageTemplates();
+          } catch (err) { toast('Delete failed: ' + err.message, 'err'); }
+        });
+        actions.appendChild(delBtn);
+        card.appendChild(actions);
+        list.appendChild(card);
+      }(templates[i]));
+    }
+  } catch (err) { list.innerHTML = '<p class="hint err" style="padding:16px 0">' + esc(err.message) + '</p>'; }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var ptplFile = $('#ptpl-file');
+  var ptplNameRow = $('#ptpl-name-row');
+  var ptplNameInput = $('#ptpl-name');
+  var ptplSaveBtn = $('#ptpl-save');
+  var ptplCancelBtn = $('#ptpl-cancel');
+
+  if (ptplFile) {
+    ptplFile.addEventListener('change', function() {
+      var f = ptplFile.files[0];
+      if (!f) return;
+      _ptplPendingFile = f;
+      ptplNameInput.value = f.name.replace(/\.html?$/i, '');
+      ptplNameRow.hidden = false;
+      ptplNameInput.focus();
+      ptplFile.value = '';
+    });
+  }
+  if (ptplCancelBtn) {
+    ptplCancelBtn.addEventListener('click', function() {
+      _ptplPendingFile = null;
+      ptplNameRow.hidden = true;
+      ptplNameInput.value = '';
+    });
+  }
+  if (ptplSaveBtn) {
+    ptplSaveBtn.addEventListener('click', async function() {
+      if (!_ptplPendingFile) return;
+      var name = ptplNameInput.value.trim();
+      if (!name) { toast('Enter a name for the template', 'err'); return; }
+      ptplSaveBtn.disabled = true;
+      try {
+        var html = await _ptplPendingFile.text();
+        var r = await fetch('/api/page-template?name=' + encodeURIComponent(name), {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/html' },
+          body: html,
+          credentials: 'include',
+        });
+        var j = await r.json().catch(function(){ return {}; });
+        if (!r.ok) throw new Error(j.error || r.statusText);
+        toast('Template saved', 'ok');
+        _ptplPendingFile = null;
+        ptplNameRow.hidden = true;
+        ptplNameInput.value = '';
+        loadPageTemplates();
+      } catch (err) { toast('Upload failed: ' + err.message, 'err'); }
+      ptplSaveBtn.disabled = false;
+    });
+  }
+});
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }

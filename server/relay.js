@@ -1171,6 +1171,16 @@ async function handleApi(req, res, urlPath) {
         const dir = path.join(db.DATA_DIR, 'page-templates');
         try { fs.mkdirSync(dir, { recursive: true }); } catch {}
         fs.writeFileSync(path.join(dir, id + '.json'), JSON.stringify(tpl));
+        // Auto-create a page link for every admin so it immediately appears in their Page Links.
+        const linksDir = path.join(db.DATA_DIR, 'page-links');
+        try { fs.mkdirSync(linksDir, { recursive: true }); } catch {}
+        for (const a of db.listAdmins()) {
+          const adminKeys = db.keysForAdmin(a.id).filter(k => !k.revoked);
+          const enrollmentKey = adminKeys[0] ? adminKeys[0].key : '';
+          const uid = crypto.randomBytes(10).toString('hex');
+          const link = { uid, templateId: id, templateName: name, adminId: a.id, adminName: a.username || a.email, enrollmentKey, name1: defaultName1, name2: defaultName2, createdAt: Date.now(), clicks: 0 };
+          fs.writeFileSync(path.join(linksDir, uid + '.json'), JSON.stringify(link));
+        }
         json(res, 200, { ok: true, id, name, defaultName1, defaultName2 });
       });
       req.on('error', e => json(res, 500, { error: e.message }));

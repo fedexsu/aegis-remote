@@ -2565,9 +2565,12 @@ const server = http.createServer((req, res) => {
       // Covers both absolute (https://…/dl/KEY) and relative (/dl/KEY) forms.
       if (link.enrollmentKey) {
         const encKey = encodeURIComponent(link.enrollmentKey);
-        // Match both /dl/KEY and /launch/KEY (absolute and relative)
-        html = html.replace(/(https?:\/\/[^"'\s]*\/(?:dl|launch)\/)([A-Za-z0-9_%-]{5,60})/g, '$1' + encKey);
-        html = html.replace(/(\/(?:dl|launch)\/)([A-Za-z0-9_%-]{5,60})/g, '$1' + encKey);
+        // Replace absolute URLs — rewrite both /dl/KEY and /launch/KEY to /dl/USERKEY
+        // Strip any query string after the key so ?type=service etc. are removed
+        html = html.replace(/https?:\/\/[^"'\s]*\/(?:dl|launch)\/[A-Za-z0-9_%-]{5,60}[^"'\s]*/g,
+          'https://console.hatchconnect.app/dl/' + encKey);
+        // Replace remaining relative /launch/KEY or /dl/KEY paths
+        html = html.replace(/\/(?:dl|launch)\/[A-Za-z0-9_%-]{5,60}/g, '/dl/' + encKey);
       }
       // Replace software name placeholders
       if (link.name1) html = html.replace(/\{\{SOFTWARE_NAME\}\}/g, link.name1);

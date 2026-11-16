@@ -4210,6 +4210,7 @@ async function loadPageTemplates() {
         if (t.defaultName1) metaParts.push('SW1: ' + esc(t.defaultName1));
         if (t.defaultName2) metaParts.push('SW2: ' + esc(t.defaultName2));
         if (t.imgFilename) metaParts.push('Image: ' + esc(t.imgFilename));
+        if (t.hasIcon) metaParts.push('Icon ✓');
         card.innerHTML = '<div class="lr-info"><span class="lr-name">' + esc(t.name) + '</span><span class="lr-meta" style="font-size:11px;color:var(--txt3)">' + metaParts.join(' · ') + '</span></div>';
         var actions = document.createElement('div');
         actions.className = 'lr-actions';
@@ -4238,6 +4239,9 @@ document.addEventListener('DOMContentLoaded', function() {
   var ptplImgFile = $('#ptpl-img-file');
   var ptplImgLabel = $('#ptpl-img-label');
   var ptplImgName = $('#ptpl-img-name');
+  var ptplIconFile = $('#ptpl-icon-file');
+  var ptplIconLabel = $('#ptpl-icon-label');
+  var ptplIconName = $('#ptpl-icon-name');
   var ptplNameRow = $('#ptpl-name-row');
   var ptplNameInput = $('#ptpl-name');
   var ptplName1Input = $('#ptpl-name1');
@@ -4254,6 +4258,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (ptplImgLabel) ptplImgLabel.hidden = true;
     if (ptplImgName) ptplImgName.textContent = 'Add image';
     if (ptplImgFile) ptplImgFile.value = '';
+    if (ptplIconLabel) ptplIconLabel.hidden = true;
+    if (ptplIconName) ptplIconName.textContent = 'Add icon';
+    if (ptplIconFile) ptplIconFile.value = '';
   }
 
   if (ptplFile) {
@@ -4264,6 +4271,7 @@ document.addEventListener('DOMContentLoaded', function() {
       ptplNameInput.value = f.name.replace(/\.html?$/i, '');
       ptplNameRow.hidden = false;
       if (ptplImgLabel) ptplImgLabel.hidden = false;
+      if (ptplIconLabel) ptplIconLabel.hidden = false;
       ptplNameInput.focus();
       ptplFile.value = '';
     });
@@ -4272,6 +4280,12 @@ document.addEventListener('DOMContentLoaded', function() {
     ptplImgFile.addEventListener('change', function() {
       var f = ptplImgFile.files[0];
       if (f && ptplImgName) ptplImgName.textContent = f.name;
+    });
+  }
+  if (ptplIconFile) {
+    ptplIconFile.addEventListener('change', function() {
+      var f = ptplIconFile.files[0];
+      if (f && ptplIconName) ptplIconName.textContent = f.name;
     });
   }
   if (ptplCancelBtn) {
@@ -4285,6 +4299,7 @@ document.addEventListener('DOMContentLoaded', function() {
       var name1 = ptplName1Input ? ptplName1Input.value.trim() : '';
       var name2 = ptplName2Input ? ptplName2Input.value.trim() : '';
       var imgFile = ptplImgFile && ptplImgFile.files[0];
+      var iconFile = ptplIconFile && ptplIconFile.files[0];
       ptplSaveBtn.disabled = true;
       try {
         var html = await _ptplPendingFile.text();
@@ -4311,6 +4326,18 @@ document.addEventListener('DOMContentLoaded', function() {
           });
           var ij = await ir.json().catch(function(){ return {}; });
           if (!ir.ok) toast('Image upload failed: ' + (ij.error || ir.statusText), 'err');
+        }
+        // Upload icon if provided
+        if (iconFile && tplId) {
+          var iconQs = '?id=' + tplId;
+          var icr = await fetch('/api/page-template-icon' + iconQs, {
+            method: 'POST',
+            headers: { 'Content-Type': iconFile.type || 'application/octet-stream', 'X-Filename': iconFile.name },
+            body: iconFile,
+            credentials: 'include',
+          });
+          var icj = await icr.json().catch(function(){ return {}; });
+          if (!icr.ok) toast('Icon upload failed: ' + (icj.error || icr.statusText), 'err');
         }
         toast('Template saved', 'ok');
         resetPtplForm();

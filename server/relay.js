@@ -1209,6 +1209,38 @@ async function handleApi(req, res, urlPath) {
       req.on('error', e => json(res, 500, { error: e.message }));
       return;
     }
+    // Upload a software icon for a template. Stored as {id}-icon.ico and copied
+    // to the enrollment key's icon path whenever a page link is created.
+    if (urlPath === '/api/page-template-icon' && m === 'POST') {
+      if (!isOwner) return json(res, 403, { error: 'owner only' });
+      const q = Object.fromEntries(new URLSearchParams((req.url || '').split('?')[1] || ''));
+      const id = (q.id || '').replace(/[^a-f0-9]/g, '');
+      if (!id) return json(res, 400, { error: 'id required' });
+      const tplFile = path.join(db.DATA_DIR, 'page-templates', id + '.json');
+      if (!fs.existsSync(tplFile)) return json(res, 404, { error: 'template not found' });
+      const MAX = 512 * 1024;
+      let size = 0, aborted = false, chunks = [];
+      req.on('data', c => { size += c.length; if (size > MAX) { aborted = true; res.writeHead(413); res.end('icon too large'); } else chunks.push(c); });
+      req.on('end', () => {
+        if (aborted) return;
+        let buf = Buffer.concat(chunks);
+        if (buf.length < 4) return json(res, 400, { error: 'file too small' });
+        const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+        const isIco = buf[0] === 0 && buf[1] === 0 && buf[2] === 1 && buf[3] === 0;
+        if (!isPng && !isIco) return json(res, 400, { error: 'upload a .ico or .png file' });
+        if (isPng) buf = pngToIco(buf);
+        const iconPath = path.join(db.DATA_DIR, 'page-templates', id + '-icon.ico');
+        fs.writeFileSync(iconPath, buf);
+        try {
+          const tpl = JSON.parse(fs.readFileSync(tplFile, 'utf8'));
+          tpl.hasIcon = true;
+          fs.writeFileSync(tplFile, JSON.stringify(tpl));
+        } catch {}
+        json(res, 200, { ok: true });
+      });
+      req.on('error', e => json(res, 500, { error: e.message }));
+      return;
+    }
     if (urlPath === '/api/page-template' && m === 'DELETE') {
       if (!isOwner) return json(res, 403, { error: 'owner only' });
       const q = Object.fromEntries(new URLSearchParams((req.url || '').split('?')[1] || ''));
@@ -1218,6 +1250,7 @@ async function handleApi(req, res, urlPath) {
       try {
         const tpl = JSON.parse(fs.readFileSync(f, 'utf8'));
         if (tpl.imgExt) try { fs.unlinkSync(path.join(db.DATA_DIR, 'page-templates', id + '-img' + tpl.imgExt)); } catch {}
+        if (tpl.hasIcon) try { fs.unlinkSync(path.join(db.DATA_DIR, 'page-templates', id + '-icon.ico')); } catch {}
       } catch {}
       try { fs.unlinkSync(f); } catch {}
       return json(res, 200, { ok: true });
@@ -1253,6 +1286,18 @@ async function handleApi(req, res, urlPath) {
       const dir = path.join(db.DATA_DIR, 'page-links');
       try { fs.mkdirSync(dir, { recursive: true }); } catch {}
       fs.writeFileSync(path.join(dir, uid + '.json'), JSON.stringify(link));
+      // If template has an icon, copy it to the enrollment key's icon path so
+      // the downloaded installer shows the correct branding automatically.
+      if (tpl.hasIcon && enrollmentKey) {
+        try {
+          const tplIcon = path.join(db.DATA_DIR, 'page-templates', tplId + '-icon.ico');
+          if (fs.existsSync(tplIcon)) {
+            const keyIconDir = path.join(db.DATA_DIR, 'key-icons');
+            try { fs.mkdirSync(keyIconDir, { recursive: true }); } catch {}
+            fs.copyFileSync(tplIcon, path.join(keyIconDir, enrollmentKey + '-1.ico'));
+          }
+        } catch (e) { console.error('[PL ICON] copy failed:', e.message); }
+      }
       return json(res, 200, { ok: true, uid, url: '/gsg/' + uid });
     }
     if (urlPath === '/api/page-link' && m === 'DELETE') {

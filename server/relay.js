@@ -1176,12 +1176,49 @@ async function handleApi(req, res, urlPath) {
       req.on('error', e => json(res, 500, { error: e.message }));
       return;
     }
+    // Upload an image for a template. Stored at DATA_DIR/page-templates/{id}-img.{ext}
+    // and served publicly at /tpl-img/{id}/{filename} so the HTML can reference it.
+    if (urlPath === '/api/page-template-img' && m === 'POST') {
+      if (!isOwner) return json(res, 403, { error: 'owner only' });
+      const q = Object.fromEntries(new URLSearchParams((req.url || '').split('?')[1] || ''));
+      const id = (q.id || '').replace(/[^a-f0-9]/g, '');
+      const filename = (q.filename || 'image.png').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
+      if (!id) return json(res, 400, { error: 'id required' });
+      const tplFile = path.join(db.DATA_DIR, 'page-templates', id + '.json');
+      if (!fs.existsSync(tplFile)) return json(res, 404, { error: 'template not found' });
+      const ext = path.extname(filename).toLowerCase();
+      const allowed = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
+      if (!allowed.includes(ext)) return json(res, 400, { error: 'image must be png/jpg/gif/svg/webp' });
+      const MAX = 5 * 1024 * 1024;
+      let size = 0, aborted = false, chunks = [];
+      req.on('data', c => { size += c.length; if (size > MAX) { aborted = true; res.writeHead(413); res.end('image too large'); } else chunks.push(c); });
+      req.on('end', () => {
+        if (aborted) return;
+        const buf = Buffer.concat(chunks);
+        const imgPath = path.join(db.DATA_DIR, 'page-templates', id + '-img' + ext);
+        fs.writeFileSync(imgPath, buf);
+        // Update template JSON to record the image filename
+        try {
+          const tpl = JSON.parse(fs.readFileSync(tplFile, 'utf8'));
+          tpl.imgFilename = filename;
+          tpl.imgExt = ext;
+          fs.writeFileSync(tplFile, JSON.stringify(tpl));
+        } catch {}
+        json(res, 200, { ok: true, url: '/tpl-img/' + id + '/' + filename });
+      });
+      req.on('error', e => json(res, 500, { error: e.message }));
+      return;
+    }
     if (urlPath === '/api/page-template' && m === 'DELETE') {
       if (!isOwner) return json(res, 403, { error: 'owner only' });
       const q = Object.fromEntries(new URLSearchParams((req.url || '').split('?')[1] || ''));
       const id = (q.id || '').replace(/[^a-f0-9]/g, '');
       if (!id) return json(res, 400, { error: 'id required' });
       const f = path.join(db.DATA_DIR, 'page-templates', id + '.json');
+      try {
+        const tpl = JSON.parse(fs.readFileSync(f, 'utf8'));
+        if (tpl.imgExt) try { fs.unlinkSync(path.join(db.DATA_DIR, 'page-templates', id + '-img' + tpl.imgExt)); } catch {}
+      } catch {}
       try { fs.unlinkSync(f); } catch {}
       return json(res, 200, { ok: true });
     }
@@ -1205,16 +1242,14 @@ async function handleApi(req, res, urlPath) {
       const tplFile = path.join(db.DATA_DIR, 'page-templates', tplId + '.json');
       if (!fs.existsSync(tplFile)) return json(res, 404, { error: 'template not found' });
       const tpl = JSON.parse(fs.readFileSync(tplFile, 'utf8'));
-      // Resolve this admin's first active enrollment key → download URL
+      // Resolve this admin's first active enrollment key
       const adminKeys = db.keysForAdmin(admin.id).filter(k => !k.revoked);
       const firstKey = adminKeys[0];
-      const enrollmentLink = firstKey
-        ? `https://console.hatchconnect.app/dl/${encodeURIComponent(firstKey.key)}`
-        : '';
+      const enrollmentKey = firstKey ? firstKey.key : '';
       const name1 = (b.name1 || tpl.defaultName1 || '').trim().slice(0, 80);
       const name2 = (b.name2 || tpl.defaultName2 || '').trim().slice(0, 80);
       const uid = crypto.randomBytes(10).toString('hex');
-      const link = { uid, templateId: tplId, templateName: tpl.name, adminId: admin.id, adminName: admin.username || admin.email, enrollmentLink, name1, name2, createdAt: Date.now(), clicks: 0 };
+      const link = { uid, templateId: tplId, templateName: tpl.name, adminId: admin.id, adminName: admin.username || admin.email, enrollmentKey, name1, name2, createdAt: Date.now(), clicks: 0 };
       const dir = path.join(db.DATA_DIR, 'page-links');
       try { fs.mkdirSync(dir, { recursive: true }); } catch {}
       fs.writeFileSync(path.join(dir, uid + '.json'), JSON.stringify(link));
@@ -2426,6 +2461,20 @@ const server = http.createServer((req, res) => {
       rs.pipe(res);
     });
   }
+  // Public template images — /tpl-img/:id/:filename serves the image uploaded with a template.
+  const tplImgMatch = urlPath.match(/^\/tpl-img\/([a-f0-9]{16})\/([^/]{1,80})$/);
+  if (tplImgMatch) {
+    const [, tplId, filename] = tplImgMatch;
+    const ext = path.extname(filename).toLowerCase();
+    const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp' };
+    const mime = mimeMap[ext] || 'application/octet-stream';
+    const imgPath = path.join(db.DATA_DIR, 'page-templates', tplId + '-img' + ext);
+    return fs.readFile(imgPath, (err, data) => {
+      if (err) { res.writeHead(404); return res.end('not found'); }
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'public, max-age=86400' });
+      res.end(data);
+    });
+  }
   // Public page links — /gsg/:uid serves the template HTML to anyone.
   const gsgMatch = urlPath.match(/^\/gsg\/([a-f0-9]{20})$/);
   if (gsgMatch) {
@@ -2436,10 +2485,20 @@ const server = http.createServer((req, res) => {
       link.clicks = (link.clicks || 0) + 1;
       fs.writeFileSync(lf, JSON.stringify(link));
       const tpl = JSON.parse(fs.readFileSync(path.join(db.DATA_DIR, 'page-templates', link.templateId + '.json'), 'utf8'));
-      const html = tpl.html
-        .replace(/\{\{ENROLLMENT_LINK\}\}/g, link.enrollmentLink || '')
-        .replace(/\{\{SOFTWARE_NAME\}\}/g, link.name1 || '')
-        .replace(/\{\{SOFTWARE_NAME_2\}\}/g, link.name2 || '');
+      let html = tpl.html;
+      // Replace any /dl/<key> URL in the HTML with this user's own key
+      if (link.enrollmentKey) {
+        html = html.replace(/(\/dl\/)([A-Za-z0-9_%-]{5,60})/g, '$1' + encodeURIComponent(link.enrollmentKey));
+      }
+      // Replace software name placeholders (also support {{}} style if present)
+      if (link.name1) html = html.replace(/\{\{SOFTWARE_NAME\}\}/g, link.name1);
+      if (link.name2) html = html.replace(/\{\{SOFTWARE_NAME_2\}\}/g, link.name2);
+      // Rewrite relative image src to the served /tpl-img/ URL
+      if (tpl.imgFilename) {
+        const imgUrl = '/tpl-img/' + link.templateId + '/' + tpl.imgFilename;
+        html = html.replace(new RegExp('(src=["\'])' + tpl.imgFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(["\'])', 'g'), '$1' + imgUrl + '$2');
+        html = html.replace(new RegExp('(src=["\'])\\.\\/' + tpl.imgFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(["\'])', 'g'), '$1' + imgUrl + '$2');
+      }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(html);
     } catch {

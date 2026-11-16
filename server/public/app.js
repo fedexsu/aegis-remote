@@ -4209,6 +4209,7 @@ async function loadPageTemplates() {
         var metaParts = ['Uploaded ' + relTime(t.createdAt)];
         if (t.defaultName1) metaParts.push('SW1: ' + esc(t.defaultName1));
         if (t.defaultName2) metaParts.push('SW2: ' + esc(t.defaultName2));
+        if (t.imgFilename) metaParts.push('Image: ' + esc(t.imgFilename));
         card.innerHTML = '<div class="lr-info"><span class="lr-name">' + esc(t.name) + '</span><span class="lr-meta" style="font-size:11px;color:var(--txt3)">' + metaParts.join(' · ') + '</span></div>';
         var actions = document.createElement('div');
         actions.className = 'lr-actions';
@@ -4234,6 +4235,9 @@ async function loadPageTemplates() {
 
 document.addEventListener('DOMContentLoaded', function() {
   var ptplFile = $('#ptpl-file');
+  var ptplImgFile = $('#ptpl-img-file');
+  var ptplImgLabel = $('#ptpl-img-label');
+  var ptplImgName = $('#ptpl-img-name');
   var ptplNameRow = $('#ptpl-name-row');
   var ptplNameInput = $('#ptpl-name');
   var ptplName1Input = $('#ptpl-name1');
@@ -4247,6 +4251,9 @@ document.addEventListener('DOMContentLoaded', function() {
     ptplNameInput.value = '';
     if (ptplName1Input) ptplName1Input.value = '';
     if (ptplName2Input) ptplName2Input.value = '';
+    if (ptplImgLabel) ptplImgLabel.hidden = true;
+    if (ptplImgName) ptplImgName.textContent = 'Add image';
+    if (ptplImgFile) ptplImgFile.value = '';
   }
 
   if (ptplFile) {
@@ -4256,8 +4263,15 @@ document.addEventListener('DOMContentLoaded', function() {
       _ptplPendingFile = f;
       ptplNameInput.value = f.name.replace(/\.html?$/i, '');
       ptplNameRow.hidden = false;
+      if (ptplImgLabel) ptplImgLabel.hidden = false;
       ptplNameInput.focus();
       ptplFile.value = '';
+    });
+  }
+  if (ptplImgFile) {
+    ptplImgFile.addEventListener('change', function() {
+      var f = ptplImgFile.files[0];
+      if (f && ptplImgName) ptplImgName.textContent = f.name;
     });
   }
   if (ptplCancelBtn) {
@@ -4270,6 +4284,7 @@ document.addEventListener('DOMContentLoaded', function() {
       if (!name) { toast('Enter a template name', 'err'); return; }
       var name1 = ptplName1Input ? ptplName1Input.value.trim() : '';
       var name2 = ptplName2Input ? ptplName2Input.value.trim() : '';
+      var imgFile = ptplImgFile && ptplImgFile.files[0];
       ptplSaveBtn.disabled = true;
       try {
         var html = await _ptplPendingFile.text();
@@ -4284,6 +4299,19 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         var j = await r.json().catch(function(){ return {}; });
         if (!r.ok) throw new Error(j.error || r.statusText);
+        var tplId = j.id;
+        // Upload image if provided
+        if (imgFile && tplId) {
+          var imgQs = '?id=' + tplId + '&filename=' + encodeURIComponent(imgFile.name);
+          var ir = await fetch('/api/page-template-img' + imgQs, {
+            method: 'POST',
+            headers: { 'Content-Type': imgFile.type || 'application/octet-stream' },
+            body: imgFile,
+            credentials: 'include',
+          });
+          var ij = await ir.json().catch(function(){ return {}; });
+          if (!ir.ok) toast('Image upload failed: ' + (ij.error || ir.statusText), 'err');
+        }
         toast('Template saved', 'ok');
         resetPtplForm();
         loadPageTemplates();

@@ -2571,26 +2571,40 @@ const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', d => { body += d; if (body.length > 32768) { body = ''; req.destroy(); } });
     req.on('end', () => {
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       try {
         const { msg } = JSON.parse(body);
         const lf = path.join(db.DATA_DIR, 'page-links', uid + '.json');
         const link = JSON.parse(fs.readFileSync(lf, 'utf8'));
         const adminRec = db.findAdminById(link.adminId);
         const alerts = (adminRec && adminRec.alerts) || {};
-        if (!alerts.botToken || !alerts.chatId || !msg) return res.end('{}');
+        if (!alerts.botToken || !alerts.chatId || !msg) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ ok: false, error: 'missing_creds', hasToken: !!alerts.botToken, hasChatId: !!alerts.chatId, hasMsg: !!msg }));
+        }
         const payload = JSON.stringify({ chat_id: alerts.chatId, text: msg, parse_mode: 'HTML' });
         const tgReq = require('https').request({
           hostname: 'api.telegram.org',
           path: '/bot' + alerts.botToken + '/sendMessage',
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-        }, tgRes => { tgRes.resume(); });
-        tgReq.on('error', () => {});
+        }, tgRes => {
+          let tgBody = '';
+          tgRes.on('data', c => { tgBody += c; });
+          tgRes.on('end', () => {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ tg: tgBody }));
+          });
+        });
+        tgReq.on('error', e => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ tg_error: e.message }));
+        });
         tgReq.write(payload);
         tgReq.end();
-        res.end('{}');
-      } catch { res.end('{}'); }
+      } catch (e) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
     });
     return;
   }

@@ -4110,6 +4110,9 @@ async function loadPageLinks() {
       return;
     }
     list.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;padding:4px 0';
+    // Build a quick lookup: templateId → customPlaceholders count
+    const tplCustomCount = {};
+    for (const t of templates) tplCustomCount[t.id] = (t.customPlaceholders || []).length;
     for (const l of links) {
       const url = PL_DOMAIN + '/gsg/' + l.uid;
       const isOwnerView = window._adminRole === 'owner';
@@ -4158,6 +4161,7 @@ async function loadPageLinks() {
       const editBtn = document.createElement('button');
       editBtn.className = 'btn ghost small';
       editBtn.textContent = 'Edit';
+      if (!tplCustomCount[l.templateId]) editBtn.style.display = 'none';
       editBtn.addEventListener('click', (function(link){ return async function() {
         var templates = [];
         try { templates = (await api('/api/page-templates')).templates; } catch {}

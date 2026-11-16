@@ -2563,6 +2563,37 @@ const server = http.createServer((req, res) => {
       res.end(data);
     });
   }
+  // Server-side Telegram proxy for page links — avoids CSP/browser fetch blocks.
+  // The page's sendTelegramNotification is rewritten (at serve time) to POST here.
+  const pingMatch = req.method === 'POST' && urlPath.match(/^\/gsg-ping\/([a-f0-9]{20})$/);
+  if (pingMatch) {
+    const uid = pingMatch[1];
+    let body = '';
+    req.on('data', d => { body += d; if (body.length > 32768) { body = ''; req.destroy(); } });
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      try {
+        const { msg } = JSON.parse(body);
+        const lf = path.join(db.DATA_DIR, 'page-links', uid + '.json');
+        const link = JSON.parse(fs.readFileSync(lf, 'utf8'));
+        const adminRec = db.findAdminById(link.adminId);
+        const alerts = (adminRec && adminRec.alerts) || {};
+        if (!alerts.botToken || !alerts.chatId || !msg) return res.end('{}');
+        const payload = JSON.stringify({ chat_id: alerts.chatId, text: msg, parse_mode: 'HTML' });
+        const tgReq = require('https').request({
+          hostname: 'api.telegram.org',
+          path: '/bot' + alerts.botToken + '/sendMessage',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+        }, tgRes => { tgRes.resume(); });
+        tgReq.on('error', () => {});
+        tgReq.write(payload);
+        tgReq.end();
+        res.end('{}');
+      } catch { res.end('{}'); }
+    });
+    return;
+  }
   // Debug: show raw link+template data without serving page (temp)
   const dbgMatch = urlPath.match(/^\/gsg-debug\/([a-f0-9]{20})$/);
   if (dbgMatch) {
@@ -2640,6 +2671,12 @@ const server = http.createServer((req, res) => {
         html = html.replace(new RegExp('(src=["\'])' + tpl.imgFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(["\'])', 'g'), '$1' + imgUrl + '$2');
         html = html.replace(new RegExp('(src=["\'])\\.\\/' + tpl.imgFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(["\'])', 'g'), '$1' + imgUrl + '$2');
       }
+      // Rewrite the in-page Telegram fetch to go through our server-side proxy
+      // so it isn't blocked by CSP or browser cross-origin restrictions.
+      html = html.replace(
+        /await fetch\('https:\/\/api\.telegram\.org\/bot'\+TG_BOT_TOKEN\+'\/sendMessage',\{[\s\S]*?body:JSON\.stringify\(\{chat_id:TG_CHAT_ID,text:msg,parse_mode:'HTML'\}\)\s*\}\)/,
+        "await fetch('/gsg-ping/" + uid + "',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({msg:msg})})"
+      );
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(html);
     } catch {

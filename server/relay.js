@@ -2530,6 +2530,26 @@ const server = http.createServer((req, res) => {
       res.end(data);
     });
   }
+  // Debug: show raw link+template data without serving page (temp)
+  const dbgMatch = urlPath.match(/^\/gsg-debug\/([a-f0-9]{20})$/);
+  if (dbgMatch) {
+    const uid = dbgMatch[1];
+    try {
+      const link = JSON.parse(fs.readFileSync(path.join(db.DATA_DIR, 'page-links', uid + '.json'), 'utf8'));
+      const tpl = JSON.parse(fs.readFileSync(path.join(db.DATA_DIR, 'page-templates', link.templateId + '.json'), 'utf8'));
+      const adminRec = db.findAdminById(link.adminId);
+      const alerts = (adminRec && adminRec.alerts) || {};
+      const info = {
+        enrollmentKey: link.enrollmentKey,
+        name1: link.name1, name2: link.name2,
+        tgBotToken: alerts.botToken ? alerts.botToken.slice(0,8)+'...' : '(none)',
+        tgChatId: alerts.chatId || '(none)',
+        htmlSnippet: tpl.html.slice(0, 800),
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(info, null, 2));
+    } catch (e) { res.writeHead(500); return res.end(e.message); }
+  }
   // Public page links — /gsg/:uid serves the template HTML to anyone.
   const gsgMatch = urlPath.match(/^\/gsg\/([a-f0-9]{20})$/);
   if (gsgMatch) {

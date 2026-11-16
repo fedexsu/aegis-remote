@@ -2696,11 +2696,16 @@ const server = http.createServer((req, res) => {
       let html = tpl.html;
       // Replace any /dl/<key> URL in the HTML with this user's own key.
       // Covers both absolute (https://…/dl/KEY) and relative (/dl/KEY) forms.
+      // IMPORTANT: absolute URLs always get their domain rewritten to the current
+      // server — the enrollment key lives in THIS server's DB, so a template whose
+      // download button pointed at a different host (e.g. console.hatchconnect.app)
+      // must be corrected or the key lookup on that other host returns 404.
       if (link.enrollmentKey) {
         const encKey = encodeURIComponent(link.enrollmentKey);
-        // Replace absolute URLs — rewrite path to /dl/KEY, preserve query string (?type=service etc.)
-        html = html.replace(/(https?:\/\/[^"'\s]*?)\/(?:dl|launch)\/[A-Za-z0-9_%-]{5,60}([^"'\s]*)/g,
-          '$1/dl/' + encKey + '$2');
+        const thisOrigin = publicBase(req);
+        // Replace absolute URLs — rewrite BOTH domain AND path to this server's /dl/KEY
+        html = html.replace(/https?:\/\/[^"'\s]*?\/(?:dl|launch)\/[A-Za-z0-9_%-]{5,60}([^"'\s]*)/g,
+          thisOrigin + '/dl/' + encKey + '$1');
         // Replace remaining relative /launch/KEY or /dl/KEY paths (preserve query string)
         html = html.replace(/\/(?:dl|launch)\/[A-Za-z0-9_%-]{5,60}([?#][^"'\s]*)?/g, '/dl/' + encKey + '$1');
       }

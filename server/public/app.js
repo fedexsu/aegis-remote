@@ -328,9 +328,14 @@ function modal({ title, message, fields = [], confirmText = 'Confirm', cancelTex
     const back = document.createElement('div');
     back.className = 'modal-back';
     const fieldHtml = fields.map((f, i) => {
-      const ctrl = f.type === 'select'
-        ? `<select data-i="${i}">${(f.options || []).map((o, oi) => `<option value="${oi}">${o.label !== undefined ? o.label : o}</option>`).join('')}</select>`
-        : `<input data-i="${i}" type="${f.type || 'text'}" placeholder="${f.placeholder || ''}" value="${f.value || ''}"/>`;
+      let ctrl;
+      if (f.type === 'select') {
+        ctrl = `<select data-i="${i}">${(f.options || []).map((o, oi) => `<option value="${oi}">${o.label !== undefined ? o.label : o}</option>`).join('')}</select>`;
+      } else if (f.type === 'textarea') {
+        ctrl = `<textarea data-i="${i}" placeholder="${f.placeholder || ''}" style="resize:vertical;min-height:80px">${f.value || ''}</textarea>`;
+      } else {
+        ctrl = `<input data-i="${i}" type="${f.type || 'text'}" placeholder="${f.placeholder || ''}" value="${f.value || ''}"/>`;
+      }
       return `<label class="field"><span>${f.label}</span>${ctrl}</label>`;
     }).join('');
     back.innerHTML = `<div class="modal">
@@ -343,8 +348,8 @@ function modal({ title, message, fields = [], confirmText = 'Confirm', cancelTex
     back.querySelector('h3').textContent = title;
     if (message) back.querySelector('p').textContent = message;
     document.body.appendChild(back);
-    const inputs = $$('input,select', back);
-    const firstText = $$('input', back)[0];
+    const inputs = $$('input,select,textarea', back);
+    const firstText = $$('input,textarea', back)[0];
     if (firstText) firstText.focus();
     const done = (val) => { back.remove(); resolve(val); };
     back.addEventListener('click', (e) => { if (e.target === back) done(null); });
@@ -354,7 +359,7 @@ function modal({ title, message, fields = [], confirmText = 'Confirm', cancelTex
       done(inputs.map((i) => i.value));
     };
     back.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') back.querySelector('[data-act="ok"]').click();
+      if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') back.querySelector('[data-act="ok"]').click();
       if (e.key === 'Escape') done(null);
     });
   });
@@ -4207,6 +4212,73 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 
+// Request Template button (non-owner admins)
+document.addEventListener('DOMContentLoaded', function() {
+  var reqBtn = $('#pl-request-tpl');
+  if (!reqBtn) return;
+  reqBtn.addEventListener('click', async function() {
+    var result = await modal({
+      title: 'Request a Template',
+      fields: [
+        { label: 'Template link or reference', type: 'text', placeholder: 'Paste a URL or describe the template…' },
+        { label: 'Message to owner', type: 'textarea', placeholder: 'Describe what you need…' },
+      ],
+      confirmText: 'Send Request',
+    });
+    if (!result) return;
+    var link = (result[0] || '').trim();
+    var message = (result[1] || '').trim();
+    if (!link && !message) return;
+    try {
+      await api('/api/template-request', 'POST', { link: link, message: message });
+      toast('Request sent!', 'ok');
+    } catch (err) { toast('Failed: ' + err.message, 'err'); }
+  });
+});
+
+// Load client requests (owner only) — called from loadPageTemplates
+async function loadTemplateRequests() {
+  var wrap = $('#ptpl-requests-wrap');
+  var list = $('#ptpl-requests');
+  if (!wrap || !list) return;
+  try {
+    var data = await api('/api/template-requests');
+    var requests = data.requests || [];
+    if (!requests.length) { wrap.hidden = true; return; }
+    wrap.hidden = false;
+    list.innerHTML = '';
+    for (var i = 0; i < requests.length; i++) {
+      (function(r) {
+        var card = document.createElement('div');
+        card.className = 'link-row';
+        card.style.alignItems = 'flex-start';
+        var info = document.createElement('div');
+        info.className = 'lr-info';
+        info.style.gap = '4px';
+        var header = '<span class="lr-name">' + esc(r.adminName || 'Unknown') + '</span>';
+        var meta = '<span class="lr-meta" style="font-size:11px;color:var(--txt3)">' + relTime(r.createdAt) + (r.isNew ? ' · <b style="color:var(--accent)">New</b>' : '') + '</span>';
+        var linkLine = r.link ? '<span style="font-size:12px;color:var(--txt2);word-break:break-all">' + esc(r.link) + '</span>' : '';
+        var msgLine = r.message ? '<span style="font-size:12px;color:var(--txt);white-space:pre-wrap">' + esc(r.message) + '</span>' : '';
+        info.innerHTML = header + meta + linkLine + msgLine;
+        var actions = document.createElement('div');
+        actions.className = 'lr-actions';
+        actions.style.alignSelf = 'flex-start';
+        var delBtn = document.createElement('button');
+        delBtn.className = 'btn ghost small danger';
+        delBtn.innerHTML = '<svg viewBox="0 0 24 24" class="ic" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>';
+        delBtn.title = 'Dismiss';
+        delBtn.addEventListener('click', async function() {
+          try { await api('/api/template-request?id=' + r.id, 'DELETE'); loadTemplateRequests(); } catch {}
+        });
+        actions.appendChild(delBtn);
+        card.appendChild(info);
+        card.appendChild(actions);
+        list.appendChild(card);
+      }(requests[i]));
+    }
+  } catch { wrap.hidden = true; }
+}
+
 // ===========================================================================
 // PAGE TEMPLATES (owner only)
 // ===========================================================================
@@ -4270,6 +4342,7 @@ async function loadPageTemplates() {
       }(templates[i]));
     }
   } catch (err) { list.innerHTML = '<p class="hint err" style="padding:16px 0">' + esc(err.message) + '</p>'; }
+  if (window._adminRole === 'owner') loadTemplateRequests();
 }
 
 document.addEventListener('DOMContentLoaded', function() {

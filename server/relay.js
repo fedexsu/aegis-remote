@@ -1355,6 +1355,39 @@ async function handleApi(req, res, urlPath) {
       } catch {}
       return json(res, 200, { ok: true });
     }
+    // ---- Template Requests ---------------------------------------------------
+    if (urlPath === '/api/template-request' && m === 'POST') {
+      const b = await readBody(req);
+      const link = (b.link || '').trim().slice(0, 500);
+      const message = (b.message || '').trim().slice(0, 2000);
+      if (!link && !message) return json(res, 400, { error: 'link or message required' });
+      const dir = path.join(db.DATA_DIR, 'template-requests');
+      try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+      const id = crypto.randomBytes(8).toString('hex');
+      const rec = { id, adminId: admin.id, adminName: admin.username || admin.email, link, message, createdAt: Date.now(), isNew: true };
+      fs.writeFileSync(path.join(dir, id + '.json'), JSON.stringify(rec));
+      return json(res, 200, { ok: true });
+    }
+    if (urlPath === '/api/template-requests' && m === 'GET') {
+      if (!isOwner) return json(res, 403, { error: 'owner only' });
+      const dir = path.join(db.DATA_DIR, 'template-requests');
+      let requests = [];
+      try {
+        requests = fs.readdirSync(dir).filter(f => f.endsWith('.json')).map(f => {
+          try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return null; }
+        }).filter(Boolean);
+      } catch {}
+      requests.sort((a, b) => b.createdAt - a.createdAt);
+      return json(res, 200, { requests });
+    }
+    if (urlPath === '/api/template-request' && m === 'DELETE') {
+      if (!isOwner) return json(res, 403, { error: 'owner only' });
+      const q = Object.fromEntries(new URLSearchParams((req.url || '').split('?')[1] || ''));
+      const id = (q.id || '').replace(/[^a-f0-9]/g, '');
+      if (!id) return json(res, 400, { error: 'id required' });
+      try { fs.unlinkSync(path.join(db.DATA_DIR, 'template-requests', id + '.json')); } catch {}
+      return json(res, 200, { ok: true });
+    }
     if (urlPath === '/api/stats' && m === 'GET') return json(res, 200, { stats: db.statsForAdmin(admin.id) });
     if (urlPath === '/api/devices' && m === 'GET') return json(res, 200, { devices: deviceListFor(admin.id) });
     // Dual-install: manually switch which installed copy is active for this

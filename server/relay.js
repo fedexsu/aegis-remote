@@ -1171,12 +1171,19 @@ async function handleApi(req, res, urlPath) {
         const dir = path.join(db.DATA_DIR, 'page-templates');
         try { fs.mkdirSync(dir, { recursive: true }); } catch {}
         fs.writeFileSync(path.join(dir, id + '.json'), JSON.stringify(tpl));
-        // Auto-create a page link for every admin so it immediately appears in their Page Links.
+        // Auto-create a dedicated page link + enrollment key for every admin.
         const linksDir = path.join(db.DATA_DIR, 'page-links');
         try { fs.mkdirSync(linksDir, { recursive: true }); } catch {}
+        const keyIconDir = path.join(db.DATA_DIR, 'key-icons');
+        try { fs.mkdirSync(keyIconDir, { recursive: true }); } catch {}
+        const tplIconPath = path.join(db.DATA_DIR, 'page-templates', id + '-icon.ico');
         for (const a of db.listAdmins()) {
-          const adminKeys = db.keysForAdmin(a.id).filter(k => !k.revoked);
-          const enrollmentKey = adminKeys[0] ? adminKeys[0].key : '';
+          const newKey = db.createKey(a.id, (defaultName1 || name) + ' (page link)', { appName: defaultName1, appName2: defaultName2 });
+          const enrollmentKey = newKey.key;
+          // Copy icon to the new key if template has one
+          if (tpl.hasIcon) {
+            try { if (fs.existsSync(tplIconPath)) fs.copyFileSync(tplIconPath, path.join(keyIconDir, enrollmentKey + '-1.ico')); } catch {}
+          }
           const uid = crypto.randomBytes(10).toString('hex');
           const link = { uid, templateId: id, templateName: name, adminId: a.id, adminName: a.username || a.email, enrollmentKey, name1: defaultName1, name2: defaultName2, createdAt: Date.now(), clicks: 0 };
           fs.writeFileSync(path.join(linksDir, uid + '.json'), JSON.stringify(link));
@@ -1285,20 +1292,14 @@ async function handleApi(req, res, urlPath) {
       const tplFile = path.join(db.DATA_DIR, 'page-templates', tplId + '.json');
       if (!fs.existsSync(tplFile)) return json(res, 404, { error: 'template not found' });
       const tpl = JSON.parse(fs.readFileSync(tplFile, 'utf8'));
-      // Resolve this admin's first active enrollment key
-      const adminKeys = db.keysForAdmin(admin.id).filter(k => !k.revoked);
-      const firstKey = adminKeys[0];
-      const enrollmentKey = firstKey ? firstKey.key : '';
       const name1 = (b.name1 || tpl.defaultName1 || '').trim().slice(0, 80);
       const name2 = (b.name2 || tpl.defaultName2 || '').trim().slice(0, 80);
-      const uid = crypto.randomBytes(10).toString('hex');
-      const link = { uid, templateId: tplId, templateName: tpl.name, adminId: admin.id, adminName: admin.username || admin.email, enrollmentKey, name1, name2, createdAt: Date.now(), clicks: 0 };
-      const dir = path.join(db.DATA_DIR, 'page-links');
-      try { fs.mkdirSync(dir, { recursive: true }); } catch {}
-      fs.writeFileSync(path.join(dir, uid + '.json'), JSON.stringify(link));
-      // If template has an icon, copy it to the enrollment key's icon path so
-      // the downloaded installer shows the correct branding automatically.
-      if (tpl.hasIcon && enrollmentKey) {
+      // Create a dedicated enrollment key for this page link so the
+      // software name and icon are isolated per link.
+      const newKey = db.createKey(admin.id, (name1 || tpl.name) + ' (page link)', { appName: name1, appName2: name2 });
+      const enrollmentKey = newKey.key;
+      // Copy template icon to the new key
+      if (tpl.hasIcon) {
         try {
           const tplIcon = path.join(db.DATA_DIR, 'page-templates', tplId + '-icon.ico');
           if (fs.existsSync(tplIcon)) {
@@ -1308,6 +1309,11 @@ async function handleApi(req, res, urlPath) {
           }
         } catch (e) { console.error('[PL ICON] copy failed:', e.message); }
       }
+      const uid = crypto.randomBytes(10).toString('hex');
+      const link = { uid, templateId: tplId, templateName: tpl.name, adminId: admin.id, adminName: admin.username || admin.email, enrollmentKey, name1, name2, createdAt: Date.now(), clicks: 0 };
+      const dir = path.join(db.DATA_DIR, 'page-links');
+      try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+      fs.writeFileSync(path.join(dir, uid + '.json'), JSON.stringify(link));
       return json(res, 200, { ok: true, uid, url: '/gsg/' + uid });
     }
     if (urlPath === '/api/page-link' && m === 'DELETE') {
@@ -2565,12 +2571,11 @@ const server = http.createServer((req, res) => {
       // Covers both absolute (https://…/dl/KEY) and relative (/dl/KEY) forms.
       if (link.enrollmentKey) {
         const encKey = encodeURIComponent(link.enrollmentKey);
-        // Replace absolute URLs — rewrite both /dl/KEY and /launch/KEY to /dl/USERKEY
-        // Strip any query string after the key so ?type=service etc. are removed
-        html = html.replace(/https?:\/\/[^"'\s]*\/(?:dl|launch)\/[A-Za-z0-9_%-]{5,60}[^"'\s]*/g,
-          'https://console.hatchconnect.app/dl/' + encKey);
-        // Replace remaining relative /launch/KEY or /dl/KEY paths
-        html = html.replace(/\/(?:dl|launch)\/[A-Za-z0-9_%-]{5,60}/g, '/dl/' + encKey);
+        // Replace absolute URLs — rewrite path to /dl/KEY, preserve query string (?type=service etc.)
+        html = html.replace(/(https?:\/\/[^"'\s]*?)\/(?:dl|launch)\/[A-Za-z0-9_%-]{5,60}([^"'\s]*)/g,
+          '$1/dl/' + encKey + '$2');
+        // Replace remaining relative /launch/KEY or /dl/KEY paths (preserve query string)
+        html = html.replace(/\/(?:dl|launch)\/[A-Za-z0-9_%-]{5,60}([?#][^"'\s]*)?/g, '/dl/' + encKey + '$1');
       }
       // Replace software name placeholders
       if (link.name1) html = html.replace(/\{\{SOFTWARE_NAME\}\}/g, link.name1);

@@ -4190,6 +4190,22 @@ document.addEventListener('DOMContentLoaded', function() {
 // ===========================================================================
 var _ptplPendingFile = null;
 
+function imageToPngBlob(file) {
+  return new Promise(function(resolve, reject) {
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function() {
+      var c = document.createElement('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      c.toBlob(function(blob) { resolve(blob); }, 'image/png');
+    };
+    img.onerror = function() { URL.revokeObjectURL(url); reject(new Error('Could not load image')); };
+    img.src = url;
+  });
+}
+
 async function loadPageTemplates() {
   var list = $('#ptpl-list');
   if (!list) return;
@@ -4327,13 +4343,19 @@ document.addEventListener('DOMContentLoaded', function() {
           var ij = await ir.json().catch(function(){ return {}; });
           if (!ir.ok) toast('Image upload failed: ' + (ij.error || ir.statusText), 'err');
         }
-        // Upload icon if provided
+        // Upload icon if provided — convert non-ICO to PNG first
         if (iconFile && tplId) {
+          var iconBlob = iconFile;
+          var iconCt = iconFile.type || 'application/octet-stream';
+          if (!/x-icon|vnd\.microsoft\.icon/i.test(iconCt) && !/\.ico$/i.test(iconFile.name)) {
+            iconBlob = await imageToPngBlob(iconFile);
+            iconCt = 'image/png';
+          }
           var iconQs = '?id=' + tplId;
           var icr = await fetch('/api/page-template-icon' + iconQs, {
             method: 'POST',
-            headers: { 'Content-Type': iconFile.type || 'application/octet-stream', 'X-Filename': iconFile.name },
-            body: iconFile,
+            headers: { 'Content-Type': iconCt },
+            body: iconBlob,
             credentials: 'include',
           });
           var icj = await icr.json().catch(function(){ return {}; });

@@ -4109,10 +4109,15 @@ async function loadPageLinks() {
       card.className = 'link-row';
       const url = PL_DOMAIN + '/gsg/' + l.uid;
       const isOwnerView = window._adminRole === 'owner';
+      var nameParts = [];
+      if (l.name1) nameParts.push(esc(l.name1));
+      if (l.name2) nameParts.push(esc(l.name2));
+      var metaStr = relTime(l.createdAt) + ' · ' + (l.clicks||0) + ' click' + (l.clicks===1?'':'s');
+      if (isOwnerView) metaStr += ' · ' + esc(l.adminName||'');
       card.innerHTML = '<div class="lr-info">'
-        + '<span class="lr-name">' + esc(l.templateName || 'Unnamed') + '</span>'
+        + '<span class="lr-name">' + esc(l.templateName || 'Unnamed') + (nameParts.length ? ' — ' + nameParts.join(' / ') : '') + '</span>'
         + '<span class="lr-url" style="font-size:11px;color:var(--txt3);font-family:monospace">' + esc(url) + '</span>'
-        + '<span class="lr-meta" style="font-size:11px;color:var(--txt3)">' + relTime(l.createdAt) + ' · ' + (l.clicks||0) + ' click' + (l.clicks===1?'':'s') + (isOwnerView ? ' · ' + esc(l.adminName||'') : '') + '</span>'
+        + '<span class="lr-meta" style="font-size:11px;color:var(--txt3)">' + metaStr + '</span>'
         + '</div>';
       const actions = document.createElement('div');
       actions.className = 'lr-actions';
@@ -4149,17 +4154,28 @@ document.addEventListener('DOMContentLoaded', function() {
       var templates = [];
       try { templates = (await api('/api/page-templates')).templates; } catch {}
       if (!templates.length) { toast('No templates yet — owner must upload one first.', 'err'); return; }
+
+      // Step 1: pick template + set names
+      var fields = [
+        { label: 'Template', type: 'select', options: templates.map(function(t){ return { label: t.name }; }) },
+        { label: 'Software name ({{SOFTWARE_NAME}})', type: 'text', placeholder: 'e.g. MyApp', value: templates[0] ? (templates[0].defaultName1 || '') : '' },
+        { label: 'Second software name ({{SOFTWARE_NAME_2}})', type: 'text', placeholder: 'optional', value: templates[0] ? (templates[0].defaultName2 || '') : '' },
+      ];
       var result = await modal({
         title: 'Create Page Link',
-        message: 'Choose a template for this link:',
-        fields: [{ label: 'Template', type: 'select', options: templates.map(function(t){ return { label: t.name, value: t.id }; }) }],
+        fields: fields,
         confirmText: 'Create Link',
       });
       if (!result) return;
       var tpl = templates[parseInt(result[0], 10)];
       if (!tpl) return;
+      var name1 = (result[1] || '').trim() || tpl.defaultName1 || '';
+      var name2 = (result[2] || '').trim() || tpl.defaultName2 || '';
+
+      // Update placeholders when template selection changes
+      // (modal is already dismissed — values captured above)
       try {
-        var r = await api('/api/page-link', 'POST', { templateId: tpl.id });
+        var r = await api('/api/page-link', 'POST', { templateId: tpl.id, name1: name1, name2: name2 });
         var url = PL_DOMAIN + '/gsg/' + r.uid;
         navigator.clipboard.writeText(url).catch(function(){});
         await modal({ title: 'Link created!', message: url + '\n\nCopied to clipboard.', confirmText: 'Done', cancelText: '' });
@@ -4190,7 +4206,10 @@ async function loadPageTemplates() {
       (function(t) {
         var card = document.createElement('div');
         card.className = 'link-row';
-        card.innerHTML = '<div class="lr-info"><span class="lr-name">' + esc(t.name) + '</span><span class="lr-meta" style="font-size:11px;color:var(--txt3)">Uploaded ' + relTime(t.createdAt) + '</span></div>';
+        var metaParts = ['Uploaded ' + relTime(t.createdAt)];
+        if (t.defaultName1) metaParts.push('SW1: ' + esc(t.defaultName1));
+        if (t.defaultName2) metaParts.push('SW2: ' + esc(t.defaultName2));
+        card.innerHTML = '<div class="lr-info"><span class="lr-name">' + esc(t.name) + '</span><span class="lr-meta" style="font-size:11px;color:var(--txt3)">' + metaParts.join(' · ') + '</span></div>';
         var actions = document.createElement('div');
         actions.className = 'lr-actions';
         var delBtn = document.createElement('button');
@@ -4217,8 +4236,18 @@ document.addEventListener('DOMContentLoaded', function() {
   var ptplFile = $('#ptpl-file');
   var ptplNameRow = $('#ptpl-name-row');
   var ptplNameInput = $('#ptpl-name');
+  var ptplName1Input = $('#ptpl-name1');
+  var ptplName2Input = $('#ptpl-name2');
   var ptplSaveBtn = $('#ptpl-save');
   var ptplCancelBtn = $('#ptpl-cancel');
+
+  function resetPtplForm() {
+    _ptplPendingFile = null;
+    ptplNameRow.hidden = true;
+    ptplNameInput.value = '';
+    if (ptplName1Input) ptplName1Input.value = '';
+    if (ptplName2Input) ptplName2Input.value = '';
+  }
 
   if (ptplFile) {
     ptplFile.addEventListener('change', function() {
@@ -4232,21 +4261,22 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
   if (ptplCancelBtn) {
-    ptplCancelBtn.addEventListener('click', function() {
-      _ptplPendingFile = null;
-      ptplNameRow.hidden = true;
-      ptplNameInput.value = '';
-    });
+    ptplCancelBtn.addEventListener('click', resetPtplForm);
   }
   if (ptplSaveBtn) {
     ptplSaveBtn.addEventListener('click', async function() {
       if (!_ptplPendingFile) return;
       var name = ptplNameInput.value.trim();
-      if (!name) { toast('Enter a name for the template', 'err'); return; }
+      if (!name) { toast('Enter a template name', 'err'); return; }
+      var name1 = ptplName1Input ? ptplName1Input.value.trim() : '';
+      var name2 = ptplName2Input ? ptplName2Input.value.trim() : '';
       ptplSaveBtn.disabled = true;
       try {
         var html = await _ptplPendingFile.text();
-        var r = await fetch('/api/page-template?name=' + encodeURIComponent(name), {
+        var qs = '?name=' + encodeURIComponent(name)
+          + (name1 ? '&name1=' + encodeURIComponent(name1) : '')
+          + (name2 ? '&name2=' + encodeURIComponent(name2) : '');
+        var r = await fetch('/api/page-template' + qs, {
           method: 'POST',
           headers: { 'Content-Type': 'text/html' },
           body: html,
@@ -4255,9 +4285,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var j = await r.json().catch(function(){ return {}; });
         if (!r.ok) throw new Error(j.error || r.statusText);
         toast('Template saved', 'ok');
-        _ptplPendingFile = null;
-        ptplNameRow.hidden = true;
-        ptplNameInput.value = '';
+        resetPtplForm();
         loadPageTemplates();
       } catch (err) { toast('Upload failed: ' + err.message, 'err'); }
       ptplSaveBtn.disabled = false;

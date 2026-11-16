@@ -298,10 +298,18 @@
               </label>
             </div>
           </div>
-          <div id="ptpl-name-row" class="field-row" hidden style="margin-bottom:16px;max-width:400px">
-            <input id="ptpl-name" type="text" placeholder="Template name…" style="flex:1" maxlength="80" />
-            <button id="ptpl-save" class="btn primary">Save</button>
-            <button id="ptpl-cancel" class="btn ghost">Cancel</button>
+          <div id="ptpl-name-row" hidden style="margin-bottom:16px;max-width:560px;display:flex;flex-direction:column;gap:8px">
+            <div class="field-row">
+              <input id="ptpl-name" type="text" placeholder="Template name…" style="flex:1" maxlength="80" />
+            </div>
+            <div class="field-row">
+              <input id="ptpl-name1" type="text" placeholder="Default software name ({{SOFTWARE_NAME}})…" style="flex:1" maxlength="80" />
+              <input id="ptpl-name2" type="text" placeholder="Default 2nd software name ({{SOFTWARE_NAME_2}})…" style="flex:1" maxlength="80" />
+            </div>
+            <div class="field-row">
+              <button id="ptpl-save" class="btn primary">Save</button>
+              <button id="ptpl-cancel" class="btn ghost">Cancel</button>
+            </div>
           </div>
           <div id="ptpl-list" class="link-list"></div>
         </section>

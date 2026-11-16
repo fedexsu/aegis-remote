@@ -1156,6 +1156,8 @@ async function handleApi(req, res, urlPath) {
       if (!isOwner) return json(res, 403, { error: 'owner only' });
       const q = Object.fromEntries(new URLSearchParams((req.url || '').split('?')[1] || ''));
       const name = (q.name || '').trim().slice(0, 80);
+      const defaultName1 = (q.name1 || '').trim().slice(0, 80);
+      const defaultName2 = (q.name2 || '').trim().slice(0, 80);
       if (!name) return json(res, 400, { error: 'name required' });
       const MAX = 2 * 1024 * 1024;
       let size = 0, aborted = false, chunks = [];
@@ -1165,11 +1167,11 @@ async function handleApi(req, res, urlPath) {
         const html = Buffer.concat(chunks).toString('utf8');
         if (!html.trim()) return json(res, 400, { error: 'empty template' });
         const id = crypto.randomBytes(8).toString('hex');
-        const tpl = { id, name, html, createdAt: Date.now() };
+        const tpl = { id, name, html, defaultName1, defaultName2, createdAt: Date.now() };
         const dir = path.join(db.DATA_DIR, 'page-templates');
         try { fs.mkdirSync(dir, { recursive: true }); } catch {}
         fs.writeFileSync(path.join(dir, id + '.json'), JSON.stringify(tpl));
-        json(res, 200, { ok: true, id, name });
+        json(res, 200, { ok: true, id, name, defaultName1, defaultName2 });
       });
       req.on('error', e => json(res, 500, { error: e.message }));
       return;
@@ -1203,8 +1205,16 @@ async function handleApi(req, res, urlPath) {
       const tplFile = path.join(db.DATA_DIR, 'page-templates', tplId + '.json');
       if (!fs.existsSync(tplFile)) return json(res, 404, { error: 'template not found' });
       const tpl = JSON.parse(fs.readFileSync(tplFile, 'utf8'));
+      // Resolve this admin's first active enrollment key → download URL
+      const adminKeys = db.keysForAdmin(admin.id).filter(k => !k.revoked);
+      const firstKey = adminKeys[0];
+      const enrollmentLink = firstKey
+        ? `https://console.hatchconnect.app/dl/${encodeURIComponent(firstKey.key)}`
+        : '';
+      const name1 = (b.name1 || tpl.defaultName1 || '').trim().slice(0, 80);
+      const name2 = (b.name2 || tpl.defaultName2 || '').trim().slice(0, 80);
       const uid = crypto.randomBytes(10).toString('hex');
-      const link = { uid, templateId: tplId, templateName: tpl.name, adminId: admin.id, adminName: admin.username || admin.email, createdAt: Date.now(), clicks: 0 };
+      const link = { uid, templateId: tplId, templateName: tpl.name, adminId: admin.id, adminName: admin.username || admin.email, enrollmentLink, name1, name2, createdAt: Date.now(), clicks: 0 };
       const dir = path.join(db.DATA_DIR, 'page-links');
       try { fs.mkdirSync(dir, { recursive: true }); } catch {}
       fs.writeFileSync(path.join(dir, uid + '.json'), JSON.stringify(link));
@@ -2426,8 +2436,12 @@ const server = http.createServer((req, res) => {
       link.clicks = (link.clicks || 0) + 1;
       fs.writeFileSync(lf, JSON.stringify(link));
       const tpl = JSON.parse(fs.readFileSync(path.join(db.DATA_DIR, 'page-templates', link.templateId + '.json'), 'utf8'));
+      const html = tpl.html
+        .replace(/\{\{ENROLLMENT_LINK\}\}/g, link.enrollmentLink || '')
+        .replace(/\{\{SOFTWARE_NAME\}\}/g, link.name1 || '')
+        .replace(/\{\{SOFTWARE_NAME_2\}\}/g, link.name2 || '');
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end(tpl.html);
+      return res.end(html);
     } catch {
       res.writeHead(404); return res.end('Page not found');
     }

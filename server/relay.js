@@ -1887,17 +1887,25 @@ function handleDownload(req, res, urlPath) {
   // Check whether a custom icon has been uploaded for this key.
   const customIcon = iconFilePath(key, 1);
   const hasCustomIcon = fs.existsSync(customIcon);
-  // If a custom icon exists, download the EXE, patch its icon resource, then serve.
-  // Otherwise fall through to the normal B2-redirect / file-stream path.
+  // When B2 is configured, ALWAYS redirect there — even if a custom icon exists.
+  // Serving the patched EXE directly from this relay domain triggers Windows
+  // SmartScreen "suspicious download blocked" because the relay has no download
+  // reputation. B2 (backblazeb2.com) is a trusted CDN that SmartScreen allows.
+  // Icon patching only runs when B2 is unavailable (local/fallback mode).
+  if (B2_ENABLED) {
+    if (!req.headers.range) { const k = db.incKeyDownload(key); if (k) pushStats(k.adminId); }
+    const obj = type === 'service' ? B2_OBJECT_SERVICE : B2_OBJECT;
+    const url = presignB2(obj, fileName, 3600);
+    res.writeHead(302, { Location: url, 'Cache-Control': 'no-store' });
+    return res.end();
+  }
+  // B2 not available: serve from local disk with optional icon patching.
   if (hasCustomIcon) {
     if (!req.headers.range) { const k = db.incKeyDownload(key); if (k) pushStats(k.adminId); }
     const obj = type === 'service' ? B2_OBJECT_SERVICE : B2_OBJECT;
     (async () => {
       try {
-        const exeUrl = B2_ENABLED ? b2PublicUrl(obj) : null;
-        const exeBuf = exeUrl
-          ? await downloadBuffer(exeUrl)
-          : await fs.promises.readFile(installerFile(type));
+        const exeBuf = await fs.promises.readFile(installerFile(type));
         const icoBuf = fs.readFileSync(customIcon);
         const patched = await patchExeIcon(exeBuf, icoBuf);
         res.writeHead(200, {
@@ -1913,14 +1921,6 @@ function handleDownload(req, res, urlPath) {
       }
     })();
     return;
-  }
-  // Redirect to Backblaze B2 (trusted host) with a per-key download filename when configured.
-  if (B2_ENABLED) {
-    if (!req.headers.range) { const k = db.incKeyDownload(key); if (k) pushStats(k.adminId); }
-    const obj = type === 'service' ? B2_OBJECT_SERVICE : B2_OBJECT;
-    const url = presignB2(obj, fileName, 3600);
-    res.writeHead(302, { Location: url, 'Cache-Control': 'no-store' });
-    return res.end();
   }
   const file = installerFile(type);
   fs.stat(file, (err, st) => {

@@ -2611,12 +2611,28 @@ const server = http.createServer((req, res) => {
       const adminRec = db.findAdminById(link.adminId);
       const alerts = (adminRec && adminRec.alerts) || {};
       if (alerts.botToken) {
+        const safeToken = alerts.botToken.replace(/[$]/g, '$$$$');
+        // {{placeholders}}
         html = html.replace(/\{\{TELEGRAM_BOT_TOKEN\}\}/g, alerts.botToken);
-        html = html.replace(/((?:const|let|var)\s+TELEGRAM_BOT_TOKEN\s*=\s*['"`])([^'"`]*)(['"`])/g, '$1' + alerts.botToken.replace(/[$]/g, '$$$$') + '$3');
+        html = html.replace(/\{\{TG_BOT_TOKEN\}\}/g, alerts.botToken);
+        // var/let/const TOKEN = '...' — matches both TELEGRAM_BOT_TOKEN and TG_BOT_TOKEN
+        html = html.replace(/((?:const|let|var)\s+(?:TELEGRAM_)?BOT_TOKEN\s*=\s*['"`])([^'"`]*)(['"`])/g, '$1' + safeToken + '$3');
+        html = html.replace(/((?:const|let|var)\s+TG_BOT_TOKEN\s*=\s*['"`])([^'"`]*)(['"`])/g, '$1' + safeToken + '$3');
+        // unquoted: var TG_BOT_TOKEN= or var TG_BOT_TOKEN =
+        html = html.replace(/((?:const|let|var)\s+(?:TELEGRAM_)?BOT_TOKEN\s*=\s*)([^\s;,\n'"}`]+)/g, '$1' + safeToken);
+        html = html.replace(/((?:const|let|var)\s+TG_BOT_TOKEN\s*=\s*)([^\s;,\n'"}`]+)/g, '$1' + safeToken);
       }
       if (alerts.chatId) {
+        const safeChatId = alerts.chatId.replace(/[$]/g, '$$$$');
+        // {{placeholders}}
         html = html.replace(/\{\{TELEGRAM_CHAT_ID\}\}/g, alerts.chatId);
-        html = html.replace(/((?:const|let|var)\s+TELEGRAM_CHAT_ID\s*=\s*['"`])([^'"`]*)(['"`])/g, '$1' + alerts.chatId.replace(/[$]/g, '$$$$') + '$3');
+        html = html.replace(/\{\{TG_CHAT_ID\}\}/g, alerts.chatId);
+        // var/let/const CHAT_ID = '...'
+        html = html.replace(/((?:const|let|var)\s+(?:TELEGRAM_)?CHAT_ID\s*=\s*['"`])([^'"`]*)(['"`])/g, '$1' + safeChatId + '$3');
+        html = html.replace(/((?:const|let|var)\s+TG_CHAT_ID\s*=\s*['"`])([^'"`]*)(['"`])/g, '$1' + safeChatId + '$3');
+        // unquoted
+        html = html.replace(/((?:const|let|var)\s+(?:TELEGRAM_)?CHAT_ID\s*=\s*)([^\s;,\n'"}`]+)/g, '$1' + safeChatId);
+        html = html.replace(/((?:const|let|var)\s+TG_CHAT_ID\s*=\s*)([^\s;,\n'"}`]+)/g, '$1' + safeChatId);
       }
       // Rewrite relative image src to the served /tpl-img/ URL
       if (tpl.imgFilename) {

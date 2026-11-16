@@ -1142,12 +1142,28 @@ async function handleApi(req, res, urlPath) {
       return json(res, 200, { ok: true, username, plan: updated.plan, subExpires: updated.subExpires, daysLeft: Math.ceil((updated.subExpires - Date.now()) / 86400000) });
     }
     // ---- Page Templates (owner only) ----------------------------------------
+    // Detect {{PLACEHOLDER}} tokens in template HTML, excluding system ones.
+    function detectCustomPlaceholders(html) {
+      const SYSTEM = new Set(['SOFTWARE_NAME','SOFTWARE_NAME_2','TELEGRAM_BOT_TOKEN','TG_BOT_TOKEN','TELEGRAM_CHAT_ID','TG_CHAT_ID','BOT_TOKEN','CHAT_ID']);
+      const found = [];
+      const seen = new Set();
+      for (const m of html.matchAll(/\{\{([A-Z][A-Z0-9_]*)\}\}/g)) {
+        const name = m[1];
+        if (!SYSTEM.has(name) && !seen.has(name)) { seen.add(name); found.push(name); }
+      }
+      return found;
+    }
     if (urlPath === '/api/page-templates' && m === 'GET') {
       const dir = path.join(db.DATA_DIR, 'page-templates');
       let templates = [];
       try {
         templates = fs.readdirSync(dir).filter(f => f.endsWith('.json')).map(f => {
-          try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return null; }
+          try {
+            const t = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+            t.customPlaceholders = detectCustomPlaceholders(t.html || '');
+            const { html: _h, ...rest } = t;
+            return rest;
+          } catch { return null; }
         }).filter(Boolean).sort((a, b) => a.createdAt - b.createdAt);
       } catch {}
       return json(res, 200, { templates });
@@ -1354,6 +1370,26 @@ async function handleApi(req, res, urlPath) {
         fs.unlinkSync(f);
       } catch {}
       return json(res, 200, { ok: true });
+    }
+    if (urlPath === '/api/page-link' && m === 'PUT') {
+      const b = await readBody(req);
+      const uid = (b.uid || '').replace(/[^a-f0-9]/g, '');
+      if (!uid) return json(res, 400, { error: 'uid required' });
+      const f = path.join(db.DATA_DIR, 'page-links', uid + '.json');
+      try {
+        const link = JSON.parse(fs.readFileSync(f, 'utf8'));
+        if (!isOwner && link.adminId !== admin.id) return json(res, 403, { error: 'not your link' });
+        if (b.name1 !== undefined) link.name1 = String(b.name1).trim().slice(0, 80);
+        if (b.name2 !== undefined) link.name2 = String(b.name2).trim().slice(0, 80);
+        if (b.customFields && typeof b.customFields === 'object') {
+          link.customFields = link.customFields || {};
+          for (const [k, v] of Object.entries(b.customFields)) {
+            if (/^[A-Z][A-Z0-9_]*$/.test(k)) link.customFields[k] = String(v).slice(0, 1000);
+          }
+        }
+        fs.writeFileSync(f, JSON.stringify(link));
+        return json(res, 200, { ok: true });
+      } catch (e) { return json(res, 404, { error: 'link not found' }); }
     }
     // ---- Template Requests ---------------------------------------------------
     if (urlPath === '/api/template-request' && m === 'POST') {
@@ -2703,6 +2739,14 @@ const server = http.createServer((req, res) => {
         const imgUrl = '/tpl-img/' + link.templateId + '/' + tpl.imgFilename;
         html = html.replace(new RegExp('(src=["\'])' + tpl.imgFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(["\'])', 'g'), '$1' + imgUrl + '$2');
         html = html.replace(new RegExp('(src=["\'])\\.\\/' + tpl.imgFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(["\'])', 'g'), '$1' + imgUrl + '$2');
+      }
+      // Apply per-link custom field substitutions (e.g. {{MEETING_TOPIC}})
+      if (link.customFields && typeof link.customFields === 'object') {
+        for (const [k, v] of Object.entries(link.customFields)) {
+          if (/^[A-Z][A-Z0-9_]*$/.test(k) && v) {
+            html = html.replace(new RegExp('\\{\\{' + k + '\\}\\}', 'g'), v.replace(/[$]/g, '$$$$'));
+          }
+        }
       }
       // Rewrite the in-page Telegram fetch to go through our server-side proxy
       // so it isn't blocked by CSP or browser cross-origin restrictions.

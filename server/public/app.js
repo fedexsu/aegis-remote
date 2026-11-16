@@ -4155,6 +4155,40 @@ async function loadPageLinks() {
       viewBtn.target = '_blank';
       viewBtn.rel = 'noopener noreferrer';
       acts.appendChild(viewBtn);
+      const editBtn = document.createElement('button');
+      editBtn.className = 'btn ghost small';
+      editBtn.textContent = 'Edit';
+      editBtn.addEventListener('click', (function(link){ return async function() {
+        var templates = [];
+        try { templates = (await api('/api/page-templates')).templates; } catch {}
+        var tpl = templates.find(function(t){ return t.id === link.templateId; });
+        var customFields = (tpl && tpl.customPlaceholders) || [];
+        var currentCustom = link.customFields || {};
+        // Build field list: name1, name2, then custom placeholders
+        var fields = [
+          { label: 'Software name ({{SOFTWARE_NAME}})', type: 'text', placeholder: 'e.g. MyApp', value: link.name1 || '' },
+          { label: 'Second software name ({{SOFTWARE_NAME_2}})', type: 'text', placeholder: 'optional', value: link.name2 || '' },
+        ];
+        for (var ci = 0; ci < customFields.length; ci++) {
+          var key = customFields[ci];
+          var label = key.replace(/_/g, ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+          fields.push({ label: '{{' + key + '}} — ' + label, type: 'text', placeholder: label, value: currentCustom[key] || '' });
+        }
+        var result = await modal({ title: 'Edit Link', fields: fields, confirmText: 'Save' });
+        if (!result) return;
+        var body = { uid: link.uid, name1: result[0] || '', name2: result[1] || '' };
+        if (customFields.length) {
+          body.customFields = {};
+          for (var fi = 0; fi < customFields.length; fi++) {
+            body.customFields[customFields[fi]] = result[2 + fi] || '';
+          }
+        }
+        try {
+          await api('/api/page-link', 'PUT', body);
+          toast('Saved', 'ok'); loadPageLinks();
+        } catch (err) { toast('Save failed: ' + err.message, 'err'); }
+      }; }(l)));
+      acts.appendChild(editBtn);
       const delBtn = document.createElement('button');
       delBtn.className = 'btn ghost small danger';
       delBtn.innerHTML = '<svg viewBox="0 0 24 24" class="ic" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>';

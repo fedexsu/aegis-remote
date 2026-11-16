@@ -4086,7 +4086,7 @@ function renderSsManage(entries) {
 // ===========================================================================
 // PAGE LINKS
 // ===========================================================================
-const PL_DOMAIN = 'https://BRIEFINSECTION.CLICK';
+const PL_DOMAIN = 'https://briefinsection.click';
 
 async function loadPageLinks() {
   const list = $('#pl-list');
@@ -4104,30 +4104,52 @@ async function loadPageLinks() {
       list.innerHTML = '<p class="hint" style="padding:16px 0">No links yet — click <b>Create Link +</b> to generate one.</p>';
       return;
     }
+    list.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;padding:4px 0';
     for (const l of links) {
-      const card = document.createElement('div');
-      card.className = 'link-row';
       const url = PL_DOMAIN + '/gsg/' + l.uid;
       const isOwnerView = window._adminRole === 'owner';
       var nameParts = [];
       if (l.name1) nameParts.push(esc(l.name1));
       if (l.name2) nameParts.push(esc(l.name2));
-      var metaStr = relTime(l.createdAt) + ' · ' + (l.clicks||0) + ' click' + (l.clicks===1?'':'s');
+      var metaStr = (l.clicks||0) + ' click' + (l.clicks===1?'':'s') + ' · ' + relTime(l.createdAt);
       if (isOwnerView) metaStr += ' · ' + esc(l.adminName||'');
-      card.innerHTML = '<div class="lr-info">'
-        + '<span class="lr-name">' + esc(l.templateName || 'Unnamed') + (nameParts.length ? ' — ' + nameParts.join(' / ') : '') + '</span>'
-        + '<span class="lr-url" style="font-size:11px;color:var(--txt3);font-family:monospace">' + esc(url) + '</span>'
-        + '<span class="lr-meta" style="font-size:11px;color:var(--txt3)">' + metaStr + '</span>'
-        + '</div>';
-      const actions = document.createElement('div');
-      actions.className = 'lr-actions';
+      const card = document.createElement('div');
+      card.className = 'pl-card';
+      // iframe preview
+      const preview = document.createElement('div');
+      preview.className = 'pl-preview';
+      const iframe = document.createElement('iframe');
+      iframe.src = url;
+      iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+      iframe.setAttribute('loading', 'lazy');
+      iframe.setAttribute('scrolling', 'no');
+      iframe.tabIndex = -1;
+      preview.appendChild(iframe);
+      card.appendChild(preview);
+      // info
+      const info = document.createElement('div');
+      info.className = 'pl-card-info';
+      info.innerHTML = '<div class="pl-card-name">' + esc(l.templateName || 'Unnamed') + (nameParts.length ? ' <span style="opacity:.6">— ' + nameParts.join(' / ') + '</span>' : '') + '</div>'
+        + '<div class="pl-card-url">' + esc(url) + '</div>'
+        + '<div class="pl-card-meta">' + metaStr + '</div>';
+      card.appendChild(info);
+      // actions
+      const acts = document.createElement('div');
+      acts.className = 'pl-card-actions';
       const copyBtn = document.createElement('button');
       copyBtn.className = 'btn ghost small';
       copyBtn.textContent = 'Copy link';
       copyBtn.addEventListener('click', (function(u){ return function() {
         navigator.clipboard.writeText(u).then(function(){ toast('Copied!', 'ok'); }).catch(function(){ toast('Copy failed', 'err'); });
       }; }(url)));
-      actions.appendChild(copyBtn);
+      acts.appendChild(copyBtn);
+      const viewBtn = document.createElement('a');
+      viewBtn.className = 'btn ghost small';
+      viewBtn.textContent = 'View page';
+      viewBtn.href = url;
+      viewBtn.target = '_blank';
+      viewBtn.rel = 'noopener noreferrer';
+      acts.appendChild(viewBtn);
       const delBtn = document.createElement('button');
       delBtn.className = 'btn ghost small danger';
       delBtn.innerHTML = '<svg viewBox="0 0 24 24" class="ic" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>';
@@ -4140,8 +4162,8 @@ async function loadPageLinks() {
           toast('Deleted', 'ok'); loadPageLinks();
         } catch (err) { toast('Delete failed: ' + err.message, 'err'); }
       }; }(l.uid)));
-      actions.appendChild(delBtn);
-      card.appendChild(actions);
+      acts.appendChild(delBtn);
+      card.appendChild(acts);
       list.appendChild(card);
     }
   } catch (err) { list.innerHTML = '<p class="hint err" style="padding:16px 0">' + esc(err.message) + '</p>'; }

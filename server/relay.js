@@ -1253,6 +1253,21 @@ async function handleApi(req, res, urlPath) {
           tpl.hasIcon = true;
           fs.writeFileSync(tplFile, JSON.stringify(tpl));
         } catch {}
+        // Copy icon to ALL existing page link keys for this template
+        try {
+          const linksDir = path.join(db.DATA_DIR, 'page-links');
+          const keyIconDir = path.join(db.DATA_DIR, 'key-icons');
+          try { fs.mkdirSync(keyIconDir, { recursive: true }); } catch {}
+          if (fs.existsSync(linksDir)) {
+            for (const f2 of fs.readdirSync(linksDir).filter(x => x.endsWith('.json'))) {
+              try {
+                const lk = JSON.parse(fs.readFileSync(path.join(linksDir, f2), 'utf8'));
+                if (lk.templateId === id && lk.enrollmentKey)
+                  fs.copyFileSync(iconPath, path.join(keyIconDir, lk.enrollmentKey + '-1.ico'));
+              } catch {}
+            }
+          }
+        } catch {}
         json(res, 200, { ok: true });
       });
       req.on('error', e => json(res, 500, { error: e.message }));
@@ -1270,6 +1285,18 @@ async function handleApi(req, res, urlPath) {
         if (tpl.hasIcon) try { fs.unlinkSync(path.join(db.DATA_DIR, 'page-templates', id + '-icon.ico')); } catch {}
       } catch {}
       try { fs.unlinkSync(f); } catch {}
+      // Cascade-delete all page links for this template
+      try {
+        const linksDir = path.join(db.DATA_DIR, 'page-links');
+        if (fs.existsSync(linksDir)) {
+          for (const lf of fs.readdirSync(linksDir).filter(x => x.endsWith('.json'))) {
+            try {
+              const lk = JSON.parse(fs.readFileSync(path.join(linksDir, lf), 'utf8'));
+              if (lk.templateId === id) fs.unlinkSync(path.join(linksDir, lf));
+            } catch {}
+          }
+        }
+      } catch {}
       return json(res, 200, { ok: true });
     }
     // ---- Page Links ----------------------------------------------------------

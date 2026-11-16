@@ -721,3 +721,14 @@ body.in-session #screen { max-width: 100vw; max-height: calc(100vh - 54px); bord
 .field-row{display:flex;align-items:center;gap:8px}
 .field-row input{flex:1;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:8px 11px;font-size:13px}
 .field-row input:focus{outline:none;border-color:var(--accent)}
+
+/* Page link cards with iframe preview */
+.pl-card{background:var(--panel2);border:1px solid var(--line2);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.pl-preview{position:relative;width:100%;height:160px;overflow:hidden;background:var(--bg2);border-bottom:1px solid var(--line2);pointer-events:none}
+.pl-preview iframe{width:900px;height:600px;border:0;transform:scale(0.29);transform-origin:top left;pointer-events:none}
+.pl-preview::after{content:'';position:absolute;inset:0;z-index:1}
+.pl-card-info{padding:10px 12px 6px;display:flex;flex-direction:column;gap:3px}
+.pl-card-name{font-size:13px;font-weight:600;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-card-url{font-size:10px;color:var(--txt3);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-card-meta{font-size:11px;color:var(--txt3)}
+.pl-card-actions{padding:8px 10px 10px;display:flex;gap:6px;flex-wrap:wrap}

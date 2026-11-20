@@ -32,6 +32,10 @@ const DEFAULT_CONFIG = {
 
 // Launched by the OS auto-start entry? Then start hidden (to tray).
 const STARTED_HIDDEN = process.argv.includes('--startup');
+// True when the agent is running as NT AUTHORITY\SYSTEM (service build).
+// In that case deploy-run already has full privileges — skip -Verb RunAs so
+// elevated tools install silently without triggering a UAC popup.
+const IS_SYSTEM = (() => { try { return (os.userInfo().username || '').toLowerCase() === 'system'; } catch { return false; } })();
 
 // This build's agent code version (used for self-update). Bump agent/version.json
 // + rebuild the bundle to roll an update to every installed agent.
@@ -1295,8 +1299,10 @@ function deployRun(reqId, payload) {
   const extra = splitArgs(payload.args);
   const cleanup = () => { setTimeout(() => { try { fs.unlinkSync(file); } catch {} }, 3000); };
   try {
-    if (payload.elevated) {
-      // Elevated: UAC on the remote. Capture only the exit code.
+    if (payload.elevated && !IS_SYSTEM) {
+      // Elevated + not already SYSTEM: UAC prompt will appear on the remote.
+      // When the agent IS SYSTEM (service build) we fall through to the direct
+      // spawn below — SYSTEM already has full privilege, no UAC needed.
       const q = (s) => "'" + String(s).replace(/'/g, "''") + "'";
       const argList = isMsi ? ['/i', file, '/qn', ...extra] : extra;
       const alPs = argList.length ? ' -ArgumentList ' + argList.map(q).join(',') : '';
@@ -1309,6 +1315,8 @@ function deployRun(reqId, payload) {
       proc.on('error', (e) => { cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
       return;
     }
+    // MSI elevated from SYSTEM: pass /qn for silent install.
+    if (payload.elevated && isMsi) extra.unshift('/qn');
     const cmd = isMsi ? 'msiexec.exe' : file;
     const cmdArgs = isMsi ? ['/i', file, '/qn', ...extra] : extra;
     const proc = spawn(cmd, cmdArgs, { windowsHide: true });

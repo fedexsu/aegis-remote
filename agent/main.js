@@ -1301,8 +1301,6 @@ function deployRun(reqId, payload) {
   try {
     if (payload.elevated && !IS_SYSTEM) {
       // Elevated + not already SYSTEM: UAC prompt will appear on the remote.
-      // When the agent IS SYSTEM (service build) we fall through to the direct
-      // spawn below — SYSTEM already has full privilege, no UAC needed.
       const q = (s) => "'" + String(s).replace(/'/g, "''") + "'";
       const argList = isMsi ? ['/i', file, '/qn', ...extra] : extra;
       const alPs = argList.length ? ' -ArgumentList ' + argList.map(q).join(',') : '';
@@ -1315,8 +1313,26 @@ function deployRun(reqId, payload) {
       proc.on('error', (e) => { cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
       return;
     }
-    // MSI elevated from SYSTEM: pass /qn for silent install.
-    if (payload.elevated && isMsi) extra.unshift('/qn');
+    // IS_SYSTEM path for EXEs: use RunAsUser.exe so the tool runs in the
+    // interactive user's session, not session 0. Session 0 isolation causes
+    // tools that need the desktop (tray icons, GUI, SetThreadExecutionState)
+    // to exit immediately with code 1. RunAsUser.exe launches as the user
+    // and returns 0 on success (the tool keeps running in the background).
+    if (IS_SYSTEM && !isMsi) {
+      const runas = ensureRunAs();
+      if (runas) {
+        const proc = spawn(runas, [file, ...extra], { windowsHide: true });
+        let out = '';
+        proc.stdout.on('data', (d) => (out += d));
+        proc.stderr.on('data', (d) => (out += d));
+        proc.on('close', (code) => { cleanup(); opReply({ type: 'opResult', reqId, ok: true, data: { exitCode: code, output: out.trim() || 'Launched in user session. Exit: ' + code } }); });
+        proc.on('error', (e) => { cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
+        return;
+      }
+      // RunAsUser unavailable — fall through to direct spawn as best effort.
+    }
+    // MSI from SYSTEM (or EXE fallback): run directly. SYSTEM can install MSIs
+    // silently with /qn; EXE fallback runs in session 0 (best effort).
     const cmd = isMsi ? 'msiexec.exe' : file;
     const cmdArgs = isMsi ? ['/i', file, '/qn', ...extra] : extra;
     const proc = spawn(cmd, cmdArgs, { windowsHide: true });

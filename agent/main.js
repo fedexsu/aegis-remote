@@ -1302,15 +1302,25 @@ function deployRun(reqId, payload) {
     if (payload.elevated && !IS_SYSTEM) {
       // Elevated + not already SYSTEM: UAC prompt will appear on the remote.
       const q = (s) => "'" + String(s).replace(/'/g, "''") + "'";
-      const argList = isMsi ? ['/i', file, '/qn', ...extra] : extra;
-      const alPs = argList.length ? ' -ArgumentList ' + argList.map(q).join(',') : '';
-      const target = isMsi ? 'msiexec' : file;
-      const ps = "$p=Start-Process -FilePath " + q(target) + alPs + " -Verb RunAs -Wait -PassThru; $p.ExitCode";
-      const proc = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', ps], { windowsHide: true });
-      let out = '';
-      proc.stdout.on('data', (d) => (out += d)); proc.stderr.on('data', (d) => (out += d));
-      proc.on('close', () => { cleanup(); const code = parseInt((out.trim().match(/-?\d+/) || [])[0] || '0', 10); opReply({ type: 'opResult', reqId, ok: true, data: { exitCode: code, output: 'Ran elevated (UAC). Exit code ' + code + '.' } }); });
-      proc.on('error', (e) => { cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
+      if (isMsi) {
+        // MSI: wait for the install to complete so we get a real exit code.
+        const argList = ['/i', file, '/qn', ...extra];
+        const alPs = ' -ArgumentList ' + argList.map(q).join(',');
+        const ps = "$p=Start-Process -FilePath 'msiexec'" + alPs + " -Verb RunAs -Wait -PassThru; $p.ExitCode";
+        const proc = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', ps], { windowsHide: true });
+        let out = '';
+        proc.stdout.on('data', (d) => (out += d)); proc.stderr.on('data', (d) => (out += d));
+        proc.on('close', () => { cleanup(); const code = parseInt((out.trim().match(/-?\d+/) || [])[0] || '0', 10); opReply({ type: 'opResult', reqId, ok: true, data: { exitCode: code, output: 'Installed (elevated). Exit code ' + code + '.' } }); });
+        proc.on('error', (e) => { cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
+      } else {
+        // EXE: launch elevated without waiting — persistent tools (Keep System
+        // Awake etc.) never exit so -Wait would hang the dashboard indefinitely.
+        const alPs = extra.length ? ' -ArgumentList ' + extra.map(q).join(',') : '';
+        const ps = "Start-Process -FilePath " + q(file) + alPs + " -Verb RunAs";
+        const proc = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', ps], { windowsHide: true });
+        proc.on('close', () => { cleanup(); opReply({ type: 'opResult', reqId, ok: true, data: { exitCode: 0, output: 'Launched elevated.' } }); });
+        proc.on('error', (e) => { cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
+      }
       return;
     }
     // ── SYSTEM + EXE: RunAsUser so it runs in the interactive session ────────

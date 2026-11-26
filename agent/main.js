@@ -1313,11 +1313,10 @@ function deployRun(reqId, payload) {
       proc.on('error', (e) => { cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
       return;
     }
-    // IS_SYSTEM path for EXEs: use RunAsUser.exe so the tool runs in the
-    // interactive user's session, not session 0. Session 0 isolation causes
-    // tools that need the desktop (tray icons, GUI, SetThreadExecutionState)
-    // to exit immediately with code 1. RunAsUser.exe launches as the user
-    // and returns 0 on success (the tool keeps running in the background).
+    // ── SYSTEM + EXE: RunAsUser so it runs in the interactive session ────────
+    // Session 0 isolation causes GUI/tray/desktop tools to exit code 1 when
+    // spawned directly as SYSTEM. RunAsUser.exe grabs the console user token
+    // and launches on winsta0\default, then exits 0 immediately.
     if (IS_SYSTEM && !isMsi) {
       const runas = ensureRunAs();
       if (runas) {
@@ -1329,19 +1328,32 @@ function deployRun(reqId, payload) {
         proc.on('error', (e) => { cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
         return;
       }
-      // RunAsUser unavailable — fall through to direct spawn as best effort.
+      // RunAsUser unavailable — fall through to quick-exit EXE path below.
     }
-    // MSI from SYSTEM (or EXE fallback): run directly. SYSTEM can install MSIs
-    // silently with /qn; EXE fallback runs in session 0 (best effort).
-    const cmd = isMsi ? 'msiexec.exe' : file;
-    const cmdArgs = isMsi ? ['/i', file, '/qn', ...extra] : extra;
-    const proc = spawn(cmd, cmdArgs, { windowsHide: true });
-    let out = '';
-    const to = setTimeout(() => { try { proc.kill(); } catch {} }, 15 * 60 * 1000);
+    // ── MSI: silent install, wait for the real exit code ─────────────────────
+    if (isMsi) {
+      const proc = spawn('msiexec.exe', ['/i', file, '/qn', ...extra], { windowsHide: true });
+      let out = '';
+      const to = setTimeout(() => { try { proc.kill(); } catch {} }, 15 * 60 * 1000);
+      proc.stdout.on('data', (d) => { out += d; if (out.length > 20000) out = out.slice(-20000); });
+      proc.stderr.on('data', (d) => { out += d; if (out.length > 20000) out = out.slice(-20000); });
+      proc.on('close', (code) => { clearTimeout(to); cleanup(); opReply({ type: 'opResult', reqId, ok: true, data: { exitCode: code, output: out.trim() || ('Finished with exit code ' + code + '.') } }); });
+      proc.on('error', (e) => { clearTimeout(to); cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
+      return;
+    }
+    // ── EXE (user session or SYSTEM fallback): quick-exit check ──────────────
+    // Persistent tools (Keep System Awake etc.) never exit, so waiting for
+    // them causes the dashboard to time out. Instead: reply after 5 s if the
+    // tool is still running and detach it to the background. If it exits
+    // within 5 s we still report the real exit code.
+    const proc = spawn(file, extra, { windowsHide: true });
+    let replied = false, out = '';
     proc.stdout.on('data', (d) => { out += d; if (out.length > 20000) out = out.slice(-20000); });
     proc.stderr.on('data', (d) => { out += d; if (out.length > 20000) out = out.slice(-20000); });
-    proc.on('close', (code) => { clearTimeout(to); cleanup(); opReply({ type: 'opResult', reqId, ok: true, data: { exitCode: code, output: out.trim() || ('Finished with exit code ' + code + '.') } }); });
-    proc.on('error', (e) => { clearTimeout(to); cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
+    proc.on('close', (code) => { clearTimeout(launchTo); if (!replied) { replied = true; cleanup(); opReply({ type: 'opResult', reqId, ok: true, data: { exitCode: code, output: out.trim() || ('Finished with exit code ' + code + '.') } }); } });
+    proc.on('error', (e) => { clearTimeout(launchTo); if (!replied) { replied = true; cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); } });
+    // eslint-disable-next-line prefer-const
+    const launchTo = setTimeout(() => { if (!replied) { replied = true; try { proc.unref(); } catch {} opReply({ type: 'opResult', reqId, ok: true, data: { exitCode: 0, output: 'Tool launched (running in background).' } }); } }, 5000);
   } catch (e) { cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
 }
 // Open an app or URL ON THE REMOTE as the LOGGED-IN USER — even though the agent

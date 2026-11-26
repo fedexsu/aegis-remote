@@ -1477,6 +1477,9 @@ async function handleApi(req, res, urlPath) {
       const b = await readBody(req);
       const live = agents.get(b.id);
       if (live && live.adminId === admin.id) { try { live.ws.close(); } catch {} agents.delete(b.id); }
+      // Revoke the enrollment key so the agent can't re-enroll after removal
+      const devRec = db.devicesForAdmin(admin.id).find((d) => d.id === b.id);
+      if (devRec && devRec.keyUsed) db.revokeKey(admin.id, devRec.keyUsed);
       const ok = db.removeDevice(admin.id, b.id);
       pushDevices(admin.id);
       return json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'device not found' });

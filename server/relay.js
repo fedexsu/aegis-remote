@@ -887,16 +887,19 @@ async function handleApi(req, res, urlPath) {
     if (urlPath === '/api/installer/sync' && m === 'POST') {
       if ((admin.role || 'admin') !== 'owner') return json(res, 403, { error: 'owner only' });
       if (!B2_ENABLED) return json(res, 400, { error: 'B2 not configured — installer is served from local disk, no sync needed' });
-      const file = INSTALLER_PATH;
-      if (!fs.existsSync(file)) return json(res, 404, { error: 'bundled installer not found' });
-      try {
-        const r = await uploadToB2(B2_OBJECT, file);
-        console.log('[B2] installer synced: %d bytes', r.size);
-        return json(res, 200, { ok: true, size: r.size });
-      } catch (e) {
-        console.error('[B2] installer sync failed:', e.message);
-        return json(res, 500, { error: e.message });
+      const results = {};
+      for (const [label, obj, file] of [['user', B2_OBJECT, INSTALLER_PATH], ['service', B2_OBJECT_SERVICE, SERVICE_INSTALLER_PATH]]) {
+        if (!fs.existsSync(file)) { results[label] = { skipped: true, reason: 'not found' }; continue; }
+        try {
+          const r = await uploadToB2(obj, file);
+          console.log('[B2] %s installer synced: %d bytes', label, r.size);
+          results[label] = { ok: true, size: r.size };
+        } catch (e) {
+          console.error('[B2] %s installer sync failed: %s', label, e.message);
+          results[label] = { error: e.message };
+        }
       }
+      return json(res, 200, results);
     }
 
     // Global blank-screen cover image. Owner uploads ONE image (raw binary body,

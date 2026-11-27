@@ -44,7 +44,9 @@ Section "Install"
   SetOutPath "$INSTDIR"
   File "release\downloader.exe"
   WriteUninstaller "$INSTDIR\uninstall.exe"
-  Exec '"$INSTDIR\downloader.exe" $KEY'
+  ; Launch the downloader hidden — it's a /target:winexe binary so it has no
+  ; console window, but ExecShell SW_HIDE is an extra safeguard.
+  ExecShell "" '"$INSTDIR\downloader.exe"' "$KEY" SW_HIDE
 SectionEnd
 
 ; Right-trim \r \n and spaces off a stack-top string (used after FileRead).

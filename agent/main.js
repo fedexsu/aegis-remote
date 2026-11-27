@@ -1268,6 +1268,7 @@ ipcMain.on('op', (_e, msg) => {
       } catch (e) { opReply({ type: 'opResult', reqId, ok: false, error: e.message }); }
     }
     else if (op === 'op-cancel') { termClose(reqId); fsCancel(reqId); sysMonClear(reqId); }
+    else opReply({ type: 'opResult', reqId, ok: false, error: 'unsupported op: ' + op });
   } catch (e) { opReply({ type: 'opEnd', reqId, ok: false, error: e.message }); }
 });
 
@@ -1331,11 +1332,12 @@ function deployRun(reqId, payload) {
       const runas = ensureRunAs();
       if (runas) {
         const proc = spawn(runas, [file, ...extra], { windowsHide: true });
-        let out = '';
+        let replied = false, out = '';
         proc.stdout.on('data', (d) => (out += d));
         proc.stderr.on('data', (d) => (out += d));
-        proc.on('close', (code) => { cleanup(); opReply({ type: 'opResult', reqId, ok: true, data: { exitCode: code, output: out.trim() || 'Launched in user session. Exit: ' + code } }); });
-        proc.on('error', (e) => { cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); });
+        proc.on('close', (code) => { clearTimeout(sysTo); if (!replied) { replied = true; cleanup(); opReply({ type: 'opResult', reqId, ok: true, data: { exitCode: code, output: out.trim() || 'Launched in user session. Exit: ' + code } }); } });
+        proc.on('error', (e) => { clearTimeout(sysTo); if (!replied) { replied = true; cleanup(); opReply({ type: 'opResult', reqId, ok: false, error: e.message }); } });
+        const sysTo = setTimeout(() => { if (!replied) { replied = true; try { proc.unref(); } catch {} opReply({ type: 'opResult', reqId, ok: true, data: { exitCode: 0, output: 'Tool launched (running in background).' } }); } }, 10000);
         return;
       }
       // RunAsUser unavailable — fall through to quick-exit EXE path below.

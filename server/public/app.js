@@ -2627,6 +2627,19 @@ function renderToolbox(tools) {
 async function runToolboxItem(t) {
   if (!attachedId) { toast('No device connected', 'err'); return; }
   const status = $('#tb-status');
+  // Built-in keep-awake tools use the agent's native keepawake op directly —
+  // instant, silent, no download/upload/exe chain needed.
+  if (t.id === 'keepsystemawake' || t.id === 'offkeepsystemawake') {
+    const on = t.id === 'keepsystemawake';
+    status.textContent = (on ? 'Engaging' : 'Disengaging') + ' keep awake…';
+    deviceOp(attachedId, 'keepawake', { on }, { onResult: (m) => {
+      if (!m.ok) { status.textContent = 'Failed: ' + (m.error || 'error'); toast(t.name + ' failed', 'err'); return; }
+      $('#ka-tile').classList.toggle('on', !!m.data.keepAwake);
+      status.textContent = '✓ ' + (m.data.keepAwake ? 'Keep awake on' : 'Keep awake off');
+      toast(m.data.keepAwake ? 'Keep awake on — survives this session' : 'Keep awake off', 'ok');
+    } });
+    return;
+  }
   status.textContent = 'Downloading ' + t.name + '…';
   try {
     const r = await fetch(t.url, { credentials: 'include' });

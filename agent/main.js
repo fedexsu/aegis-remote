@@ -1931,9 +1931,35 @@ function reapplyWakeLock() {
     if (keepAwakeActive()) {
       if (saveBlockerId == null || !powerSaveBlocker.isStarted(saveBlockerId))
         saveBlockerId = powerSaveBlocker.start('prevent-display-sleep');
-    } else if (saveBlockerId != null && powerSaveBlocker.isStarted(saveBlockerId)) {
-      powerSaveBlocker.stop(saveBlockerId); saveBlockerId = null;
+      if (IS_SYSTEM) applyPowercfgAwake(true);
+    } else {
+      if (saveBlockerId != null && powerSaveBlocker.isStarted(saveBlockerId)) {
+        powerSaveBlocker.stop(saveBlockerId); saveBlockerId = null;
+      }
+      if (IS_SYSTEM) applyPowercfgAwake(false);
     }
+  } catch {}
+}
+function applyPowercfgAwake(on) {
+  try {
+    const { execFileSync } = require('child_process');
+    const run = (args) => { try { execFileSync('powercfg', args.split(' '), { windowsHide: true, stdio: 'ignore', timeout: 5000 }); } catch {} };
+    if (on) {
+      run('-change standby-timeout-ac 0');
+      run('-change standby-timeout-dc 0');
+      run('-change monitor-timeout-ac 0');
+      run('-change monitor-timeout-dc 0');
+      run('-change hibernate-timeout-ac 0');
+      run('-change hibernate-timeout-dc 0');
+    } else {
+      run('-change standby-timeout-ac 15');
+      run('-change standby-timeout-dc 10');
+      run('-change monitor-timeout-ac 10');
+      run('-change monitor-timeout-dc 5');
+      run('-change hibernate-timeout-ac 0');
+      run('-change hibernate-timeout-dc 0');
+    }
+    run('-setactive scheme_current');
   } catch {}
 }
 // Called by the renderer when a technician attaches (true) / detaches (false)

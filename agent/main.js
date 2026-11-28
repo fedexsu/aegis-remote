@@ -2122,7 +2122,7 @@ async function checkForUpdate() {
     // Sanity: every file must be non-empty before we overwrite anything.
     const entries = Object.entries(data.files);
     const binEntries = Object.entries(data.bin || {}).filter(([, b]) => typeof b === 'string' && b.length);
-    if (!entries.length || entries.some(([, c]) => typeof c !== 'string' || !c.length || c.length < 32)) return;
+    if (!entries.length || entries.some(([k, c]) => typeof c !== 'string' || !c.length || (k !== 'version.json' && c.length < 32))) return;
     let injectorChanged = false, blankerChanged = false, runasChanged = false, pdeskChanged = false;
     // TWO-PASS atomic install. Previously each file was written to .new and
     // renamed into place IMMEDIATELY — so mid-sequence termination (AV kill

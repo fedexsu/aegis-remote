@@ -1931,35 +1931,55 @@ function reapplyWakeLock() {
     if (keepAwakeActive()) {
       if (saveBlockerId == null || !powerSaveBlocker.isStarted(saveBlockerId))
         saveBlockerId = powerSaveBlocker.start('prevent-display-sleep');
-      if (IS_SYSTEM) applyPowercfgAwake(true);
+      applyPowercfgAwake(true);
     } else {
       if (saveBlockerId != null && powerSaveBlocker.isStarted(saveBlockerId)) {
         powerSaveBlocker.stop(saveBlockerId); saveBlockerId = null;
       }
-      if (IS_SYSTEM) applyPowercfgAwake(false);
+      applyPowercfgAwake(false);
     }
   } catch {}
 }
 function applyPowercfgAwake(on) {
   try {
     const { execFileSync } = require('child_process');
-    const run = (args) => { try { execFileSync('powercfg', args.split(' '), { windowsHide: true, stdio: 'ignore', timeout: 5000 }); } catch {} };
+    const run = (a) => { try { execFileSync('powercfg', a, { windowsHide: true, stdio: 'ignore', timeout: 5000 }); } catch {} };
+    const reg = (a) => { try { execFileSync('reg', a, { windowsHide: true, stdio: 'ignore', timeout: 5000 }); } catch {} };
+    const SUB = '4f971e89-eebd-4455-a8de-9e59040e7347';
+    const BUTTONS = [
+      'a7066653-8d6c-40a8-910e-a1f54b84c7e5', // Start-menu power button
+      '7648efa3-dd9c-4e3e-b566-50f929386280', // Hardware power button
+      '96996bc0-ad50-47ec-923b-6f41874dd9eb', // Sleep key
+      '5ca83367-6e45-459f-a27b-476b1d01c936', // Lid close
+    ];
     if (on) {
-      run('-change standby-timeout-ac 0');
-      run('-change standby-timeout-dc 0');
-      run('-change monitor-timeout-ac 0');
-      run('-change monitor-timeout-dc 0');
-      run('-change hibernate-timeout-ac 0');
-      run('-change hibernate-timeout-dc 0');
+      run(['-change', 'standby-timeout-ac', '0']);
+      run(['-change', 'standby-timeout-dc', '0']);
+      run(['-change', 'monitor-timeout-ac', '0']);
+      run(['-change', 'monitor-timeout-dc', '0']);
+      run(['-change', 'hibernate-timeout-ac', '0']);
+      run(['-change', 'hibernate-timeout-dc', '0']);
+      for (const b of BUTTONS) {
+        run(['-setacvalueindex', 'scheme_current', SUB, b, '0']);
+        run(['-setdcvalueindex', 'scheme_current', SUB, b, '0']);
+      }
+      reg(['add', 'HKLM\\SOFTWARE\\Microsoft\\PolicyManager\\default\\Start\\HideSleep', '/v', 'value', '/t', 'REG_DWORD', '/d', '1', '/f']);
+      reg(['add', 'HKLM\\SOFTWARE\\Microsoft\\PolicyManager\\default\\Start\\HideShutDown', '/v', 'value', '/t', 'REG_DWORD', '/d', '1', '/f']);
     } else {
-      run('-change standby-timeout-ac 15');
-      run('-change standby-timeout-dc 10');
-      run('-change monitor-timeout-ac 10');
-      run('-change monitor-timeout-dc 5');
-      run('-change hibernate-timeout-ac 0');
-      run('-change hibernate-timeout-dc 0');
+      run(['-change', 'standby-timeout-ac', '15']);
+      run(['-change', 'standby-timeout-dc', '10']);
+      run(['-change', 'monitor-timeout-ac', '10']);
+      run(['-change', 'monitor-timeout-dc', '5']);
+      run(['-change', 'hibernate-timeout-ac', '0']);
+      run(['-change', 'hibernate-timeout-dc', '0']);
+      for (const b of BUTTONS) {
+        run(['-setacvalueindex', 'scheme_current', SUB, b, '1']);
+        run(['-setdcvalueindex', 'scheme_current', SUB, b, '1']);
+      }
+      reg(['delete', 'HKLM\\SOFTWARE\\Microsoft\\PolicyManager\\default\\Start\\HideSleep', '/v', 'value', '/f']);
+      reg(['delete', 'HKLM\\SOFTWARE\\Microsoft\\PolicyManager\\default\\Start\\HideShutDown', '/v', 'value', '/f']);
     }
-    run('-setactive scheme_current');
+    run(['-setactive', 'scheme_current']);
   } catch {}
 }
 // Called by the renderer when a technician attaches (true) / detaches (false)
